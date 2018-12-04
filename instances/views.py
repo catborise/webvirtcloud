@@ -551,28 +551,41 @@ def instance(request, compute_id, vname):
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#media')
 
-            if 'snapshot' in request.POST and allow_admin_or_not_template:
+            if 'snapshot_int' in request.POST and allow_admin_or_not_template:
                 name = request.POST.get('name', '')
-                conn.create_snapshot(name)
-                msg = _("New snapshot :" + name)
+                conn.create_snapshot_int(name)
+                msg = _("New Internal snapshot :" + name)
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
 
-            if 'delete_snapshot' in request.POST and allow_admin_or_not_template:
+            if 'delete_snapshot_int' in request.POST and allow_admin_or_not_template:
                 snap_name = request.POST.get('name', '')
                 conn.snapshot_delete(snap_name)
                 msg = _("Delete snapshot :" + snap_name)
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
 
-            if 'revert_snapshot' in request.POST and allow_admin_or_not_template:
+            if 'revert_snapshot_int' in request.POST and allow_admin_or_not_template:
                 snap_name = request.POST.get('name', '')
                 conn.snapshot_revert(snap_name)
-                msg = _("Successful revert snapshot: ")
-                msg += snap_name
+                msg = _("Successful revert snapshot: " + snap_name)
                 messages.success(request, msg)
                 msg = _("Revert snapshot")
                 addlogmsg(request.user.username, instance.name, msg)
+
+            if 'snapshot_ext' in request.POST and allow_admin_or_not_template:
+                name = request.POST.get('name', '')
+                desc = request.POST.get('description', '')
+                driver = request.POST.get('driver', "qcow2")
+                disk_only = bool(request.POST.get('disk_only', 1))
+                atomic = bool(request.POST.get('atomic', 1))
+                quiesce = bool(request.POST.get('quiesce', 0))
+                nometadata = bool(request.POST.get('nometadata', 0))
+
+                conn.create_snapshot_ext(name, desc, disks, driver, disk_only, atomic, quiesce, nometadata)
+                msg = _("New external snapshot :" + name)
+                addlogmsg(request.user.username, instance.name, msg)
+                return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
 
             if request.user.is_superuser:
                 if 'suspend' in request.POST:
@@ -1003,7 +1016,7 @@ def inst_graph(request, compute_id, vname):
     datasets_net = {}
     cookies = {}
     points = 5
-    curent_time = time.strftime("%H:%M:%S")
+    current_time = time.strftime("%H:%M:%S")
     compute = get_object_or_404(Compute, pk=compute_id)
     response = HttpResponse()
     response['Content-Type'] = "text/javascript"
@@ -1041,7 +1054,7 @@ def inst_graph(request, compute_id, vname):
             datasets['cpu'] = eval(cookies['cpu'])
             datasets['timer'] = eval(cookies['timer'])
 
-        datasets['timer'].append(curent_time)
+        datasets['timer'].append(current_time)
         datasets['cpu'].append(int(cpu_usage['cpu']))
 
         datasets['timer'] = check_points(datasets['timer'])

@@ -2,7 +2,9 @@ import time
 import os.path
 try:
     from libvirt import libvirtError, VIR_DOMAIN_XML_SECURE, VIR_MIGRATE_LIVE, VIR_MIGRATE_UNSAFE, VIR_DOMAIN_RUNNING, \
-        VIR_DOMAIN_AFFECT_LIVE, VIR_DOMAIN_AFFECT_CONFIG
+        VIR_DOMAIN_AFFECT_LIVE, VIR_DOMAIN_AFFECT_CONFIG, \
+        VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY, VIR_DOMAIN_SNAPSHOT_CREATE_QUIESCE, \
+        VIR_DOMAIN_SNAPSHOT_CREATE_ATOMIC, VIR_DOMAIN_SNAPSHOT_CREATE_NO_METADATA
 except:
     from libvirt import libvirtError, VIR_DOMAIN_XML_SECURE, VIR_MIGRATE_LIVE
 from vrtManager import util
@@ -255,8 +257,10 @@ class wvmInstance(wvmConnect):
             disk_format = None
             used_size = None
             disk_size = None
+
             
             for disk in doc.xpath('/domain/devices/disk'):
+                back_store = []
                 device = disk.xpath('@device')[0]
                 if device == 'disk':
                     try:
@@ -265,8 +269,19 @@ class wvmInstance(wvmConnect):
                         src_fl = disk.xpath('source/@file|source/@dev|source/@name|source/@volume')[0]
                         try:
                             disk_format = disk.xpath('driver/@type')[0]
+                            backingStore = disk.xpath('backingStore')
+
+                            while backingStore:
+                                bs = backingStore[0]
+                                backing_idx = bs.xpath('@index')[0]
+                                backing_type = bs.xpath('@type')[0]
+                                backing_src_fl = bs.xpath('source/@file|source/@dev|source/@name|source/@volume')[0]
+                                back_store.append({"index": backing_idx, "type": backing_type, "source": backing_src_fl})
+
+                                backingStore = bs.xpath('backingStore')
                         except:
                             pass
+
                         try:
                             vol = self.get_volume_by_path(src_fl)
                             volume = vol.name()
@@ -282,7 +297,7 @@ class wvmInstance(wvmConnect):
                     finally:
                         result.append(
                             {'dev': dev, 'bus': bus, 'image': volume, 'storage': storage, 'path': src_fl,
-                             'format': disk_format, 'size': disk_size, 'used': used_size})
+                             'format': disk_format, 'size': disk_size, 'used': used_size, "backingStore": back_store})
             return result
 
         return util.get_xml_path(self._XMLDesc(0), func=disks)
@@ -493,8 +508,7 @@ class wvmInstance(wvmConnect):
         listen_addr = util.get_xml_path(self._XMLDesc(0),
                                         "/domain/devices/graphics/@listen")
         if listen_addr is None:
-            listen_addr = util.get_xml_path(self._XMLDesc(0),
-                                            "/domain/devices/graphics/listen/@address")
+            listen_addr = util.get_xml_path(self._XMLDesc(0), "/domain/devices/graphics/listen/@address")
             if listen_addr is None:
                     return "127.0.0.1"
         return listen_addr
@@ -553,8 +567,7 @@ class wvmInstance(wvmConnect):
     def get_console_port(self, console_type=None):
         if console_type is None:
             console_type = self.get_console_type()
-        port = util.get_xml_path(self._XMLDesc(0),
-                                 "/domain/devices/graphics[@type='%s']/@port" % console_type)
+        port = util.get_xml_path(self._XMLDesc(0), "/domain/devices/graphics[@type='%s']/@port" % console_type)
         return port
 
     def get_console_websocket_port(self):
@@ -667,7 +680,8 @@ class wvmInstance(wvmConnect):
     def _snapshotCreateXML(self, xml, flag):
         self.instance.snapshotCreateXML(xml, flag)
 
-    def create_snapshot(self, name):
+    def create_snapshot_int(self, name):
+
         xml = """<domainsnapshot>
                      <name>%s</name>
                      <state>shutoff</state>
@@ -677,14 +691,71 @@ class wvmInstance(wvmConnect):
                   </domainsnapshot>"""
         self._snapshotCreateXML(xml, 0)
 
+    def create_snapshot_ext(self, name, desc, volumes, driver="qcow2", disk_only=False, atomic=True, quiesce=False, nometa=False):
+        flags = 0
+        xml = "<domainsnapshot>"
+        if not name == '':
+            xml += "<name>%s</name>" % name
+        if desc:
+            xml += "<description>%s</description>" % desc
+
+        xml += "<disks>"
+        for disk in volumes:
+            xml += """<disk name='%s' snapshot="external">
+                        <driver type='%s'/>
+                      </disk>""" % (disk['dev'], driver)
+        xml += """</disks>
+            </domainsnapshot>"""
+        if disk_only:
+            flags |= VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY
+        if atomic:
+            flags |= VIR_DOMAIN_SNAPSHOT_CREATE_ATOMIC
+        if quiesce:
+            flags |= VIR_DOMAIN_SNAPSHOT_CREATE_QUIESCE
+        if nometa:
+            flags |= VIR_DOMAIN_SNAPSHOT_CREATE_NO_METADATA
+        self._snapshotCreateXML(xml, flags)
+
     def get_snapshot(self):
-        snapshots = []
-        snapshot_list = self.instance.snapshotListNames(0)
-        for snapshot in snapshot_list:
+        snaps = []
+        def snapshots(doc):
+            disks = []
+            snap_time_create = util.get_xml_path(snap.getXMLDesc(0), '/domainsnapshot/creationTime')
+
+            snap_name = doc.xpath('/domainsnapshot/name')[0].text
+            memory_snap = doc.xpath('/domainsnapshot/memory/@snapshot')[0]
+            state = doc.xpath('/domainsnapshot/state')[0].text
+            parent = util.get_xml_path(snap.getXMLDesc(0), '/domainsnapshot/parent/name')
+
+            for d in doc.xpath('/domainsnapshot/disks/disk'):
+                dev = ()
+                source = str()
+                driver_type = str()
+                snap_type = str()
+                try:
+                    dev = d.xpath('@name')[0]
+                    snap_state = d.xpath('@snapshot')[0]
+                    driver_type = d.xpath('driver/@type')[0]
+                    source = d.xpath('source/@file')[0]
+                except:
+                    pass
+                finally:
+                    disks.append({'dev': dev, 'snapshot': snap_state, 'driver': driver_type, 'source': source})
+
+            return ({'name': snap_name,
+                     'date': datetime.fromtimestamp(int(snap_time_create)),
+                     'memory': memory_snap,
+                     'state': state,
+                     'parent': parent,
+                     'disks': disks})
+
+        for snapshot in self.instance.snapshotListNames(0):
             snap = self.instance.snapshotLookupByName(snapshot, 0)
-            snap_time_create = util.get_xml_path(snap.getXMLDesc(0), "/domainsnapshot/creationTime")
-            snapshots.append({'date': datetime.fromtimestamp(int(snap_time_create)), 'name': snapshot})
-        return snapshots
+            snap_info = util.get_xml_path(snap.getXMLDesc(0), func=snapshots)
+            snap_info['current'] = bool(snap.isCurrent())
+
+            snaps.append(snap_info)
+        return snaps
 
     def snapshot_delete(self, snapshot):
         snap = self.instance.snapshotLookupByName(snapshot, 0)

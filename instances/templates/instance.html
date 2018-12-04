@@ -434,8 +434,13 @@
                                         <!-- Nav tabs -->
                                         <ul class="nav nav-tabs" role="tablist">
                                             <li role="presentation" class="active">
-                                                <a href="#takesnapshot" aria-controls="takesnapshot" role="tab" data-toggle="tab">
-                                                    {% trans "Take Snapshot" %}
+                                                <a href="#takesnapshot_ext" aria-controls="takesnapshot_ext" role="tab" data-toggle="tab">
+                                                    {% trans "Take Snapshot - External" %}
+                                                </a>
+                                            </li>
+                                            <li role="presentation">
+                                                <a href="#takesnapshot_int" aria-controls="takesnapshot_int" role="tab" data-toggle="tab">
+                                                    {% trans "Take Snapshot - Internal" %}
                                                 </a>
                                             </li>
                                             <li role="presentation">
@@ -446,7 +451,62 @@
                                         </ul>
                                         <!-- Tab panes -->
                                         <div class="tab-content">
-                                            <div role="tabpanel" class="tab-pane tab-pane-bordered active" id="takesnapshot">
+                                            <div role="tabpanel" class="tab-pane tab-pane-bordered active" id="takesnapshot_ext">
+                                                <p><em>{% trans "EXPERIMENTAL! Multiple external snapshot does not work yet."%} <br></em></p>
+                                                <p>{% trans "Enter a name for snapshot. Using this name new volumes will be created and back-volume will be readonly." %}</p>
+                                                <form class="form-horizontal" method="post" role="form">{% csrf_token %}
+                                                    <div class="form-group">
+                                                        <label class="col-sm-3 control-label">{% trans "Snap. Name" %}</label>
+                                                        <div class="col-sm-6">
+                                                            <input type="text" class="form-control" name="name" placeholder="{% trans "Enter Snapshot Name" %}" maxlength="14">
+                                                        </div>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label class="col-sm-3 control-label">{% trans "Snap. Desc" %}</label>
+                                                        <div class="col-sm-6">
+                                                            <textarea type="text" class="form-control" rows="3" name="description" placeholder="{% trans "Description" %}" maxlength="50"></textarea>
+                                                        </div>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label class="col-sm-3 control-label">{% trans "Snap. Format" %}</label>
+                                                        <div class="col-sm-6">
+                                                            <select name="driver" class="form-control">
+                                                                {% for f in formats %}
+                                                                    <option value="{{ f }}" {% ifequal f "qcow2" %}selected{% endifequal %}>{{ f }}</option>
+                                                                {% endfor %}
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label class="col-sm-3 control-label">{% trans "Disk Only" %}</label>
+                                                        <div class="col-sm-6">
+                                                            <input type="checkbox" name="disk_only" value="1" checked>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="form-group">
+                                                        <label class="col-sm-3 control-label">{% trans "Atomic" %}</label>
+                                                        <div class="col-sm-6">
+                                                            <input type="checkbox" name="atomic" value="1" checked>
+                                                        </div>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label class="col-sm-3 control-label">{% trans "Quiesce" %}</label>
+                                                        <div class="col-sm-6">
+                                                            <input type="checkbox" name="quiesce" value="1">
+                                                        </div>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label class="col-sm-3 control-label">{% trans "No-Metadata" %}</label>
+                                                        <div class="col-sm-6">
+                                                            <input type="checkbox" name="nometadata" value="1">
+                                                        </div>
+                                                    </div>
+                                                    <input type="submit" class="btn btn-lg btn-success pull-right" name="snapshot_ext" value="{% trans "Take Snapshot" %}">
+                                                </form>
+                                                <div class="clearfix"></div>
+                                            </div>
+                                            <div role="tabpanel" class="tab-pane tab-pane-bordered" id="takesnapshot_int">
                                                 {% ifequal status 5 %}
                                                     <p>{% trans "This may take more than an hour, depending on how much content is on your droplet and how large the disk is." %}</p>
                                                     <form class="form-inline" method="post" role="form">{% csrf_token %}
@@ -456,7 +516,7 @@
                                                             </div>
                                                         </div>
                                                         {% ifequal status 5 %}
-                                                            <input type="submit" class="btn btn-lg btn-success pull-right" name="snapshot" value="{% trans "Take Snapshot" %}">
+                                                            <input type="submit" class="btn btn-lg btn-success pull-right" name="snapshot_int" value="{% trans "Take Snapshot" %}">
                                                         {% else %}
                                                             <button class="btn btn-lg btn-success pull-right disabled">{% trans "Take Snapshot" %}</button>
                                                         {% endifequal %}
@@ -467,32 +527,42 @@
                                                 {% endifequal %}
                                             </div>
                                             <div role="tabpanel" class="tab-pane tab-pane-bordered" id="managesnapshot">
-                                               {% ifequal status 5 %}
+
                                                     {% if snapshots %}
-                                                        <p>{% trans "Choose a snapshot for restore/delete" %}</p>
+                                                        <p>{% trans "Choose a snapshot for restore/delete. Click to see details" %}</p>
                                                         <div class="table-responsive">
                                                             <table class="table">
                                                                 <thead>
                                                                 <tr>
                                                                     <th>{% trans "Name" %}</th>
                                                                     <th>{% trans "Date" %}</th>
+                                                                    <th>{% trans "Current" %}</th>
+                                                                    <th>{% trans "Mem" %}</th>
                                                                     <th colspan="2">{% trans "Action" %}</th>
                                                                 </tr>
                                                                 </thead>
                                                                 <tbody>
                                                                 {% for snap in snapshots %}
-                                                                    <tr>
+                                                                    <tr class="snap_info">
                                                                         <td><strong>{{ snap.name }}</strong></td>
                                                                         <td>{{ snap.date|date:"M d H:i:s" }}</td>
+                                                                        <td>
+                                                                            {% ifequal snap.current True %}
+                                                                                <span class="glyphicon glyphicon-star"></span>
+                                                                            {% else %}
+                                                                                <span class="glyphicon glyphicon-star-empty"></span>
+                                                                            {% endifequal %}
+                                                                        </td>
+                                                                        <td>{{ snap.memory }}</td>
                                                                         <td style="width:30px;">
                                                                             <form action="" method="post" style="height:10px" role="form">{% csrf_token %}
                                                                                 <input type="hidden" name="name" value="{{ snap.name }}">
-                                                                                {% ifequal status 5 %}
-                                                                                    <button type="submit" class="btn btn-sm btn-default" name="revert_snapshot" title="Revert to this Snapshot" onclick="return confirm('Are you sure?')">
+                                                                                {% ifequal status 5 and disk.snapshot='internal' %}
+                                                                                    <button type="submit" class="btn btn-sm btn-default" name="revert_snapshot_int" title="Revert to this Snapshot" onclick="return confirm('Are you sure?')">
                                                                                         <span class="glyphicon glyphicon-save"></span>
                                                                                     </button>
                                                                                 {% else %}
-                                                                                    <button type="button" class="btn btn-sm btn-default disabled">
+                                                                                    <button type="button" class="btn btn-sm btn-default disabled" title="Revert to this Snapshot">
                                                                                         <span class="glyphicon glyphicon-save"></span>
                                                                                     </button>
                                                                                 {% endifequal %}
@@ -501,12 +571,30 @@
                                                                         <td style="width:30px;">
                                                                             <form action="" method="post" role="form">{% csrf_token %}
                                                                                 <input type="hidden" name="name" value="{{ snap.name }}">
-                                                                                <button type="submit" class="btn btn-sm btn-default" name="delete_snapshot" title="Delete Snapshot" onclick="return confirm('{% trans "Are you sure?" %}')">
+                                                                                <button type="submit" class="btn btn-sm btn-default" name="delete_snapshot_int" title="Delete Snapshot" onclick="return confirm('{% trans "Are you sure?" %}')">
                                                                                     <span class="glyphicon glyphicon-trash"></span>
                                                                                 </button>
                                                                             </form>
                                                                         </td>
                                                                     </tr>
+                                                                   {% for disk in snap.disks %}
+                                                                        {% ifnotequal disk.snapshot 'no' %}
+                                                                            <tr hidden>
+                                                                                <td>
+                                                                                    <p>Details <br>
+                                                                                        <em>({{ disk.dev }})</em></p>
+                                                                                </td>
+                                                                                <td colspan="5">
+                                                                                    <p>{% trans 'Snapshot' %}:{{ disk.snapshot }}</p>
+                                                                                    <p>{% trans 'Source' %}:{{ disk.source }}</p>
+                                                                                    <p>{% trans 'Driver' %}:{{ disk.driver }}</p>
+                                                                                    <p>{% trans 'Parent' %}:{{ snap.parent }}</p>
+                                                                                    <p>{% trans 'State' %}:{{ snap.state }}</p>
+
+                                                                                </td>
+                                                                            </tr>
+                                                                        {% endifnotequal %}
+                                                                    {% endfor %}
                                                                 {% endfor %}
                                                                 </tbody>
                                                             </table>
@@ -514,9 +602,7 @@
                                                     {% else %}
                                                         <p>{% trans "You do not have any snapshots" %}</p>
                                                     {% endif %}
-                                                {% else %}
-                                                    <p>{% trans "To restore snapshots you need Power Off the instance." %}</p>
-                                                {% endifequal %}
+
                                             </div>
                                         </div>
                                     </div>
@@ -594,17 +680,26 @@
                                         <!-- Tab panes -->
                                         <div class="tab-content">
                                             <div role="tabpanel" class="tab-pane tab-pane-bordered active" id="media">
-                                            {% if request.user.is_superuser and status == 5 %}
+
                                                 <form class="form-horizontal" action="" method="post" role="form">{% csrf_token %}
                                                     <div class="form-group">
                                                         <div class="col-sm-12">
-                                                            <button type="submit" name="add_cdrom" type="button" class="btn btn-success pull-right">
-                                                                <span class="glyphicon glyphicon-plus" aria-hidden="true"></span>
-                                                            </button>
+                                                             <p style="font-weight:bold;">
+                                                                {% trans "Instance Media" %}
+                                                                {% if request.user.is_superuser and status == 5 %}
+                                                                    <button type="submit" name="add_cdrom" type="button" class="btn btn-success pull-right">
+                                                                        <span class="glyphicon glyphicon-plus" aria-hidden="true"></span>
+                                                                    </button>
+                                                                {% else %}
+                                                                     <button type="submit" name="add_cdrom" type="button" class="btn btn-success pull-right" disabled>
+                                                                        <span class="glyphicon glyphicon-plus" aria-hidden="true"></span>
+                                                                    </button>
+                                                                {% endif %}
+                                                              </p>
                                                         </div>
                                                     </div>
                                                 </form>
-                                            {% endif %}
+
                                                 {% for cd in media %}
                                                     <form class="form-horizontal" action="" method="post" role="form">{% csrf_token %}
                                                         <div class="form-group">
@@ -676,8 +771,9 @@
                                                         </thead>
                                                         <tbody>
                                                         {% for disk in disks %}
-                                                            <tr>
+                                                            <tr class="disk_info">
                                                                 <td>
+                                                                    <span class="badge" title="Backing Chain Count">{{ disk.backingStore|length }}</span>
                                                                     <button type="submit" class="btn btn-sm btn-default"
                                                                             name="details"
                                                                             title="{% trans "Details" %}"
@@ -697,7 +793,7 @@
                                                                 <td>{{ disk.storage }}</td>
                                                                 <td>{{ disk.path }}</td>
                                                                 <td>
-                                                                    <form action="" method="post" style="height:10px" role="form">{% csrf_token %}
+                                                                    <form action="" method="post" role="form">{% csrf_token %}
                                                                         <input type="hidden" name="path" value="{{ disk.path }}">
                                                                         <input type="hidden" name="dev" value="{{ disk.dev }}">
                                                                         <input type="hidden" name="storage" value="{{ disk.storage }}">
@@ -720,6 +816,15 @@
                                                                     </form>
                                                                 </td>
                                                             </tr>
+                                                            {% for bs in disk.backingStore %}
+                                                                <tr hidden>
+                                                                    <td>{{ bs.index }}</td>
+                                                                    <td colspan="2">Backing Store</td>
+                                                                    <td>{{ bs.type }}</td>
+                                                                    <td colspan="2">{{ bs.source }}</td>
+                                                                </tr>
+                                                            {% endfor %}
+
                                                         {% endfor %}
                                                          </tbody>
                                                     </table>
@@ -1269,8 +1374,6 @@
 <script src="{% static "js/ace.js" %}" type="text/javascript" charset="utf-8"></script>
 <script>
     function get_volumes(compute_id, pool) {
-
-
         get_vol_url = "/computes/" + compute_id + "/storage/" + pool + "/volumes";
         $.getJSON(get_vol_url, function (data) {
             $("#vols").find('option').remove();
@@ -1290,7 +1393,6 @@
         var sto_input = document.getElementById('selected_storage');
         sto_input.value = pool;
         sto_input.innerHTML = pool;
-
     }
 </script>
 
@@ -1413,10 +1515,23 @@
     });
     $(document).ready(function () {
         // set vdi url
-
         $.get("{% url 'vdi_url' vname %}", function(data) {
             $("#vdi_url_input").attr("value", data);
             $("#vdi_url").attr("href", data);
+        });
+    });
+    $(document).ready(function () {
+        // disk collapse
+        $('tr.disk_info').click(function() {
+            $(this).nextUntil('tr.disk_info').toggle();
+        });
+    });
+
+     $(document).ready(function () {
+        // snap list collapse
+        $('tr.snap_info').click(function() {
+            $(this).nextUntil('tr.snap_info').toggle();
+
         });
     });
 {% if request.user.is_superuser %}
@@ -1632,7 +1747,7 @@ $(document).ready(function(){
             }
         });
     }
-    if (~$.inArray(hash, ['#takesnapshot', '#managesnapshot'])) {
+    if (~$.inArray(hash, ['#takesnapshot_ext', '#takesnapshot_int', '#managesnapshot'])) {
         var btnsect = $('#navbtn>li>a');
         $(btnsect).each(function () {
             if ($(this).attr('href') === '#snapshots') {
