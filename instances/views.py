@@ -283,7 +283,7 @@ def instance(request, compute_id, vname):
         console_port = conn.get_console_port()
         console_keymap = conn.get_console_keymap()
         console_listen_address = conn.get_console_listen_addr()
-        snapshots = sorted(conn.get_snapshot(), reverse=True, key=lambda k: k['date'])
+        snapshots = sorted(conn.get_snapshots(), reverse=True, key=lambda k: k['date'])
         inst_xml = conn._XMLDesc(VIR_DOMAIN_XML_SECURE)
         has_managed_save_image = conn.get_managed_save_image()
         console_passwd = conn.get_console_passwd()
@@ -551,23 +551,38 @@ def instance(request, compute_id, vname):
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#media')
 
-            if 'snapshot_int' in request.POST and allow_admin_or_not_template:
+            if 'snapshot' in request.POST and allow_admin_or_not_template:
                 name = request.POST.get('name', '')
-                conn.create_snapshot_int(name)
+                conn.create_snapshot(name)
                 msg = _("New Internal snapshot :" + name)
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
 
-            if 'delete_snapshot_int' in request.POST and allow_admin_or_not_template:
+            if 'delete_snapshot' in request.POST and allow_admin_or_not_template:
                 snap_name = request.POST.get('name', '')
-                conn.snapshot_delete(snap_name)
+                snap_location = request.POST.get('location', '')
+                if snap_location == 'external':
+                    conn.snapshot_delete_ext(snap_name)
+                else:
+                    conn.snapshot_delete(snap_name)
                 msg = _("Delete snapshot :" + snap_name)
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
 
-            if 'revert_snapshot_int' in request.POST and allow_admin_or_not_template:
+            if 'delete_snapshot_all' in request.POST and allow_admin_or_not_template:
+                conn.snapshot_delete_all()
+                msg = _("Delete All snapshots")
+                addlogmsg(request.user.username, instance.name, msg)
+                return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
+
+            if 'revert_snapshot' in request.POST and allow_admin_or_not_template:
                 snap_name = request.POST.get('name', '')
-                conn.snapshot_revert(snap_name)
+
+                snap_location = request.POST.get('location', '')
+                if snap_location == 'external':
+                    conn.snapshot_revert_ext(snap_name)
+                else:
+                    conn.snapshot_revert(snap_name)
                 msg = _("Successful revert snapshot: " + snap_name)
                 messages.success(request, msg)
                 msg = _("Revert snapshot")
@@ -1249,7 +1264,7 @@ def delete_instance(instance, delete_disk=False):
             print("Forcing shutdown")
             conn.force_shutdown()
         if delete_disk:
-            snapshots = sorted(conn.get_snapshot(), reverse=True, key=lambda k:k['date'])
+            snapshots = sorted(conn.get_snapshots(), reverse=True, key=lambda k:k['date'])
             for snap in snapshots:
                 print("Deleting snapshot {}".format(snap['name']))
                 conn.snapshot_delete(snap['name'])

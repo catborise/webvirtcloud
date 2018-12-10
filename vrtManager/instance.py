@@ -2,9 +2,13 @@ import time
 import os.path
 try:
     from libvirt import libvirtError, VIR_DOMAIN_XML_SECURE, VIR_MIGRATE_LIVE, VIR_MIGRATE_UNSAFE, VIR_DOMAIN_RUNNING, \
-        VIR_DOMAIN_AFFECT_LIVE, VIR_DOMAIN_AFFECT_CONFIG, \
-        VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY, VIR_DOMAIN_SNAPSHOT_CREATE_QUIESCE, \
+        VIR_DOMAIN_AFFECT_LIVE, VIR_DOMAIN_AFFECT_CONFIG
+    from libvirt import VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY, VIR_DOMAIN_SNAPSHOT_CREATE_QUIESCE, \
         VIR_DOMAIN_SNAPSHOT_CREATE_ATOMIC, VIR_DOMAIN_SNAPSHOT_CREATE_NO_METADATA
+    from libvirt import VIR_DOMAIN_BLOCK_COMMIT_SHALLOW, VIR_DOMAIN_BLOCK_COMMIT_DELETE, VIR_DOMAIN_BLOCK_COMMIT_ACTIVE
+    from libvirt import VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT
+    from libvirt import VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY
+
 except:
     from libvirt import libvirtError, VIR_DOMAIN_XML_SECURE, VIR_MIGRATE_LIVE
 from vrtManager import util
@@ -681,7 +685,6 @@ class wvmInstance(wvmConnect):
         self.instance.snapshotCreateXML(xml, flag)
 
     def create_snapshot_int(self, name):
-
         xml = """<domainsnapshot>
                      <name>%s</name>
                      <state>shutoff</state>
@@ -716,40 +719,48 @@ class wvmInstance(wvmConnect):
             flags |= VIR_DOMAIN_SNAPSHOT_CREATE_NO_METADATA
         self._snapshotCreateXML(xml, flags)
 
-    def get_snapshot(self):
+    def get_snapshots(self, name=''):
         snaps = []
+
         def snapshots(doc):
             disks = []
-            snap_time_create = util.get_xml_path(snap.getXMLDesc(0), '/domainsnapshot/creationTime')
-
             snap_name = doc.xpath('/domainsnapshot/name')[0].text
-            memory_snap = doc.xpath('/domainsnapshot/memory/@snapshot')[0]
+            snap_description = util.get_xml_path(snap.getXMLDesc(0), '/domainsnapshot/description')
+            snap_time_create = util.get_xml_path(snap.getXMLDesc(0), '/domainsnapshot/creationTime')
+            memory_type = doc.xpath('/domainsnapshot/memory/@snapshot')[0]
             state = doc.xpath('/domainsnapshot/state')[0].text
             parent = util.get_xml_path(snap.getXMLDesc(0), '/domainsnapshot/parent/name')
+            snap_location = ""
 
             for d in doc.xpath('/domainsnapshot/disks/disk'):
-                dev = ()
-                source = str()
-                driver_type = str()
-                snap_type = str()
+                dev, source, driver_type, snap_type = str(), str(), str(), str()
                 try:
                     dev = d.xpath('@name')[0]
-                    snap_state = d.xpath('@snapshot')[0]
+                    snap_type = d.xpath('@snapshot')[0]
                     driver_type = d.xpath('driver/@type')[0]
                     source = d.xpath('source/@file')[0]
                 except:
                     pass
                 finally:
-                    disks.append({'dev': dev, 'snapshot': snap_state, 'driver': driver_type, 'source': source})
+                    if not snap_type == "no":
+                        disks.append({'dev': dev, 'snapshot': snap_type, 'driver': driver_type, 'source': source})
+                        snap_location = snap_type
 
             return ({'name': snap_name,
+                     'description': snap_description,
+                     'location': snap_location,
                      'date': datetime.fromtimestamp(int(snap_time_create)),
-                     'memory': memory_snap,
+                     'memory': memory_type,
                      'state': state,
                      'parent': parent,
                      'disks': disks})
 
-        for snapshot in self.instance.snapshotListNames(0):
+        if name == '':
+            snaplist = self.instance.snapshotListNames(0)
+        else:
+            snaplist = [name, ]
+
+        for snapshot in snaplist:
             snap = self.instance.snapshotLookupByName(snapshot, 0)
             snap_info = util.get_xml_path(snap.getXMLDesc(0), func=snapshots)
             snap_info['current'] = bool(snap.isCurrent())
@@ -757,13 +768,54 @@ class wvmInstance(wvmConnect):
             snaps.append(snap_info)
         return snaps
 
-    def snapshot_delete(self, snapshot):
+    def snapshot_delete(self, snapshot, flags=0):
         snap = self.instance.snapshotLookupByName(snapshot, 0)
-        snap.delete(0)
+        try:
+            snap.delete(0)
+        except:
+            snap.delete(flags)
+
+    def snapshot_delete_all(self):
+        for snap in self.instance.snapshotListNames(0):
+            self.snapshot_delete_ext(snap)
+
+    def snapshot_delete_ext(self, snap_name, flags=VIR_DOMAIN_BLOCK_COMMIT_ACTIVE |
+                                                   VIR_DOMAIN_BLOCK_COMMIT_SHALLOW):
+        delete_success = False
+        snapshot = self.get_snapshots(snap_name)[0]
+
+        if snapshot:
+            for disk in snapshot['disks']:
+                if self.instance.blockCommit(disk['dev'], base=None, top=None, flags=flags) < 0:
+                    raise libvirtError("Failed to start block commit for disk '{}'".format(disk['dev']))
+
+                try:
+                    while True:
+                        info = self.instance.blockJobInfo(disk['dev'], 0)
+                        if info is None:
+                            break
+                        if info["cur"] == info["end"]:
+                            break
+                        time.sleep(1)
+                finally:
+                    if self.instance.blockJobAbort(disk['dev'], VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT) < 0:
+                        time.sleep(5)
+                        raise libvirtError("Pivot failed for disk '{}'".format(disk['target']))
+                    else:
+                        vol = self.get_volume_by_path(disk['source'])
+                        if vol:
+                            vol.delete()
+                            delete_success = True
+            if delete_success:
+                self.snapshot_delete(snap_name, VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY)
 
     def snapshot_revert(self, snapshot):
         snap = self.instance.snapshotLookupByName(snapshot, 0)
         self.instance.revertToSnapshot(snap, 0)
+
+    def snapshot_revert_ext(self, snapshot):
+        snap = self.instance.snapshotLookupByName(snapshot, 0)
+        pass
 
     def get_managed_save_image(self):
         return self.instance.hasManagedSaveImage(0)
