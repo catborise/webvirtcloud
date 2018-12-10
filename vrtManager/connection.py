@@ -531,7 +531,7 @@ class wvmConnect(object):
             instances.append(name)
         return instances
 
-    def get_snapshots(self):
+    def get_intances_has_snapshot(self):
         instance = []
         for snap_id in self.wvm.listDomainsID():
             dom = self.wvm.lookupByID(int(snap_id))
