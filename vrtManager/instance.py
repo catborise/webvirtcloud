@@ -8,7 +8,6 @@ try:
     from libvirt import VIR_DOMAIN_BLOCK_COMMIT_SHALLOW, VIR_DOMAIN_BLOCK_COMMIT_DELETE, VIR_DOMAIN_BLOCK_COMMIT_ACTIVE
     from libvirt import VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT
     from libvirt import VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY
-
 except:
     from libvirt import libvirtError, VIR_DOMAIN_XML_SECURE, VIR_MIGRATE_LIVE
 from vrtManager import util
@@ -764,7 +763,6 @@ class wvmInstance(wvmConnect):
             snap = self.instance.snapshotLookupByName(snapshot, 0)
             snap_info = util.get_xml_path(snap.getXMLDesc(0), func=snapshots)
             snap_info['current'] = bool(snap.isCurrent())
-
             snaps.append(snap_info)
         return snaps
 

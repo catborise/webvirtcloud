@@ -551,14 +551,14 @@ def instance(request, compute_id, vname):
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#media')
 
-            if 'snapshot' in request.POST and allow_admin_or_not_template:
+            if 'snapshot_int' in request.POST and allow_admin_or_not_template:
                 name = request.POST.get('name', '')
                 conn.create_snapshot(name)
                 msg = _("New Internal snapshot :" + name)
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
 
-            if 'delete_snapshot' in request.POST and allow_admin_or_not_template:
+            if 'delete_snapshot_int' in request.POST and allow_admin_or_not_template:
                 snap_name = request.POST.get('name', '')
                 snap_location = request.POST.get('location', '')
                 if snap_location == 'external':
