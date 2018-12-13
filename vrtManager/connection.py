@@ -354,30 +354,35 @@ class wvmConnect(object):
 
     def get_dom_cap_xml(self):
         """ Return domcapabilities xml"""
-
         arch = self.wvm.getInfo()[0]
         machine = self.get_machines(arch)
         emulatorbin = self.get_emulator(arch)
         virttype = self.hypervisor_type()[arch][0]
         return self.wvm.getDomainCapabilities(emulatorbin, arch, machine, virttype)
 
-    def get_version(self):
+    def get_version(self, formatted=True):
         ver = self.wvm.getVersion()
         major = ver / 1000000
         ver = ver % 1000000
         minor = ver / 1000
         ver = ver % 1000
         release = ver
-        return "%s.%s.%s" % (major,minor,release)
+        if formatted:
+            return "%s.%s.%s" % (major, minor, release)
+        else:
+            return ver
 
-    def get_lib_version(self):
+    def get_lib_version(self, formatted=True):
         ver = self.wvm.getLibVersion()
         major = ver / 1000000
         ver %= 1000000
         minor = ver / 1000
         ver %= 1000
         release = ver
-        return "%s.%s.%s" % (major,minor,release)
+        if formatted:
+            return "%s.%s.%s" % (major, minor, release)
+        else:
+            return ver
 
     def is_kvm_supported(self):
         """Return KVM capabilities."""
@@ -446,7 +451,7 @@ class wvmConnect(object):
             for arch in ctx.xpath('/capabilities/guest/arch'):
                 emulator = arch.xpath('emulator')
                 arch_name = arch.xpath('@name')[0]
-                result[arch_name]= emulator
+                result[arch_name] = emulator
             return result
         return util.get_xml_path(self.get_cap_xml(), func=emulators)
 
