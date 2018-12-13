@@ -130,19 +130,16 @@
                                                 {% endif %}
                                             {% endifequal %}
                                             {% ifequal status 3 %}
-                                                {% if request.user.is_superuser %}
-                                                    <li role="presentation" class="active">
-                                                        <a href="#resume" aria-controls="resume" role="tab" data-toggle="tab">
-                                                            {% trans "Resume" %}
-                                                        </a>
-                                                    </li>
-                                                {% else %}
-                                                    <li role="presentation" class="active">
-                                                        <a href="#resume" aria-controls="resume" role="tab" data-toggle="tab">
-                                                            {% trans "Resume" %}
-                                                        </a>
-                                                    </li>
-                                                {% endif %}
+                                                <li role="presentation" class="active">
+                                                    <a href="#resume" aria-controls="resume" role="tab" data-toggle="tab">
+                                                        {% trans "Resume" %}
+                                                    </a>
+                                                </li>
+                                                <li role="presentation">
+                                                    <a href="#powerforce" aria-controls="powerforce" role="tab" data-toggle="tab">
+                                                        {% trans "Force Off" %}
+                                                    </a>
+                                                </li>
                                             {% endifequal %}
                                             {% ifequal status 5 %}
                                                 <li role="presentation" class="active">
@@ -192,6 +189,13 @@
                                                         <p>{% trans "This action restore the instance after suspend." %}</p>
                                                          <form action="" method="post" role="form">{% csrf_token %}
                                                             <input type="submit" name="resume" class="btn btn-lg btn-success pull-right" value="{% trans "Resume" %}">
+                                                            <div class="clearfix"></div>
+                                                        </form>
+                                                    </div>
+                                                    <div role="tabpanel" class="tab-pane tab-pane-bordered" id="powerforce">
+                                                        <p>{% trans "This action forcibly powers off the instance and may cause data corruption." %}</p>
+                                                        <form action="" method="post" role="form">{% csrf_token %}
+                                                            <input type="submit" name="powerforce" class="btn btn-lg btn-success pull-right" value="{% trans "Force Off" %}">
                                                             <div class="clearfix"></div>
                                                         </form>
                                                     </div>
@@ -564,8 +568,10 @@
                                                                         <td>{{ snap.memory }}</td>
                                                                         <td style="width:30px;">
                                                                             <form action="" method="post" style="height:10px" role="form">{% csrf_token %}
-
-                                                                                <button type="submit" class="btn btn-sm btn-default" name="revert_snapshot" title="Revert to this Snapshot" onclick="return confirm('Are you sure?')">
+                                                                                <input type="hidden" name="location" value="{{ snap.location }}">
+                                                                                <input type="hidden" name="name" value="{{ snap.name }}">
+                                                                                <button type="submit" class="btn btn-sm btn-default" name="revert_snapshot" title="Revert to this Snapshot"
+                                                                                        onclick="return confirm('Current state of the virtual machine will be lost unless it is saved in a snapshot. Revert to snapshot?')">
                                                                                     <span class="glyphicon glyphicon-save"></span>
                                                                                 </button>
                                                                             </form>
