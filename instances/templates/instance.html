@@ -456,7 +456,7 @@
                                         <!-- Tab panes -->
                                         <div class="tab-content">
                                             <div role="tabpanel" class="tab-pane tab-pane-bordered active" id="takesnapshot_ext">
-                                                <p><em>{% trans "EXPERIMENTAL! Multiple external snapshot does not work yet."%} <br></em></p>
+                                                <p><em>{% trans "EXPERIMENTAL! Internal/External Snapshot Mix Use can cause error."%} <br></em></p>
                                                 <p>{% trans "Enter a name for snapshot. Using this name new volumes will be created and back-volume will be readonly." %}</p>
                                                 <form class="form-horizontal" method="post" role="form">{% csrf_token %}
                                                     <div class="form-group">
@@ -506,7 +506,11 @@
                                                             <input type="checkbox" name="nometadata" value="1">
                                                         </div>
                                                     </div>
-                                                    <input type="submit" class="btn btn-lg btn-success pull-right" name="snapshot_ext" value="{% trans "Take Snapshot" %}">
+                                                    {% ifnotequal snapshot_type "internal" %}
+                                                        <input type="submit" class="btn btn-lg btn-success pull-right" name="snapshot_ext" value="{% trans "Take Snapshot" %}">
+                                                    {% else %}
+                                                        <input type="submit" class="btn btn-lg btn-success pull-right disabled" value="{% trans "Take Snapshot" %}">
+                                                    {% endifnotequal %}
                                                 </form>
                                                 <div class="clearfix"></div>
                                             </div>
@@ -520,7 +524,11 @@
                                                             </div>
                                                         </div>
                                                         {% ifequal status 5 %}
-                                                            <input type="submit" class="btn btn-lg btn-success pull-right" name="snapshot" value="{% trans "Take Snapshot" %}">
+                                                            {% ifnotequal snapshot_type "external" %}
+                                                                <input type="submit" class="btn btn-lg btn-success pull-right" name="snapshot" value="{% trans "Take Snapshot" %}">
+                                                            {% else %}
+                                                                <input type="submit" class="btn btn-lg btn-success pull-right disabled" value="{% trans "Take Snapshot" %}">
+                                                            {% endifnotequal %}
                                                         {% else %}
                                                             <button class="btn btn-lg btn-success pull-right disabled">{% trans "Take Snapshot" %}</button>
                                                         {% endifequal %}

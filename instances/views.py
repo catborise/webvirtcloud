@@ -285,6 +285,7 @@ def instance(request, compute_id, vname):
         console_keymap = conn.get_console_keymap()
         console_listen_address = conn.get_console_listen_addr()
         snapshots = sorted(conn.get_snapshots(), reverse=True, key=lambda k: k['date'])
+        snapshot_type = ""
         inst_xml = conn._XMLDesc(VIR_DOMAIN_XML_SECURE)
         has_managed_save_image = conn.get_managed_save_image()
         console_passwd = conn.get_console_passwd()
@@ -325,13 +326,15 @@ def instance(request, compute_id, vname):
                 snapshot.current = snap['current']
                 snapshot.save()
             except Snapshot.DoesNotExist:
-                snapshot = Snapshot(instance=instance, display_name=snap['name'], num_disk=len(snap['disks']),
+                snapshot = Snapshot(instance=instance, display_name=snap['name'],
+                                    num_disk=len(snap['disks']),
                                     date=snap['date'],
                                     description=snap['description'],
                                     current=snap['current'],
                                     deleted=False)
                 snapshot.save()
                 for dev, disk in snap['disks'].items():
+                    snapshot_type = disk['snapshot']
                     snapshot_disk = SnapshotDisk(snapshot=snapshot,
                                                  snap_type=disk['snapshot'],
                                                  source=disk['source'], dev=dev, driver=disk['driver'],
