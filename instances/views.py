@@ -372,8 +372,7 @@ def instance(request, compute_id, vname):
                 if conn.get_status() == 1:
                     conn.force_shutdown()
                 if request.POST.get('delete_disk', ''):
-                    for snap in snapshots:
-                        conn.snapshot_delete(snap['name'])
+                    conn.snapshot_delete_all()
                     conn.delete_all_disks()
                 conn.delete()
 
@@ -600,21 +599,20 @@ def instance(request, compute_id, vname):
                 if snap_location == 'external':
                     snapshot.deleted = True
                     snapshot.save()
+
+                    if len(snapshots) < 2:
+                        conn.blockcommit()
+                        snap_disks = SnapshotDisk.objects.filter(snapshot__instance=instance, snap_type="external", snapshot__deleted=True)
+                        for snap in snap_disks:
+                            try:
+                                vol = conn.get_volume_by_path(snap.source)
+                                vol.delete()
+                            except:
+                                pass
+                        Snapshot.objects.all().delete()
                 else:
                     snapshot.delete()
                 conn.snapshot_delete(snap_name)
-
-                if len(snapshots) < 2:
-                    conn.blockcommit()
-                    snap_disks = SnapshotDisk.objects.filter(snapshot__instance=instance, snap_type="external", snapshot__deleted=True)
-                    for snap in snap_disks:
-                        try:
-                            vol = conn.get_volume_by_path(snap.source)
-                            vol.delete()
-                        except:
-                            pass
-                    Snapshot.objects.all().delete()
-
                 msg = _("Delete snapshot :" + snap_name)
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
