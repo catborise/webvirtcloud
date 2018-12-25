@@ -31,7 +31,7 @@
                             |
                             {{ cur_memory }} {% trans "MB" %} {% trans "Ram" %}
                             |
-                            {% for disk in disks %}
+                            {% for dev, disk in disks.items %}
                                 {{ disk.size|filesizeformat }} {% trans "Disk" %} |
                             {% endfor %}
                             <a href="{% url 'instance' compute.id vname %}" type="button" class="btn btn-xs btn-default"><span class="glyphicon glyphicon-refresh"></span></a>
@@ -409,11 +409,11 @@
                                                             </div>
                                                         </div>
                                                         <p style="font-weight:bold;">{% trans "Disk allocation (B):" %}</p>
-                                                        {% for disk in disks %}
+                                                        {% for dev, disk in disks.items %}
                                                         <div class="form-group">
-                                                            <label class="col-sm-4 control-label" style="font-weight:normal;">{% trans "Current allocation" %} ({{ disk.dev }})</label>
+                                                            <label class="col-sm-4 control-label" style="font-weight:normal;">{% trans "Current allocation" %} ({{ dev }})</label>
                                                             <div class="col-sm-4 js-custom__container">
-                                                                <input type="text" name="disk_size_{{ disk.dev }}" class="form-control" value="{{ disk.size|filesizeformat }}" />
+                                                                <input type="text" name="disk_size_{{ dev }}" class="form-control" value="{{ disk.size|filesizeformat }}" />
                                                             </div>
                                                         </div>
                                                         {% endfor %}
@@ -594,18 +594,19 @@
                                                                             <p>{{ snap.description }}</p>
                                                                         </td>
                                                                     </tr>
-                                                                   {% for disk in snap.disks %}
-                                                                        {% ifnotequal disk.snapshot 'no' %}
+                                                                   {% for dev, info in snap.disks.items %}
+                                                                        {% ifnotequal info.snapshot 'no' %}
                                                                             <tr hidden>
                                                                                 <td>
                                                                                     <p>{% trans 'Details' %} <br>
-                                                                                        <em>({{ disk.dev }})</em></p>
+                                                                                        <em>({{ dev }})</em></p>
                                                                                 </td>
                                                                                 <td colspan="5">
-                                                                                    <p>{% trans 'Source' %}:{{ disk.source }}</p>
-                                                                                    <p>{% trans 'Driver' %}:{{ disk.driver }}</p>
+                                                                                    <p>{% trans 'Source' %}:{{ info.source }}</p>
+                                                                                    <p>{% trans 'Parent Source' %}:{{ info.parent }}</p>
+                                                                                    <p>{% trans 'Driver' %}:{{ info.driver }}</p>
                                                                                     <p>{% trans 'Parent' %}:{{ snap.parent }}</p>
-                                                                                    <p>{% trans 'State' %}:{{ snap.state }}</p>
+                                                                                    <p>{% trans 'State' %}:{{ info.state }}</p>
                                                                                 </td>
                                                                             </tr>
                                                                         {% endifnotequal %}
@@ -796,7 +797,7 @@
                                                             <th style="width:100px;">{% trans "Action" %}</th>
                                                         </thead>
                                                         <tbody>
-                                                        {% for disk in disks %}
+                                                        {% for dev, disk in disks.items %}
                                                             <tr class="disk_info">
                                                                 <td>
                                                                     <span class="badge" title="Backing Chain Count">{{ disk.backingStore|length }}</span>
@@ -810,7 +811,7 @@
                                                                             data-content="<strong>Bus:</strong> {{ disk.bus }} <br/> <strong>Format:</strong> {{ disk.format }}">
                                                                         <i class="fa fa-info"></i>
                                                                     </button>
-                                                                    {{ disk.dev }}
+                                                                    {{ dev }}
                                                                     <br>
                                                                     {{ disk.target }}
                                                                 </td>
@@ -821,7 +822,7 @@
                                                                 <td>
                                                                     <form action="" method="post" role="form">{% csrf_token %}
                                                                         <input type="hidden" name="path" value="{{ disk.path }}">
-                                                                        <input type="hidden" name="dev" value="{{ disk.dev }}">
+                                                                        <input type="hidden" name="dev" value="{{ dev }}">
                                                                         <input type="hidden" name="storage" value="{{ disk.storage }}">
                                                                         <input type="hidden" name="name" value="{{ disk.image }}">
                                                                         {% ifequal status 5 %}
@@ -832,7 +833,7 @@
                                                                                 <i class="fa fa-trash"></i>
                                                                             </button>
                                                                         {% else %}
-                                                                            <button class="btn btn-sm btn-default disabled" name="detach_vol" value="{{ disk.dev }}" title="{% trans "Detach" %}" onclick="return confirm('{% trans "Are you sure to detach volume after shutdown?" %}')">
+                                                                            <button class="btn btn-sm btn-default disabled" name="detach_vol" value="{{ dev }}" title="{% trans "Detach" %}" onclick="return confirm('{% trans "Are you sure to detach volume after shutdown?" %}')">
                                                                                 <i class="fa fa-eject"></i>
                                                                             </button>
                                                                             <button class="btn btn-sm btn-default disabled" name="delete_vol" title="{% trans "Delete" %}" onclick="return confirm('{% trans "Are you sure to delete after shutdown?" %}')">
@@ -1096,23 +1097,23 @@
                                                         {% endif %}
                                                         {% if request.user.is_superuser %}
                                                             <p style="font-weight:bold;">{% trans "Storage devices" %}</p>
-                                                            {% for disk in disks %}
+                                                            {% for dev, disk in disks.items %}
                                                                 <div class="form-group">
-                                                                    <label class="col-sm-3 control-label" style="font-weight:normal;">{{ disk.dev }} ({{ disk.storage }})</label>
+                                                                    <label class="col-sm-3 control-label" style="font-weight:normal;">{{ dev }} ({{ disk.storage }})</label>
                                                                     <div class="col-sm-4">
-                                                                        <input id="disk_name-{{ disk.dev }}" type="text" class="form-control" name="disk-{{ disk.dev }}" value="{{ disk.image }}"/>
+                                                                        <input id="disk_name-{{ dev }}" type="text" class="form-control" name="disk-{{ dev }}" value="{{ disk.image }}"/>
                                                                     </div>
                                                                     {% ifequal disk.format 'qcow2' %}
                                                                         <label class="col-sm-2 control-label" style="font-weight:normal;margin-left:-35px;">{% trans 'Metadata' %}</label>
                                                                         <div class="col-sm-1">
-                                                                            <input type="checkbox" name="meta-{{ disk.dev }}" value="true" style="margin-top: 10px;">
+                                                                            <input type="checkbox" name="meta-{{ dev }}" value="true" style="margin-top: 10px;">
                                                                         </div>
                                                                     {% endifequal %}
                                                                 </div>
                                                             {% endfor %}
                                                         {% else %}
-                                                            {% for disk in disks %}
-                                                                <input id="disk_name-{{ disk.dev }}" type="hidden" class="form-control" name="disk-{{ disk.dev }}" value="{{ disk.image }}"/>
+                                                            {% for dev, disk in disks.items %}
+                                                                <input id="disk_name-{{ dev }}" type="hidden" class="form-control" name="disk-{{ dev }}" value="{{ disk.image }}"/>
                                                             {% endfor %}
                                                         {% endif %}
                                                         <div class="form-group">
@@ -1319,15 +1320,15 @@
                                                         </div>
                                                     </div>
                                                 {% endfor %}
-                                                {% for disk in disks %}
+                                                {% for dev, disk in disks.items %}
                                                     <div class="panel panel-warning">
                                                         <div class="panel-heading">
-                                                            <h3 class="panel-title"><i class="fa fa-long-arrow-right"></i> {% trans "Disk I/O device:" %} {{ disk.dev }}</h3>
+                                                            <h3 class="panel-title"><i class="fa fa-long-arrow-right"></i> {% trans "Disk I/O device:" %} {{ dev }}</h3>
                                                         </div>
                                                         <div class="panel-body">
                                                             <div class="flot-chart">
                                                                 <div class="flot-chart-content" id="flot-moving-line-chart" style="padding: 0px; position: relative;">
-                                                                    <canvas id="blk{{ disk.dev }}Chart" width="735" height="160"></canvas>
+                                                                    <canvas id="blk{{ dev }}Chart" width="735" height="160"></canvas>
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -1474,7 +1475,7 @@
 <script>
     function update_clone_disk_name(new_vname) {
         vname = '{{ vname }}';
-        {% for disk in disks %}
+        {% for dev, disk in disks.items %}
         disk_name = '{{ disk.image }}';
         disk_dot = disk_name.split('.')
         disk_dot_suffix = disk_dot[disk_dot.length-1];
@@ -1487,7 +1488,7 @@
         } else {
             image = new_vname + '-clone';
         }
-        $('#disk_name-{{ disk.dev }}').val(image);
+        $('#disk_name-{{ dev }}').val(image);
         {% endfor %} 
     }
 </script>
@@ -1683,9 +1684,9 @@ $(document).ready(function(){
         var cpuChart = new Chart(cpu_ctx).Line(cpuLineData, cpuOpt);
 
         var diskChart = {};
-        {% for disk in disks %}
-            var disk_ctx_{{ disk.dev }} = $("#blk{{ disk.dev }}Chart").get(0).getContext("2d");
-            diskChart['{{ disk.dev }}'] = new Chart(disk_ctx_{{ disk.dev }}).Line(diskLineData, diskOpt);
+        {% for dev, disk in disks.items %}
+            var disk_ctx_{{ dev }} = $("#blk{{ dev }}Chart").get(0).getContext("2d");
+            diskChart['{{ dev }}'] = new Chart(disk_ctx_{{ dev }}).Line(diskLineData, diskOpt);
         {% endfor %}
 
         var netChart = {};
@@ -1789,6 +1790,8 @@ $(document).ready(function(){
         });
     }
 </script>
+
+
 <script>
     function update_logs_table(vname) {
         logurl = "{% url 'vm_logs' 1 %}".replace(1, vname);
