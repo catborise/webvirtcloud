@@ -621,6 +621,7 @@ def instance(request, compute_id, vname):
 
             if 'delete_snapshot_all' in request.POST and allow_admin_or_not_template:
                 conn.snapshot_delete_all()
+
                 Snapshot.objects.all().delete()
                 msg = _("Delete All snapshots")
                 addlogmsg(request.user.username, instance.name, msg)
@@ -633,10 +634,23 @@ def instance(request, compute_id, vname):
                     conn.snapshot_revert_ext(snap_name)
                 else:
                     conn.snapshot_revert(snap_name)
-
                 msg = _("Successful revert snapshot: " + snap_name)
                 messages.success(request, msg)
                 msg = _("Revert snapshot")
+                addlogmsg(request.user.username, instance.name, msg)
+                return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
+
+            if 'snapshot_ext' in request.POST and allow_admin_or_not_template:
+                name = request.POST.get('name', '')
+                desc = request.POST.get('description', '')
+                driver = request.POST.get('driver', "qcow2")
+                disk_only = bool(request.POST.get('disk_only', 1))
+                atomic = bool(request.POST.get('atomic', 1))
+                quiesce = bool(request.POST.get('quiesce', 0))
+                nometadata = bool(request.POST.get('nometadata', 0))
+
+                conn.create_snapshot_ext(name, desc, disks, driver, disk_only, atomic, quiesce, nometadata)
+                msg = _("New external snapshot :" + name)
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
 

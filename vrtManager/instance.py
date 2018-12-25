@@ -298,7 +298,7 @@ class wvmInstance(wvmConnect):
                     except:
                         pass
                     finally:
-                        result[dev] = {'dev': dev, 'bus': bus, 'image': volume, 'storage': storage, 'path': src_fl,
+                        result[dev] = {'bus': bus, 'image': volume, 'storage': storage, 'path': src_fl,
                                        'format': disk_format, 'size': disk_size, 'used': used_size, "backingStore": back_store}
             return result
 
@@ -714,8 +714,6 @@ class wvmInstance(wvmConnect):
         self._snapshotCreateXML(xml, 0)
 
     def create_snapshot_ext(self, name, desc, volumes, driver="qcow2", disk_only=True, atomic=True, quiesce=False, nometa=False, flags = 0):
-        #snap_count = self.instance.snapshotNum(VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL)
-
         if name in self.instance.snapshotListNames():
             raise libvirtError("Specified snapshot is exist, please change the name and try again.")
 
@@ -726,9 +724,8 @@ class wvmInstance(wvmConnect):
             xml += "<description>%s</description>" % desc
 
         xml += "<disks>"
+
         for dev, disk in volumes.items():
-            #filename, ext = os.path.splitext(disk['path'])
-            #if snap_count > 0: filename = filename.rsplit("-")[0]
             xml += """<disk name='%s' snapshot="external">
                         <driver type='%s'/>
                       </disk>""" % (dev, driver)
@@ -748,12 +745,14 @@ class wvmInstance(wvmConnect):
         snaps = []
 
         def snapshots(doc):
+
             disks = {}
             snap_name = doc.xpath('/domainsnapshot/name')[0].text
             snap_description = util.get_xml_path(snap.getXMLDesc(0), '/domainsnapshot/description')
             snap_time_create = util.get_xml_path(snap.getXMLDesc(0), '/domainsnapshot/creationTime')
             memory_type = doc.xpath('/domainsnapshot/memory/@snapshot')[0]
             state = doc.xpath('/domainsnapshot/state')[0].text
+
             snap_parent = util.get_xml_path(snap.getXMLDesc(0), '/domainsnapshot/parent/name')
             snap_location = ""
 
@@ -778,6 +777,7 @@ class wvmInstance(wvmConnect):
                     pass
                 finally:
                     if not snap_type == "no":
+
                         disks[dev] = {'snapshot': snap_type, 'type': dev_type, 'driver': driver_type, 'source': source, 'parent': parent_source}
                         snap_location = snap_type
 
