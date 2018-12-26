@@ -14,6 +14,7 @@ from django.utils.translation import ugettext_lazy as _
 from django.contrib.auth.decorators import login_required
 from computes.models import Compute
 from instances.models import Instance
+from instances.models import Snapshot,  SnapshotDisk
 from django.contrib.auth.models import User
 from accounts.models import UserInstance, UserSSHKey
 from vrtManager.hostdetails import wvmHostDetails
@@ -172,7 +173,7 @@ def instance(request, compute_id, vname):
                                    usr_inst.instance.name)
                 cpu += int(conn.get_vcpu())
                 memory += int(conn.get_memory())
-                for disk in conn.get_disk_devices():
+                for dev, disk in conn.get_disk_devices().items():
                     if disk['size']:
                         disk_size += int(disk['size']) >> 30
 
@@ -203,9 +204,9 @@ def instance(request, compute_id, vname):
             dev_base = "fd"
         else:
             dev_base = "sd"
-        existing_disk_devs = [disk['dev'] for disk in disks]
+        existing_disk_devs = [dev for dev, _ in disks.items()]
         # cd-rom bus could be virtio/sata, because of that we should check it also
-        existing_media_devs = [disk['dev'] for disk in media]
+        existing_media_devs = [med['dev'] for med in media]
         for l in string.lowercase:
             dev = dev_base + l
             if dev not in existing_disk_devs and dev not in existing_media_devs:
@@ -284,6 +285,7 @@ def instance(request, compute_id, vname):
         console_keymap = conn.get_console_keymap()
         console_listen_address = conn.get_console_listen_addr()
         snapshots = sorted(conn.get_snapshots(), reverse=True, key=lambda k: k['date'])
+        snapshot_type = ""
         inst_xml = conn._XMLDesc(VIR_DOMAIN_XML_SECURE)
         has_managed_save_image = conn.get_managed_save_image()
         console_passwd = conn.get_console_passwd()
@@ -317,6 +319,27 @@ def instance(request, compute_id, vname):
 
         userinstances = UserInstance.objects.filter(instance=instance).order_by('user__username')
         allow_admin_or_not_template = request.user.is_superuser or request.user.is_staff or not instance.is_template
+
+        for snap in snapshots:
+            try:
+                snapshot = Snapshot.objects.get(instance=instance, display_name=snap['name'])
+                snapshot.current = snap['current']
+                snapshot.save()
+            except Snapshot.DoesNotExist:
+                snapshot = Snapshot(instance=instance, display_name=snap['name'],
+                                    num_disk=len(snap['disks']),
+                                    date=snap['date'],
+                                    description=snap['description'],
+                                    current=snap['current'],
+                                    deleted=False)
+                snapshot.save()
+                for dev, disk in snap['disks'].items():
+                    snapshot_type = disk['snapshot']
+                    snapshot_disk = SnapshotDisk(snapshot=snapshot,
+                                                 snap_type=disk['snapshot'],
+                                                 source=disk['source'], dev=dev, driver=disk['driver'],
+                                                 parent=disk['parent'], type=disk['type'])
+                    snapshot_disk.save()
 
         if request.method == 'POST':
             if 'poweron' in request.POST:
@@ -352,8 +375,7 @@ def instance(request, compute_id, vname):
                 if conn.get_status() == 1:
                     conn.force_shutdown()
                 if request.POST.get('delete_disk', ''):
-                    for snap in snapshots:
-                        conn.snapshot_delete(snap['name'])
+                    conn.snapshot_delete_all()
                     conn.delete_all_disks()
                 conn.delete()
 
@@ -430,8 +452,8 @@ def instance(request, compute_id, vname):
                 if new_cur_memory_custom:
                     new_cur_memory = new_cur_memory_custom
                 disks_new = []
-                for disk in disks:
-                    input_disk_size = filesizefstr(request.POST.get('disk_size_' + disk['dev'], ''))
+                for dev, disk in disks.items():
+                    input_disk_size = filesizefstr(request.POST.get('disk_size_' + dev, ''))
                     if input_disk_size > disk['size'] + (64 << 20):
                         disk['size_new'] = input_disk_size
                         disks_new.append(disk)
@@ -466,7 +488,7 @@ def instance(request, compute_id, vname):
                 target = get_new_disk_dev(disks, bus)
 
                 path = connCreate.create_volume(storage, name, size, format, meta_prealloc, default_owner)
-                conn.attach_disk(path, target, subdriver=format, cache=cache, targetbus=bus)
+                conn.attach_disk(target, path, subdriver=format, cache=cache, targetbus=bus)
                 msg = _('Attach new disk: ' + target)
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#disks')
@@ -488,7 +510,7 @@ def instance(request, compute_id, vname):
                 target = get_new_disk_dev(disks, bus)
                 source = path + "/" + name;
 
-                conn.attach_disk(source, target, subdriver=format, cache=cache, targetbus=bus)
+                conn.attach_disk(target, source, subdriver=format, cache=cache, targetbus=bus)
                 msg = _('Attach Existing disk: ' + target)
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#disks')
@@ -522,7 +544,7 @@ def instance(request, compute_id, vname):
             if 'add_cdrom' in request.POST and allow_admin_or_not_template:
                 bus = request.POST.get('bus', 'ide')
                 target = get_new_disk_dev(media, bus)
-                conn.attach_disk("", target, device='cdrom', cache='none', targetbus=bus)
+                conn.attach_disk(target, source="", device='cdrom', cache='none', targetbus=bus)
                 msg = _('Add CD-Rom: ' + target)
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#media')
@@ -558,26 +580,56 @@ def instance(request, compute_id, vname):
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
 
+            if 'snapshot_ext' in request.POST and allow_admin_or_not_template:
+                name = request.POST.get('name', '')
+                desc = request.POST.get('description', '')
+                driver = request.POST.get('driver', "qcow2")
+                disk_only = bool(request.POST.get('disk_only', 1))
+                atomic = bool(request.POST.get('atomic', 1))
+                quiesce = bool(request.POST.get('quiesce', 0))
+                nometadata = bool(request.POST.get('nometadata', 0))
+                conn.create_snapshot_ext(name.strip(), desc, disks, driver, disk_only, atomic, quiesce, nometadata)
+
+                msg = _("New external snapshot :" + name)
+                addlogmsg(request.user.username, instance.name, msg)
+                return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
+
             if 'delete_snapshot' in request.POST and allow_admin_or_not_template:
                 snap_name = request.POST.get('name', '')
                 snap_location = request.POST.get('location', '')
+                snapshot = Snapshot.objects.get(instance=instance, display_name=snap_name)
+
                 if snap_location == 'external':
-                    conn.snapshot_delete_ext(snap_name)
+                    snapshot.deleted = True
+                    snapshot.save()
+
+                    if len(snapshots) < 2:
+                        conn.blockcommit()
+                        snap_disks = SnapshotDisk.objects.filter(snapshot__instance=instance, snap_type="external", snapshot__deleted=True)
+                        for snap in snap_disks:
+                            try:
+                                vol = conn.get_volume_by_path(snap.source)
+                                vol.delete()
+                            except:
+                                pass
+                        Snapshot.objects.all().delete()
                 else:
-                    conn.snapshot_delete(snap_name)
+                    snapshot.delete()
+                conn.snapshot_delete(snap_name)
                 msg = _("Delete snapshot :" + snap_name)
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
 
             if 'delete_snapshot_all' in request.POST and allow_admin_or_not_template:
                 conn.snapshot_delete_all()
+
+                Snapshot.objects.all().delete()
                 msg = _("Delete All snapshots")
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
 
             if 'revert_snapshot' in request.POST and allow_admin_or_not_template:
                 snap_name = request.POST.get('name', '')
-
                 snap_location = request.POST.get('location', '')
                 if snap_location == 'external':
                     conn.snapshot_revert_ext(snap_name)
@@ -587,6 +639,7 @@ def instance(request, compute_id, vname):
                 messages.success(request, msg)
                 msg = _("Revert snapshot")
                 addlogmsg(request.user.username, instance.name, msg)
+                return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
 
             if 'snapshot_ext' in request.POST and allow_admin_or_not_template:
                 name = request.POST.get('name', '')
@@ -767,7 +820,7 @@ def instance(request, compute_id, vname):
                     clone_data = {}
                     clone_data['name'] = request.POST.get('name', '')
 
-                    disk_sum = sum([disk['size'] >> 30 for disk in disks])
+                    disk_sum = sum([disk['size'] >> 30 for dev, disk in disks.items()])
                     quota_msg = check_user_quota(1, vcpu, memory, disk_sum)
                     check_instance = Instance.objects.filter(name=clone_data['name'])
 
@@ -778,8 +831,8 @@ def instance(request, compute_id, vname):
                         auto_vname = clone_free_names[0]
                         clone_data['name'] = auto_vname
                         clone_data['clone-net-mac-0'] = _get_dhcp_mac_address(auto_vname)
-                        for disk in disks:
-                            disk_dev = "disk-{}".format(disk['dev'])
+                        for dev, disk in disks.items():
+                            disk_dev = "disk-{}".format(dev)
                             disk_name = get_clone_disk_name(disk, vname, auto_vname)
                             clone_data[disk_dev] = disk_name
 
@@ -1208,19 +1261,18 @@ def get_clone_disk_name(disk, prefix, clone_name=''):
 
 def _get_clone_disks(disks, vname=''):
     clone_disks = []
-    for disk in disks:
+    for dev, disk in disks.items():
         new_image = get_clone_disk_name(disk, vname)
         if not new_image:
             continue
         new_disk = {
-            'dev': disk['dev'],
+            'dev': dev,
             'storage': disk['storage'],
             'image': new_image,
             'format': disk['format']
         }
         clone_disks.append(new_disk)
     return clone_disks
-
 
 def sshkeys(request, vname):
     """

@@ -129,7 +129,7 @@ def create_instance(request, compute_id):
                                     error_messages.append(lib_err.message)
                         elif data['template']:
                             templ_path = conn.get_volume_path(data['template'])
-                            dest_vol = conn.get_volume_path(data["name"] + ".img", data['storage'])
+                            dest_vol = conn.get_volume_path(data["name"] + ".img", data['storage']) # search only in specified pool
                             if dest_vol:
                                 error_msg = _("Image has already exist. Please check volumes or change instance name")
                                 error_messages.append(error_msg)

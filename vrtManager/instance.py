@@ -8,7 +8,8 @@ try:
     from libvirt import VIR_DOMAIN_BLOCK_COMMIT_SHALLOW, VIR_DOMAIN_BLOCK_COMMIT_DELETE, VIR_DOMAIN_BLOCK_COMMIT_ACTIVE
     from libvirt import VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT
     from libvirt import VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY
-
+    from libvirt import VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL
+    from libvirt import VIR_DOMAIN_SNAPSHOT_CREATE_REDEFINE, VIR_DOMAIN_SNAPSHOT_CREATE_CURRENT
 except:
     from libvirt import libvirtError, VIR_DOMAIN_XML_SECURE, VIR_MIGRATE_LIVE
 from vrtManager import util
@@ -47,9 +48,9 @@ class wvmInstances(wvmConnect):
         inst = self.get_instance(name)
         return inst.UUIDString()
 
-    def start(self, name):
+    def start(self, name, flags=0):
         dom = self.get_instance(name)
-        dom.create()
+        dom.createWithFlags(flags)
 
     def shutdown(self, name):
         dom = self.get_instance(name)
@@ -132,29 +133,29 @@ class wvmInstance(wvmConnect):
         wvmConnect.__init__(self, host, login, passwd, conn)
         self.instance = self.get_instance(vname)
 
-    def start(self):
-        self.instance.create()
+    def start(self, flags=0):
+        return self.instance.createWithFlags(flags)
 
     def shutdown(self):
-        self.instance.shutdown()
+        return self.instance.shutdown()
 
     def force_shutdown(self):
-        self.instance.destroy()
+        return self.instance.destroy()
 
     def managedsave(self):
-        self.instance.managedSave(0)
+        return self.instance.managedSave(0)
 
     def managed_save_remove(self):
-        self.instance.managedSaveRemove(0)
+        return self.instance.managedSaveRemove(0)
 
     def suspend(self):
-        self.instance.suspend()
+        return self.instance.suspend()
 
     def resume(self):
-        self.instance.resume()
+        return self.instance.resume()
 
     def delete(self):
-        self.instance.undefine()
+        return self.instance.undefine()
 
     def _XMLDesc(self, flag):
         return self.instance.XMLDesc(flag)
@@ -207,7 +208,6 @@ class wvmInstance(wvmConnect):
 
         return util.get_xml_path(self._XMLDesc(0), func=filterrefs)
 
-
     def get_description(self):
         description = util.get_xml_path(self._XMLDesc(0), "/domain/description")
         return description if description else ''
@@ -253,7 +253,7 @@ class wvmInstance(wvmConnect):
 
     def get_disk_devices(self):
         def disks(doc):
-            result = []
+            result = {}
             dev = None
             volume = None
             storage = None
@@ -262,7 +262,6 @@ class wvmInstance(wvmConnect):
             used_size = None
             disk_size = None
 
-            
             for disk in doc.xpath('/domain/devices/disk'):
                 back_store = []
                 device = disk.xpath('@device')[0]
@@ -299,9 +298,8 @@ class wvmInstance(wvmConnect):
                     except:
                         pass
                     finally:
-                        result.append(
-                            {'dev': dev, 'bus': bus, 'image': volume, 'storage': storage, 'path': src_fl,
-                             'format': disk_format, 'size': disk_size, 'used': used_size, "backingStore": back_store})
+                        result[dev] = {'bus': bus, 'image': volume, 'storage': storage, 'path': src_fl,
+                                       'format': disk_format, 'size': disk_size, 'used': used_size, "backingStore": back_store}
             return result
 
         return util.get_xml_path(self._XMLDesc(0), func=disks)
@@ -385,7 +383,7 @@ class wvmInstance(wvmConnect):
             xmldom = ElementTree.tostring(tree)
         self._defineXML(xmldom)
 
-    def attach_disk(self, source, target, sourcetype='file', device='disk', driver='qemu', subdriver='raw', cache='none', targetbus='ide'):
+    def attach_disk(self, target, source, sourcetype='file', device='disk', driver='qemu', subdriver='raw', cache='none', targetbus='ide'):
         tree = ElementTree.fromstring(self._XMLDesc(0))
         xml_disk = """
         <disk type='%s' device='%s'>
@@ -416,8 +414,30 @@ class wvmInstance(wvmConnect):
                     xmldom = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
                 if self.get_status() == 5:
                     xmldom = ElementTree.tostring(tree)
+                self._defineXML(xmldom)
                 break
-        self._defineXML(xmldom)
+        else:
+            raise libvirtError("Dev: {} cannot find in domain xml".format(dev))
+
+    def replace_disk(self, dev, new_vol, format=None, bus=None):
+        tree = ElementTree.fromstring(self._XMLDesc(0))
+        for disk in tree.findall('./devices/disk'):
+            target = disk.find('target')
+            if target.get('dev') == dev:
+                source = disk.find('source')
+                source.set('file', new_vol)
+
+                if bus:
+                    target.set('bus', bus)
+                if format:
+                    driver = disk.find('driver')
+                    driver.set('type', format)
+
+                xmldom = ElementTree.tostring(tree)
+                self._defineXML(xmldom)
+                break
+        else:
+            raise libvirtError("Dev: {} cannot find in domain xml".format(dev))
 
     def cpu_usage(self):
         cpu_usage = {}
@@ -676,15 +696,14 @@ class wvmInstance(wvmConnect):
         return iso
 
     def delete_all_disks(self):
-        disks = self.get_disk_devices()
-        for disk in disks:
+        for dev, disk in self.get_disk_devices().items():
             vol = self.get_volume_by_path(disk.get('path'))
             vol.delete(0)
 
     def _snapshotCreateXML(self, xml, flag):
-        self.instance.snapshotCreateXML(xml, flag)
+        return self.instance.snapshotCreateXML(xml, flag)
 
-    def create_snapshot_int(self, name):
+    def create_snapshot(self, name):
         xml = """<domainsnapshot>
                      <name>%s</name>
                      <state>shutoff</state>
@@ -694,8 +713,10 @@ class wvmInstance(wvmConnect):
                   </domainsnapshot>"""
         self._snapshotCreateXML(xml, 0)
 
-    def create_snapshot_ext(self, name, desc, volumes, driver="qcow2", disk_only=False, atomic=True, quiesce=False, nometa=False):
-        flags = 0
+    def create_snapshot_ext(self, name, desc, volumes, driver="qcow2", disk_only=True, atomic=True, quiesce=False, nometa=False, flags = 0):
+        if name in self.instance.snapshotListNames():
+            raise libvirtError("Specified snapshot is exist, please change the name and try again.")
+
         xml = "<domainsnapshot>"
         if not name == '':
             xml += "<name>%s</name>" % name
@@ -703,10 +724,11 @@ class wvmInstance(wvmConnect):
             xml += "<description>%s</description>" % desc
 
         xml += "<disks>"
-        for disk in volumes:
+
+        for dev, disk in volumes.items():
             xml += """<disk name='%s' snapshot="external">
                         <driver type='%s'/>
-                      </disk>""" % (disk['dev'], driver)
+                      </disk>""" % (dev, driver)
         xml += """</disks>
             </domainsnapshot>"""
         if disk_only:
@@ -717,33 +739,46 @@ class wvmInstance(wvmConnect):
             flags |= VIR_DOMAIN_SNAPSHOT_CREATE_QUIESCE
         if nometa:
             flags |= VIR_DOMAIN_SNAPSHOT_CREATE_NO_METADATA
-        self._snapshotCreateXML(xml, flags)
+        return self._snapshotCreateXML(xml, flags)
 
     def get_snapshots(self, name=''):
         snaps = []
 
         def snapshots(doc):
-            disks = []
+
+            disks = {}
             snap_name = doc.xpath('/domainsnapshot/name')[0].text
             snap_description = util.get_xml_path(snap.getXMLDesc(0), '/domainsnapshot/description')
             snap_time_create = util.get_xml_path(snap.getXMLDesc(0), '/domainsnapshot/creationTime')
             memory_type = doc.xpath('/domainsnapshot/memory/@snapshot')[0]
             state = doc.xpath('/domainsnapshot/state')[0].text
-            parent = util.get_xml_path(snap.getXMLDesc(0), '/domainsnapshot/parent/name')
+
+            snap_parent = util.get_xml_path(snap.getXMLDesc(0), '/domainsnapshot/parent/name')
             snap_location = ""
 
             for d in doc.xpath('/domainsnapshot/disks/disk'):
-                dev, source, driver_type, snap_type = str(), str(), str(), str()
+                dev, dev_type, source, driver_type, snap_type, parent_source = str(), str(), str(), str(), str(), str()
                 try:
                     dev = d.xpath('@name')[0]
                     snap_type = d.xpath('@snapshot')[0]
+                    dev_type = d.xpath('@type')[0]
                     driver_type = d.xpath('driver/@type')[0]
                     source = d.xpath('source/@file')[0]
+
+                    if snap_parent:
+                        parent = self.get_snapshots(snap_parent)[0]['disks']
+                        parent_source = parent[dev]['source']
+                    else:
+                        for pdisk in doc.xpath('/domainsnapshot/domain/devices/disk'):
+                            if dev == pdisk.xpath('target/@dev')[0]:
+                                parent_source = pdisk.xpath('source/@file')[0]
+                                break
                 except:
                     pass
                 finally:
                     if not snap_type == "no":
-                        disks.append({'dev': dev, 'snapshot': snap_type, 'driver': driver_type, 'source': source})
+
+                        disks[dev] = {'snapshot': snap_type, 'type': dev_type, 'driver': driver_type, 'source': source, 'parent': parent_source}
                         snap_location = snap_type
 
             return ({'name': snap_name,
@@ -752,7 +787,7 @@ class wvmInstance(wvmConnect):
                      'date': datetime.fromtimestamp(int(snap_time_create)),
                      'memory': memory_type,
                      'state': state,
-                     'parent': parent,
+                     'parent': snap_parent,
                      'disks': disks})
 
         if name == '':
@@ -764,7 +799,7 @@ class wvmInstance(wvmConnect):
             snap = self.instance.snapshotLookupByName(snapshot, 0)
             snap_info = util.get_xml_path(snap.getXMLDesc(0), func=snapshots)
             snap_info['current'] = bool(snap.isCurrent())
-
+            snap_info['children'] = snap.numChildren()
             snaps.append(snap_info)
         return snaps
 
@@ -773,49 +808,110 @@ class wvmInstance(wvmConnect):
         try:
             snap.delete(0)
         except:
+            flags |= VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY
             snap.delete(flags)
 
     def snapshot_delete_all(self):
+        dom_status = self.get_status()
+        flags = VIR_DOMAIN_BLOCK_COMMIT_ACTIVE
+
+        if dom_status == 5: self.start(1) # paused state
+        for dev, disk in self.get_disk_devices().items():
+            if self.instance.blockCommit(dev, base=None, top=None, flags=flags) < 0:
+                raise libvirtError("Failed to start block commit for disk '{}'".format(dev))
+
+            self.blockjobabort(dev, disk)
+
         for snap in self.instance.snapshotListNames(0):
-            self.snapshot_delete_ext(snap)
+            snapshot = self.get_snapshots(snap)[0]
 
-    def snapshot_delete_ext(self, snap_name, flags=VIR_DOMAIN_BLOCK_COMMIT_ACTIVE |
-                                                   VIR_DOMAIN_BLOCK_COMMIT_SHALLOW):
-        delete_success = False
-        snapshot = self.get_snapshots(snap_name)[0]
-
-        if snapshot:
             for disk in snapshot['disks']:
-                if self.instance.blockCommit(disk['dev'], base=None, top=None, flags=flags) < 0:
-                    raise libvirtError("Failed to start block commit for disk '{}'".format(disk['dev']))
-
                 try:
-                    while True:
-                        info = self.instance.blockJobInfo(disk['dev'], 0)
-                        if info is None:
-                            break
-                        if info["cur"] == info["end"]:
-                            break
-                        time.sleep(1)
-                finally:
-                    if self.instance.blockJobAbort(disk['dev'], VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT) < 0:
-                        time.sleep(5)
-                        raise libvirtError("Pivot failed for disk '{}'".format(disk['target']))
-                    else:
-                        vol = self.get_volume_by_path(disk['source'])
-                        if vol:
-                            vol.delete()
-                            delete_success = True
-            if delete_success:
-                self.snapshot_delete(snap_name, VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY)
+                    vol = self.get_volume_by_path(disk['source'])
+                    if vol: vol.delete()
+                except:
+                    pass
+            self.snapshot_delete(snap, VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY)
+
+        if dom_status == 5: self.force_shutdown()
 
     def snapshot_revert(self, snapshot):
         snap = self.instance.snapshotLookupByName(snapshot, 0)
         self.instance.revertToSnapshot(snap, 0)
 
     def snapshot_revert_ext(self, snapshot):
-        snap = self.instance.snapshotLookupByName(snapshot, 0)
-        pass
+        dom_status = self.get_status()
+        snap = self.get_snapshots(snapshot)[0]
+        snap_count = self.instance.snapshotNum(VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL)
+
+        if dom_status != 5:
+            if self.force_shutdown() < 0:
+                raise libvirtError("Instance could not destroyed. Please try again.")
+            else:
+                time.sleep(2)
+        try:
+            self.delete_all_disks()
+        except:
+            pass
+
+        try:
+            for dev, disk in snap['disks'].items():
+                parent_vol = self.get_volume_by_path(disk['parent'])
+                parent_pool = self.get_wvmStorage(parent_vol.storagePoolLookupByVolume().name())
+                parent_pool.refresh()
+
+                filename = os.path.basename(disk['source'])
+                filename, ext = os.path.splitext(filename)
+                if snap_count > 0: filename = filename.rsplit("-")[0]
+                vol_name = "%s-%04d" % (filename, snap_count + 1)
+                if snap['current'] and snap['children'] == 0: vol_name = filename + ext
+
+                new_vol = parent_pool.create_volume(name=vol_name, size=0, backing_store=parent_vol.path())
+
+                self.replace_disk(dev, new_vol.path())
+
+                snap = self.instance.snapshotLookupByName(snapshot, 0)
+                self.instance.snapshotCreateXML(snap.getXMLDesc(),
+                                                VIR_DOMAIN_SNAPSHOT_CREATE_REDEFINE | VIR_DOMAIN_SNAPSHOT_CREATE_CURRENT)
+        finally:
+            if dom_status == 1: self.start()
+            elif dom_status == 3: self.start(1)
+
+    def blockcommit(self, flags=0):
+        dom_status = self.get_status()
+
+        if dom_status == 5: self.start(1)  # if it is shutdown open it with paused state
+
+        flags |= VIR_DOMAIN_BLOCK_COMMIT_ACTIVE
+        for dev, disk in self.get_disk_devices().items():
+            if self.instance.blockCommit(dev, base=None, top=None, flags=flags) < 0:
+                raise libvirtError("Failed to start block commit for disk '{}'".format(dev))
+
+            self.blockjobabort(dev, disk)
+
+        if dom_status == 5: self.force_shutdown()  # shutdown suspended/paused machine
+
+    def blockjobabort(self, dev, disk):
+        """ Waits for block job completion and replace active disk. Delete old one"""
+        try:
+            while True:
+                info = self.instance.blockJobInfo(dev, 0)
+                if info is None:
+                    break
+                if info["cur"] == info["end"]:
+                    break
+                time.sleep(1)
+        finally:
+
+            if self.instance.blockJobAbort(dev, VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT) < 0:
+                time.sleep(5)
+                raise libvirtError("Pivot failed for disk '{}'".format(disk['target']))
+
+            try:
+                vol = self.get_volume_by_path(disk['path'])
+                if vol: vol.delete()
+            except:
+                pass
 
     def get_managed_save_image(self):
         return self.instance.hasManagedSaveImage(0)

@@ -107,7 +107,7 @@ class wvmStorage(wvmConnect):
         return self.pool.XMLDesc(flags)
 
     def _createXML(self, xml, flags):
-        self.pool.createXML(xml, flags)
+        return self.pool.createXML(xml, flags)
 
     def _createXMLFrom(self, xml, vol, flags):
         self.pool.createXMLFrom(xml, vol, flags)
@@ -206,7 +206,7 @@ class wvmStorage(wvmConnect):
             )
         return vol_list
 
-    def create_volume(self, name, size, vol_fmt='qcow2', metadata=False, owner=owner):
+    def create_volume(self, name, size, backing_store=None, vol_fmt='qcow2', metadata=False, owner=owner):
         size = int(size) * 1073741824
         storage_type = self.get_type()
         alloc = size
@@ -232,9 +232,22 @@ class wvmStorage(wvmConnect):
                     <features>
                         <lazy_refcounts/>
                     </features>
-                </target>
-            </volume>""" % (name, size, alloc, vol_fmt, owner['uid'], owner['guid'])
-        self._createXML(xml, metadata)
+                </target>""" % (name, size, alloc, vol_fmt, owner['uid'], owner['guid'])
+        if backing_store:
+            xml += """
+                   <backingStore>
+                      <path>%s</path>
+                      <format type='%s'/>
+                      <permissions>
+                         <owner>%s</owner>
+                         <group>%s</group>
+                         <mode>0644</mode>
+                         <label>virt_image_t</label>
+                      </permissions>
+                   </backingStore>""" % (backing_store, vol_fmt, owner['uid'], owner['guid'])
+        xml += """ </volume>"""
+
+        return self._createXML(xml, metadata)
 
     def clone_volume(self, name, target_file, vol_fmt=None, metadata=False, owner=owner):
         storage_type = self.get_type()
