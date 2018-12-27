@@ -22,6 +22,7 @@ class Snapshot(models.Model):
     description = models.CharField("snapshot description", blank=True, null=True, max_length=200)
     deleted = models.BooleanField("has it deletable disks", default=False)
     current = models.BooleanField("is it current snapshot")
+    parent = models.CharField("snapshot parent", max_length=25, null=True, blank=True)
 
     def __unicode__(self):
         return self.display_name

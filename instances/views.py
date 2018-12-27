@@ -332,6 +332,7 @@ def instance(request, compute_id, vname):
                                     date=snap['date'],
                                     description=snap['description'],
                                     current=snap['current'],
+                                    parent=snap['parent'],
                                     deleted=False)
                 snapshot.save()
                 for dev, disk in snap['disks'].items():
@@ -589,9 +590,9 @@ def instance(request, compute_id, vname):
                 atomic = bool(request.POST.get('atomic', 1))
                 quiesce = bool(request.POST.get('quiesce', 0))
                 nometadata = bool(request.POST.get('nometadata', 0))
-                conn.create_snapshot_ext(name.strip(), desc, disks, driver, disk_only, atomic, quiesce, nometadata)
+                snap = conn.create_snapshot_ext(name.strip(), desc, disks, driver, disk_only, atomic, quiesce, nometadata)
 
-                msg = _("New external snapshot :" + name)
+                msg = _("New external snapshot :" + snap.getName())
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
 
@@ -622,8 +623,27 @@ def instance(request, compute_id, vname):
                 return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
 
             if 'delete_snapshot_all' in request.POST and allow_admin_or_not_template:
-                conn.snapshot_delete_all()
+                conn.blockcommit()
+                root_disks = SnapshotDisk.objects.filter(snapshot__instance=instance, snap_type="external", snapshot__parent__isnull=True)
+                child_disks = SnapshotDisk.objects.filter(snapshot__instance=instance, snap_type="external", snapshot__parent__isnull=False)
 
+                for rsnapd in root_disks:
+                    try:
+                        rvol = conn.get_volume_by_path(rsnapd.source)
+                        rvol.delete()
+                    except:
+                        pass
+
+                for csnapd in child_disks:
+                    try:
+                        svol = conn.get_volume_by_path(csnapd.source)
+                        svol.delete()
+                        pvol = conn.get_volume_by_path(csnapd.parent)
+                        pvol.delete()
+                    except:
+                        pass
+                for snap in snapshots:
+                    conn.snapshot_delete(snap['name'])
                 Snapshot.objects.all().delete()
                 msg = _("Delete All snapshots")
                 addlogmsg(request.user.username, instance.name, msg)

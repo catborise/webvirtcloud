@@ -781,14 +781,10 @@ class wvmInstance(wvmConnect):
                     driver_type = d.xpath('driver/@type')[0]
                     source = d.xpath('source/@file')[0]
 
-                    if snap_parent:
-                        parent = self.get_snapshots(snap_parent)[0]['disks']
-                        parent_source = parent[dev]['source']
-                    else:
-                        for pdisk in doc.xpath('/domainsnapshot/domain/devices/disk'):
-                            if dev == pdisk.xpath('target/@dev')[0]:
-                                parent_source = pdisk.xpath('source/@file')[0]
-                                break
+                    for pdisk in doc.xpath('/domainsnapshot/domain/devices/disk'):
+                        if dev == pdisk.xpath('target/@dev')[0]:
+                            parent_source = pdisk.xpath('source/@file')[0]
+                            break
                 except:
                     pass
                 finally:
@@ -831,12 +827,7 @@ class wvmInstance(wvmConnect):
         dom_status = self.get_status()
         flags = VIR_DOMAIN_BLOCK_COMMIT_ACTIVE
 
-        if dom_status == 5: self.start(1) # paused state
-        for dev, disk in self.get_disk_devices().items():
-            if self.instance.blockCommit(dev, base=None, top=None, flags=flags) < 0:
-                raise libvirtError("Failed to start block commit for disk '{}'".format(dev))
-
-            self.blockjobabort(dev, disk)
+        self.blockcommit()
 
         for snap in self.instance.snapshotListNames(0):
             snapshot = self.get_snapshots(snap)[0]
