@@ -539,105 +539,118 @@
                                                 {% endifequal %}
                                             </div>
                                             <div role="tabpanel" class="tab-pane tab-pane-bordered" id="managesnapshot">
-
-                                                    {% if snapshots %}
-                                                        <p>{% trans "Choose a snapshot for restore/delete. Click to see details" %}</p>
-                                                        <div class="table-responsive">
-                                                            <table class="table">
-                                                                <thead>
-                                                                <tr>
-                                                                    <th>{% trans "Name" %}</th>
-                                                                    <th>{% trans "Date" %}</th>
-                                                                    <th>{% trans "Current" %}</th>
-                                                                    <th>{% trans "Type" %}</th>
-                                                                    <th>{% trans "Mem" %}</th>
-                                                                    <th colspan="2">{% trans "Action" %}</th>
-                                                                </tr>
-                                                                </thead>
-                                                                <tbody>
-                                                                {% for snap in snapshots %}
-                                                                    <tr class="snap_info">
-                                                                        <td><strong>{{ snap.name }}</strong></td>
-                                                                        <td>{{ snap.date|date:"M d H:i:s" }}</td>
-                                                                        <td>
-                                                                            {% ifequal snap.current True %}
-                                                                                <span class="glyphicon glyphicon-star"></span>
-                                                                            {% else %}
-                                                                                <span class="glyphicon glyphicon-star-empty"></span>
-                                                                            {% endifequal %}
-                                                                        </td>
-                                                                        <td>
-                                                                            {% ifequal snap.location 'external' %}
-                                                                                <span class="label label-primary">{{ snap.location }}</span>
-                                                                            {% else %}
-                                                                                <span class="label label-success">{{ snap.location }}</span>
-                                                                            {% endifequal %}
-                                                                        </td>
-                                                                        <td>{{ snap.memory }}</td>
-                                                                        <td style="width:30px;">
-                                                                            <form action="" method="post" style="height:10px" role="form">{% csrf_token %}
-                                                                                <input type="hidden" name="location" value="{{ snap.location }}">
-                                                                                <input type="hidden" name="name" value="{{ snap.name }}">
-                                                                                <button type="submit" class="btn btn-sm btn-default" name="revert_snapshot" title="Revert to this Snapshot"
-                                                                                        onclick="return confirm('Current state of the virtual machine will be lost unless it is saved in a snapshot. Revert to snapshot?')">
-                                                                                    <span class="glyphicon glyphicon-save"></span>
-                                                                                </button>
-                                                                            </form>
-                                                                        </td>
-                                                                        <td style="width:30px;">
-                                                                            <form action="" method="post" role="form">{% csrf_token %}
-                                                                                <input type="hidden" name="location" value="{{ snap.location }}">
-                                                                                <input type="hidden" name="name" value="{{ snap.name }}">
-                                                                                <button type="submit" class="btn btn-sm btn-default" name="delete_snapshot" title="Delete Snapshot" onclick="return confirm('{% trans "Are you sure?" %}')">
-                                                                                    <span class="glyphicon glyphicon-trash"></span>
-                                                                                </button>
-                                                                            </form>
-                                                                        </td>
-                                                                    </tr>
-                                                                    <tr hidden>
-                                                                        <td>
-                                                                            <p>{% trans 'Description' %}</p>
-                                                                        </td>
-                                                                        <td colspan="5">
-                                                                            <p>{{ snap.description }}</p>
-                                                                        </td>
-                                                                    </tr>
-                                                                   {% for dev, info in snap.disks.items %}
-                                                                        {% ifnotequal info.snapshot 'no' %}
-                                                                            <tr hidden>
-                                                                                <td>
-                                                                                    <p>{% trans 'Details' %} <br>
-                                                                                        <em>({{ dev }})</em></p>
-                                                                                </td>
-                                                                                <td colspan="5">
-                                                                                    <p>{% trans 'Source' %}:{{ info.source }}</p>
-                                                                                    <p>{% trans 'Parent Source' %}:{{ info.parent }}</p>
-                                                                                    <p>{% trans 'Driver' %}:{{ info.driver }}</p>
-                                                                                    <p>{% trans 'Parent' %}:{{ snap.parent }}</p>
-                                                                                    <p>{% trans 'State' %}:{{ info.state }}</p>
-                                                                                </td>
-                                                                            </tr>
-                                                                        {% endifnotequal %}
-                                                                    {% endfor %}
-                                                                {% endfor %}
-                                                                </tbody>
-                                                            <tfoot>
-                                                                <tr>
-                                                                    <td colspan="7">
+                                                {% if snapshots %}
+                                                    <p>{% trans "Choose a snapshot for restore/delete. Click to see details" %}</p>
+                                                    <div class="table-responsive">
+                                                        <table class="table">
+                                                            <thead>
+                                                            <tr>
+                                                                <th>{% trans "Name" %}</th>
+                                                                <th>{% trans "Date" %}</th>
+                                                                <th>{% trans "Current" %}</th>
+                                                                <th>{% trans "Type" %}</th>
+                                                                <th>{% trans "Mem" %}</th>
+                                                                <th colspan="2">{% trans "Action" %}</th>
+                                                            </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                            {% for snap in snapshots %}
+                                                                <tr class="snap_info">
+                                                                    <td><strong>{{ snap.name }}</strong></td>
+                                                                    <td>{{ snap.date|date:"M d H:i:s" }}</td>
+                                                                    <td>
+                                                                        {% ifequal snap.current True %}
+                                                                            <span class="glyphicon glyphicon-star"></span>
+                                                                        {% else %}
+                                                                            <span class="glyphicon glyphicon-star-empty"></span>
+                                                                        {% endifequal %}
+                                                                    </td>
+                                                                    <td>
+                                                                        {% ifequal snap.location 'external' %}
+                                                                            <span class="label label-primary">{{ snap.location }}</span>
+                                                                        {% else %}
+                                                                            <span class="label label-success">{{ snap.location }}</span>
+                                                                        {% endifequal %}
+                                                                    </td>
+                                                                    <td>{{ snap.memory }}</td>
+                                                                    <td style="width:30px;">
+                                                                        <form action="" method="post" style="height:10px" role="form">{% csrf_token %}
+                                                                            <input type="hidden" name="location" value="{{ snap.location }}">
+                                                                            <input type="hidden" name="name" value="{{ snap.name }}">
+                                                                            <button type="submit" class="btn btn-sm btn-default" name="revert_snapshot" title="Revert to this Snapshot"
+                                                                                    onclick="return confirm('Current state of the virtual machine will be lost unless it is saved in a snapshot. Revert to snapshot?')">
+                                                                                <span class="glyphicon glyphicon-save"></span>
+                                                                            </button>
+                                                                        </form>
+                                                                    </td>
+                                                                    <td style="width:30px;">
                                                                         <form action="" method="post" role="form">{% csrf_token %}
-                                                                            <button type="submit" class="btn btn-sm btn-danger pull-right" name="delete_snapshot_all" title="Delete All Snapshots" onclick="return confirm('{% trans "Are you sure?" %}')">
-                                                                                <span class="glyphicon glyphicon-trash"></span>&nbsp;{% trans 'Delete All' %}
+                                                                            <input type="hidden" name="location" value="{{ snap.location }}">
+                                                                            <input type="hidden" name="name" value="{{ snap.name }}">
+                                                                            <button type="submit" class="btn btn-sm btn-default" name="delete_snapshot" title="Delete Snapshot" onclick="return confirm('{% trans "Are you sure?" %}')">
+                                                                                <span class="glyphicon glyphicon-trash"></span>
                                                                             </button>
                                                                         </form>
                                                                     </td>
                                                                 </tr>
-                                                            </tfoot>
-                                                            </table>
-                                                        </div>
-                                                    {% else %}
-                                                        <p>{% trans "You do not have any snapshots" %}</p>
-                                                    {% endif %}
+                                                                <tr hidden>
+                                                                    <td>
+                                                                        <p>{% trans 'Description' %}</p>
+                                                                    </td>
+                                                                    <td colspan="5">
+                                                                        <p>{{ snap.description }}</p>
+                                                                    </td>
+                                                                </tr>
+                                                               {% for dev, info in snap.disks.items %}
+                                                                    {% ifnotequal info.snapshot 'no' %}
+                                                                        <tr hidden>
+                                                                            <td>
+                                                                                <p>{% trans 'Details' %} <br>
+                                                                                    <em>({{ dev }})</em></p>
+                                                                            </td>
+                                                                            <td colspan="5">
+                                                                                <p>{% trans 'Source' %}:{{ info.source }}</p>
+                                                                                <p>{% trans 'Parent Source' %}:{{ info.parent }}</p>
+                                                                                <p>{% trans 'Driver' %}:{{ info.driver }}</p>
+                                                                                <p>{% trans 'Parent' %}:{{ snap.parent }}</p>
+                                                                                <p>{% trans 'State' %}:{{ info.state }}</p>
+                                                                            </td>
+                                                                        </tr>
+                                                                    {% endifnotequal %}
+                                                                {% endfor %}
+                                                            {% endfor %}
+                                                            </tbody>
+                                                        <tfoot>
+                                                            <tr>
+                                                                <td colspan="7">
+                                                                    <form action="" method="post" role="form">{% csrf_token %}
+                                                                        <button type="submit" class="btn btn-sm btn-danger pull-right" name="delete_snapshot_all" title="Delete All Snapshots" onclick="return confirm('{% trans "Are you sure?" %}')">
+                                                                            <span class="glyphicon glyphicon-trash"></span>&nbsp;{% trans 'Delete All' %}
+                                                                        </button>
+                                                                    </form>
+                                                                </td>
+                                                            </tr>
+                                                        </tfoot>
+                                                        </table>
+                                                    </div>
 
+                                                    <div class="panel-group">
+                                                      <div class="panel panel-default">
+                                                        <div class="panel-heading">
+                                                          <h4 class="panel-title">
+                                                            <a data-toggle="collapse" href="#snaptreecollapse1">{% trans 'Tree view of snapshots' %}</a>
+                                                          </h4>
+                                                        </div>
+                                                        <div id="snaptreecollapse1" class="panel-collapse collapse">
+                                                          <div class="panel-body">
+                                                              <pre><p>{{ tree }}</p></pre>
+                                                          </div>
+                                                        </div>
+                                                      </div>
+                                                    </div>
+                                                {% else %}
+                                                    <p>{% trans "You do not have any snapshots" %}</p>
+                                                {% endif %}
                                             </div>
                                         </div>
                                     </div>

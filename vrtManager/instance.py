@@ -741,6 +741,22 @@ class wvmInstance(wvmConnect):
             flags |= VIR_DOMAIN_SNAPSHOT_CREATE_NO_METADATA
         return self._snapshotCreateXML(xml, flags)
 
+    def get_snaphots_tree(self):
+        tree = []
+
+        def build_tree(snapshot):
+            snap = self.instance.snapshotLookupByName(snapshot)
+            node = {"name": snapshot, "node": []}
+            for c in snap.listChildrenNames():
+                node["node"].append(build_tree(c))
+            return node
+
+        roots = self.instance.snapshotListNames(1)
+
+        for rs in roots:
+            tree.append(build_tree(rs))
+        return tree
+
     def get_snapshots(self, name=''):
         snaps = []
 
@@ -1134,4 +1150,5 @@ class wvmInstance(wvmConnect):
 
     def set_memory(self, size, flags=0):
         self.instance.setMemoryFlags(size, flags)
+
 

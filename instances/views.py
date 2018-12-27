@@ -303,6 +303,7 @@ def instance(request, compute_id, vname):
         show_access_root_password = settings.SHOW_ACCESS_ROOT_PASSWORD
         show_access_ssh_keys = settings.SHOW_ACCESS_SSH_KEYS
         clone_instance_auto_name = settings.CLONE_INSTANCE_AUTO_NAME
+        tree = json.dumps(conn.get_snaphots_tree(), sort_keys=True, indent=4)
 
         try:
             instance = Instance.objects.get(compute_id=compute_id, name=vname)
