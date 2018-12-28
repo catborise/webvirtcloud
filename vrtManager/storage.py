@@ -206,14 +206,14 @@ class wvmStorage(wvmConnect):
             )
         return vol_list
 
-    def create_volume(self, name, size, backing_store=None, vol_fmt='qcow2', metadata=False, owner=owner):
+    def create_volume(self, name, size, ext=".img", backing_store=None, vol_fmt='qcow2', metadata=False, owner=owner):
         size = int(size) * 1073741824
         storage_type = self.get_type()
         alloc = size
         if vol_fmt == 'unknown':
             vol_fmt = 'raw'
         if storage_type == 'dir':
-            name += '.img'
+            name += ext
             alloc = 0
         xml = """
             <volume>

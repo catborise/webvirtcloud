@@ -868,12 +868,14 @@ class wvmInstance(wvmConnect):
                 parent_pool.refresh()
 
                 filename = os.path.basename(disk['source'])
-                filename, ext = os.path.splitext(filename)
-                if snap_count > 0: filename = filename.rsplit("-")[0]
-                vol_name = "%s-%04d" % (filename, snap_count + 1)
-                if snap['current'] and snap['children'] == 0: vol_name = filename + ext
+                if snap['current'] and snap['children'] == 0:
+                    vol_name = filename
+                else:
+                    filename, _ = os.path.splitext(filename)
+                    if snap_count > 0: filename = filename.rsplit("-")[0]
+                    vol_name = "%s-%04d" % (filename, snap_count + 1)
 
-                new_vol = parent_pool.create_volume(name=vol_name, size=0, backing_store=parent_vol.path())
+                new_vol = parent_pool.create_volume(name=vol_name, size=0, ext="", backing_store=parent_vol.path())
 
                 self.replace_disk(dev, new_vol.path())
 

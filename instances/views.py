@@ -638,10 +638,14 @@ def instance(request, compute_id, vname):
                     try:
                         svol = conn.get_volume_by_path(csnapd.source)
                         svol.delete()
+                    except:
+                        pass
+                    try:
                         pvol = conn.get_volume_by_path(csnapd.parent)
                         pvol.delete()
                     except:
                         pass
+
                 for snap in snapshots:
                     conn.snapshot_delete(snap['name'])
                 Snapshot.objects.all().delete()
