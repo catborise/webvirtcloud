@@ -855,29 +855,34 @@ class wvmInstance(wvmConnect):
             if self.force_shutdown() < 0:
                 raise libvirtError("Instance could not destroyed. Please try again.")
             else:
-                time.sleep(2)
+                # wait for shutdown operation completed
+                while self.get_status() != 5:
+                    time.sleep(5)
+
         try:
             self.delete_all_disks()
-        except:
-            pass
+        except: pass
 
         try:
             for dev, disk in snap['disks'].items():
                 parent_vol = self.get_volume_by_path(disk['parent'])
                 parent_pool = self.get_wvmStorage(parent_vol.storagePoolLookupByVolume().name())
-                parent_pool.refresh()
 
                 filename = os.path.basename(disk['source'])
                 if snap['current'] and snap['children'] == 0:
                     vol_name = filename
+                    try:
+                        parent_pool.del_volume(vol_name)
+                    except: pass
                 else:
                     filename, _ = os.path.splitext(filename)
                     if snap_count > 0: filename = filename.rsplit("-")[0]
                     vol_name = "%s-%04d" % (filename, snap_count + 1)
 
-                new_vol = parent_pool.create_volume(name=vol_name, size=0, ext="", backing_store=parent_vol.path())
+                parent_pool.refresh()
 
-                self.replace_disk(dev, new_vol.path())
+                vol = parent_pool.create_volume(name=vol_name, size=0, ext="", backing_store=parent_vol.path())
+                self.replace_disk(dev, vol.path())
 
                 snap = self.instance.snapshotLookupByName(snapshot, 0)
                 self.instance.snapshotCreateXML(snap.getXMLDesc(),

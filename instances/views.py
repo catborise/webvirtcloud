@@ -666,20 +666,6 @@ def instance(request, compute_id, vname):
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
 
-            if 'snapshot_ext' in request.POST and allow_admin_or_not_template:
-                name = request.POST.get('name', '')
-                desc = request.POST.get('description', '')
-                driver = request.POST.get('driver', "qcow2")
-                disk_only = bool(request.POST.get('disk_only', 1))
-                atomic = bool(request.POST.get('atomic', 1))
-                quiesce = bool(request.POST.get('quiesce', 0))
-                nometadata = bool(request.POST.get('nometadata', 0))
-
-                conn.create_snapshot_ext(name, desc, disks, driver, disk_only, atomic, quiesce, nometadata)
-                msg = _("New external snapshot :" + name)
-                addlogmsg(request.user.username, instance.name, msg)
-                return HttpResponseRedirect(request.get_full_path() + '#managesnapshot')
-
             if request.user.is_superuser:
                 if 'suspend' in request.POST:
                     conn.suspend()
