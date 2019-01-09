@@ -7,14 +7,17 @@ import re
 import string
 import random
 from bisect import insort
-from django.http import HttpResponse, HttpResponseRedirect
-from django.core.urlresolvers import reverse
-from django.shortcuts import render, get_object_or_404
-from django.utils.translation import ugettext_lazy as _
+from django.conf import settings
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from computes.models import Compute
-from instances.models import Instance
 from django.contrib.auth.models import User
+from django.core.urlresolvers import reverse
+from django.db import IntegrityError
+from django.http import HttpResponse, HttpResponseRedirect
+from django.utils.translation import ugettext_lazy as _
+from django.shortcuts import render, get_object_or_404
+from computes.models import Compute
+from instances.models import Instance, Disk
 from accounts.models import UserInstance, UserSSHKey
 from vrtManager.hostdetails import wvmHostDetails
 from vrtManager.instance import wvmInstance, wvmInstances
@@ -24,8 +27,6 @@ from vrtManager.storage import wvmStorage
 from vrtManager.util import randomPasswd
 from libvirt import libvirtError, VIR_DOMAIN_XML_SECURE
 from logs.views import addlogmsg
-from django.conf import settings
-from django.contrib import messages
 
 @login_required
 def index(request):
@@ -52,7 +53,7 @@ def allinstances(request):
     else:
         for comp in computes:
             try:
-                all_host_vms.update(get_host_instances(request,comp))
+                all_host_vms.update(get_host_instances(request, comp))
             except libvirtError as lib_err:
                 error_messages.append(lib_err)
 
@@ -104,7 +105,6 @@ def instance(request, compute_id, vname):
     """
 
     error_messages = []
-    # messages = []
     compute = get_object_or_404(Compute, pk=compute_id)
     computes = Compute.objects.all().order_by('name')
     computes_count = computes.count()
@@ -302,18 +302,36 @@ def instance(request, compute_id, vname):
         show_access_ssh_keys = settings.SHOW_ACCESS_SSH_KEYS
         clone_instance_auto_name = settings.CLONE_INSTANCE_AUTO_NAME
 
-        try:
-            instance = Instance.objects.get(compute_id=compute_id, name=vname)
+        # Instance Database Add/update - start
+        instance, created = Instance.objects.get_or_create(compute_id=compute_id, name=vname)
+        if created:
+            instance.uuid = uuid
+            instance.save()
+            msg = _("Instance.DoesNotExist: Creating new instance")
+            addlogmsg(request.user.username, instance.name, msg)
+        else:
             if instance.uuid != uuid:
                 instance.uuid = uuid
                 instance.save()
                 msg = _("Fixing uuid %s" % uuid)
                 addlogmsg(request.user.username, instance.name, msg)
-        except Instance.DoesNotExist:
-            instance = Instance(compute_id=compute_id, name=vname, uuid=uuid)
-            instance.save()
-            msg = _("Instance.DoesNotExist: Creating new instance")
-            addlogmsg(request.user.username, instance.name, msg)
+
+        # XML could be modified, check disks count and remove if there is a diff
+        inst_disks = Disk.objects.filter(instance=instance)
+        if not len(disks) == inst_disks.count():
+            for in_dsk in inst_disks: in_dsk.delete()
+
+        for disk in disks:
+            try:
+                inst_disk, created = Disk.objects.get_or_create(instance=instance, dev=disk['dev'])
+                inst_disk.bus = disk['bus']
+                inst_disk.source = disk['path']
+                inst_disk.format = disk['format']
+                inst_disk.save()
+            except IntegrityError:
+                inst_disk.delete()
+                addlogmsg(request.user.username, instance.name, _("Disk does not found."))
+        # Instance Database Add/Update - end
 
         userinstances = UserInstance.objects.filter(instance=instance).order_by('user__username')
         allow_admin_or_not_template = request.user.is_superuser or request.user.is_staff or not instance.is_template
@@ -507,6 +525,9 @@ def instance(request, compute_id, vname):
                 conn.detach_disk(dev)
                 connDelete.del_volume(name)
 
+                #inst_disk = Disk.objects.get(instance=instance, dev=dev)
+                #inst_disk.delete()
+
                 msg = _('Delete disk: ' + dev)
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#disks')
@@ -515,6 +536,9 @@ def instance(request, compute_id, vname):
                 dev = request.POST.get('detach_vol', '')
                 path = request.POST.get('path', '')
                 conn.detach_disk(dev)
+
+                #inst_disk = Disk.objects.get(instance=instance, dev=dev)
+                #inst_disk.delete()
                 msg = _('Detach disk: ' + dev)
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#disks')
@@ -531,6 +555,8 @@ def instance(request, compute_id, vname):
                 dev = request.POST.get('detach_cdrom', '')
                 path = request.POST.get('path', '')
                 conn.detach_disk(dev)
+                #inst_disk = Disk.objects.get(instance=instance, dev=dev)
+                #inst_disk.delete()
                 msg = _('Detach CD-Rom: ' + dev)
                 addlogmsg(request.user.username, instance.name, msg)
                 return HttpResponseRedirect(request.get_full_path() + '#media')
@@ -858,26 +884,38 @@ def get_host_instances(request,comp):
                     addlogmsg(request.user.username, i.name, _("Deleting due to multiple records."))
                     i.delete()
 
-        try:
-            inst_on_db = Instance.objects.get(compute_id=comp["id"], name=inst_name)
-            if inst_on_db.uuid != info['uuid']:
-                inst_on_db.save()
-
-            all_host_vms[comp["id"],
-                           comp["name"],
-                           comp["status"],
-                           comp["cpu"],
-                           comp["mem_size"],
-                           comp["mem_perc"]][inst_name]['is_template'] = inst_on_db.is_template
-            all_host_vms[comp["id"],
-                           comp["name"],
-                           comp["status"],
-                           comp["cpu"],
-                           comp["mem_size"],
-                           comp["mem_perc"]][inst_name]['userinstances'] = get_userinstances_info(inst_on_db)
-        except Instance.DoesNotExist:
-            inst_on_db = Instance(compute_id=comp["id"], name=inst_name, uuid=info['uuid'])
+        inst_on_db, created = Instance.objects.get_or_create(compute_id=comp["id"], name=inst_name)
+        if inst_on_db.uuid != info['uuid']:
             inst_on_db.save()
+
+        # # XML could be modified, check disks count and remove if there is a diff
+        # inst_disks = Disk.objects.filter(instance=inst_on_db)
+        # if not len(info['disks']) == inst_disks.count():
+        #     for in_dsk in inst_disks: in_dsk.delete()
+        #
+        # for disk in info['disks']:
+        #     try:
+        #         inst_disk, created = Disk.objects.get_or_create(instance=inst_on_db, dev=disk['dev'])
+        #         inst_disk.bus = disk['bus']
+        #         inst_disk.source = disk['source']
+        #         inst_disk.format = disk['format']
+        #         inst_disk.save()
+        #     except IntegrityError:
+        #         inst_disk.delete()
+        #         addlogmsg(request.user.username, inst_on_db.name, _("Instance disk does not found."))
+
+        all_host_vms[comp["id"],
+                       comp["name"],
+                       comp["status"],
+                       comp["cpu"],
+                       comp["mem_size"],
+                       comp["mem_perc"]][inst_name]['is_template'] = inst_on_db.is_template
+        all_host_vms[comp["id"],
+                       comp["name"],
+                       comp["status"],
+                       comp["cpu"],
+                       comp["mem_size"],
+                       comp["mem_perc"]][inst_name]['userinstances'] = get_userinstances_info(inst_on_db)
 
     all_host_vms = {}
     status = connection_manager.host_is_up(comp.type, comp.hostname)
@@ -900,6 +938,7 @@ def get_host_instances(request,comp):
             }
             all_host_vms[comp_info["id"], comp_info["name"], comp_info["status"], comp_info["cpu"],
                          comp_info["mem_size"], comp_info["mem_perc"]] = comp_instances
+
             for vm, info in comp_instances.items():
                 refresh_instance_database(comp_info, vm, info)
 

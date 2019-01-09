@@ -561,6 +561,7 @@ class wvmConnect(object):
     def get_host_instances(self, raw_mem_size=False):
         vname = {}
         def get_info(doc):
+            disks = []
             mem = util.get_xpath(doc, "/domain/currentMemory")
             mem = int(mem) / 1024
             if raw_mem_size:
@@ -574,11 +575,31 @@ class wvmConnect(object):
             title = title if title else ''
             description = util.get_xpath(doc, "/domain/description")
             description = description if description else ''
-            return (mem, vcpu, title, description)
+
+            for disk in doc.xpath("/domain/devices/disk"):
+                dev, volume, storage, src_file, disk_format = None, None, None, None, None
+                device = disk.xpath('@device')[0]
+                if device == 'disk':
+                    try:
+                        dev = disk.xpath('target/@dev')[0]
+                        bus = disk.xpath('target/@bus')[0]
+                        src_file = disk.xpath('source/@file|source/@dev|source/@name|source/@volume')[0]
+                        try:
+                            disk_format = disk.xpath('driver/@type')[0]
+                        except:
+                            pass
+                    except:
+                        pass
+                    finally:
+                        disks.append(
+                            {'dev': dev, 'bus': bus, 'source': src_file, 'format': disk_format})
+
+            return (mem, vcpu, title, description, disks)
+
         for name in self.get_instances():
             dom = self.get_instance(name)
             xml = dom.XMLDesc(0)
-            (mem, vcpu, title, description) = util.get_xml_path(xml, func=get_info)
+            (mem, vcpu, title, description, disks) = util.get_xml_path(xml, func=get_info)
             vname[dom.name()] = {
                 'status': dom.info()[0],
                 'uuid': dom.UUIDString(),
@@ -586,6 +607,7 @@ class wvmConnect(object):
                 'memory': mem,
                 'title': title,
                 'description': description,
+                'disks': disks
             }
         return vname
 
