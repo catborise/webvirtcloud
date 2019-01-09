@@ -254,14 +254,8 @@ class wvmInstance(wvmConnect):
     def get_disk_devices(self):
         def disks(doc):
             result = {}
-            dev = None
-            volume = None
-            storage = None
-            src_fl = None
-            disk_format = None
-            used_size = None
-            disk_size = None
-
+            dev = volume = storage = src_file = None
+            disk_format = used_size = disk_size = None
             for disk in doc.xpath('/domain/devices/disk'):
                 back_store = []
                 device = disk.xpath('@device')[0]
@@ -269,9 +263,10 @@ class wvmInstance(wvmConnect):
                     try:
                         dev = disk.xpath('target/@dev')[0]
                         bus = disk.xpath('target/@bus')[0]
-                        src_fl = disk.xpath('source/@file|source/@dev|source/@name|source/@volume')[0]
+                        src_file = disk.xpath('source/@file|source/@dev|source/@name|source/@volume')[0]
                         try:
                             disk_format = disk.xpath('driver/@type')[0]
+                            disk_cache = disk.xpath('driver/@cache')[0]
                             backingStore = disk.xpath('backingStore')
 
                             while backingStore:
@@ -286,7 +281,7 @@ class wvmInstance(wvmConnect):
                             pass
 
                         try:
-                            vol = self.get_volume_by_path(src_fl)
+                            vol = self.get_volume_by_path(src_file)
                             volume = vol.name()
 
                             disk_size = vol.info()[1]
@@ -294,12 +289,12 @@ class wvmInstance(wvmConnect):
                             stg = vol.storagePoolLookupByVolume()
                             storage = stg.name()
                         except libvirtError:
-                            volume = src_fl
+                            volume = src_file
                     except:
                         pass
                     finally:
-                        result[dev] = {'bus': bus, 'image': volume, 'storage': storage, 'path': src_fl,
-                                       'format': disk_format, 'size': disk_size, 'used': used_size, "backingStore": back_store}
+                        result[dev] = {'bus': bus, 'image': volume, 'storage': storage, 'path': src_file,
+                                       'format': disk_format, 'size': disk_size, 'used': used_size, 'cache': disk_cache, "backingStore": back_store}
             return result
 
         return util.get_xml_path(self._XMLDesc(0), func=disks)
@@ -307,10 +302,8 @@ class wvmInstance(wvmConnect):
     def get_media_devices(self):
         def disks(doc):
             result = []
-            dev = None
-            volume = None
-            storage = None
-            src_fl = None
+            dev = volume = storage = None
+            src_file = None
             for media in doc.xpath('/domain/devices/disk'):
                 device = media.xpath('@device')[0]
                 if device == 'cdrom':
@@ -318,18 +311,18 @@ class wvmInstance(wvmConnect):
                         dev = media.xpath('target/@dev')[0]
                         bus = media.xpath('target/@bus')[0]
                         try:
-                            src_fl = media.xpath('source/@file')[0]
-                            vol = self.get_volume_by_path(src_fl)
+                            src_file = media.xpath('source/@file')[0]
+                            vol = self.get_volume_by_path(src_file)
                             volume = vol.name()
                             stg = vol.storagePoolLookupByVolume()
                             storage = stg.name()
                         except:
-                            src_fl = None
-                            volume = src_fl
+                            src_file = None
+                            volume = src_file
                     except:
                         pass
                     finally:
-                        result.append({'dev': dev, 'image': volume, 'storage': storage, 'path': src_fl, 'bus': bus})
+                        result.append({'dev': dev, 'image': volume, 'storage': storage, 'path': src_file, 'bus': bus})
             return result
 
         return util.get_xml_path(self._XMLDesc(0), func=disks)
@@ -529,8 +522,7 @@ class wvmInstance(wvmConnect):
         return telnet_port
 
     def get_console_listen_addr(self):
-        listen_addr = util.get_xml_path(self._XMLDesc(0),
-                                        "/domain/devices/graphics/@listen")
+        listen_addr = util.get_xml_path(self._XMLDesc(0), "/domain/devices/graphics/@listen")
         if listen_addr is None:
             listen_addr = util.get_xml_path(self._XMLDesc(0), "/domain/devices/graphics/listen/@address")
             if listen_addr is None:
