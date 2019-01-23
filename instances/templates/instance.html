@@ -437,11 +437,6 @@
                                     <div role="tabpanel">
                                         <!-- Nav tabs -->
                                         <ul class="nav nav-tabs" role="tablist">
-                                            <li role="presentation" class="active">
-                                                <a href="#takesnapshot_ext" aria-controls="takesnapshot_ext" role="tab" data-toggle="tab">
-                                                    {% trans "Take Snapshot - External" %}
-                                                </a>
-                                            </li>
                                             <li role="presentation">
                                                 <a href="#takesnapshot_ext" aria-controls="takesnapshot_ext" role="tab" data-toggle="tab">
                                                     {% trans "Take Snapshot - External" %}
@@ -753,8 +748,6 @@
                                                                 {% else %}
                                                                     <input type="submit" class="btn btn-danger" name="unset_bootmenu" value="{% trans "Disable" %}">
                                                                 {% endifequal %}
-                                                            {% else %}
-                                                                <p>{% trans "**** Please shutdown instance to modify boot menu ****" %}
                                                             {% endifequal %}
                                                             </p>
                                                             </div>
@@ -773,8 +766,8 @@
                                                             <div class="form-group">
                                                                 <div class="col-sm-6 col-sm-offset-2">
                                                                     <div id="b_order" class="multiselect">
-                                                                        {% for disk in disks %}
-                                                                            <label><input type="checkbox" name="disk:{{ disk.dev }}" value="disk:{{ disk.dev }}" onclick="set_orderlist($('#bootorder'))" />{{ disk.dev }} - {{ disk.image }}</label>
+                                                                        {% for dev, disk in disks.items %}
+                                                                            <label><input type="checkbox" name="disk:{{ dev }}" value="disk:{{ dev }}" onclick="set_orderlist($('#bootorder'))" />{{ dev }} - {{ disk.image }}</label>
                                                                         {% endfor %}
                                                                         {% for cd in media %}
                                                                             <label><input type="checkbox" name="cdrom:{{ cd.dev }}" value="cdrom:{{ cd.dev }}" onclick="set_orderlist($('#bootorder'))"/>{{ cd.dev }} - {{ cd.image }}</label>
