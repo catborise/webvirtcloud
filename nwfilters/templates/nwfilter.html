@@ -55,7 +55,7 @@
                             <input type="hidden" name="edit_xml"/>
                             <textarea id="edit_editor">{{ xml }}</textarea>
                         </div>
-                        <button type="submit" class="btn btn-primary float-right" name="edit_nwfilter">
+                        <button type="submit" class="btn btn-primary float-end" name="edit_nwfilter">
                             {% trans "Edit" %}
                         </button>
                     </form>
@@ -66,20 +66,20 @@
     <div class="row">
         <div class="col-lg-12">
         <h5 class="page-header mr-auto">{% trans "Filter References" %}
-            <form class="form-inline float-right" method="post" role="form" aria-label="Add NWFilter form">{% csrf_token %}
-                <div class="form-group">
+            <form class="form-inline float-end" method="post" role="form" aria-label="Add NWFilter form">{% csrf_token %}
+                <div class="">
                     <div class="input-group">
                         <div class="input-group-prepend">
                             <span class="input-group-text">{% trans "Filter" %}</span>
                         </div>    
-                        <select id="nwfilter_select" name="nwfilters_select" class="custom-select">
+                        <select id="nwfilter_select" name="nwfilters_select" class="form-select">
                             <option value="" selected>{% trans 'None' %}</option>
                             {% for nwf in nwfilters_all %}
                                 <option value="{{ nwf.name }}">{{ nwf.name }}</option>
                             {% endfor %}
                         </select>
                         <div class="input-group-append">
-                            <button type="submit" class="btn btn-success float-right" name="add_nwfilter_ref">
+                            <button type="submit" class="btn btn-success float-end" name="add_nwfilter_ref">
                                 <span class="fa fa-plus" aria-hidden="true"></span>
                             </button>
                         </div>

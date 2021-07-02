@@ -13,25 +13,25 @@
      <div>
         <div>
             {% if instance.status == 5 %}
-               <span class="badge badge-danger">{% trans "Off" %}</span>
+               <span class="badge bg-danger">{% trans "Off" %}</span>
             {% endif %}
             {% if instance.status == 1 %}
-                <span class="badge badge-success">{% trans "Active" %}</span>
+                <span class="badge bg-success">{% trans "Active" %}</span>
             {% endif %}
             {% if instance.status == 3 %}
-                <span class="badge badge-warning">{% trans "Suspend" %}</span>
+                <span class="badge bg-warning">{% trans "Suspend" %}</span>
             {% endif %}
             |
             <span {%if instance.guest_agent %}
                     {% if instance.guest_agent_ready %}
-                        class="badge badge-success"
+                        class="badge bg-success"
                         title="{% trans "Guest Agent Enabled & Connected" %}"
                     {% else %}
-                        class="badge badge-warning"
+                        class="badge bg-warning"
                         title="{% trans "Guest Agent Enabled but not Connected" %}"
                     {% endif %}
                 {% else %}
-                    class="badge badge-danger"
+                    class="badge bg-danger"
                     title="{% trans "Guest Agent Not Enabled & Not Connected" %}"
                 {% endif %}><i class="fa fa-plug"></i></span>
             |
@@ -76,49 +76,49 @@
             <div role="tabpanel">
                 <!-- Nav tabs -->
                 <ul class="nav nav-pills" id="navbtn" aria-label="Instance actions">
-                    <li class="nav-item">
-                        <a href="#power" class="nav-link action-button active" aria-controls="power" role="tab" data-toggle="tab">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link action-button active" aria-controls="power" data-bs-toggle="pill" data-bs-target="#power" type="button" role="tab" aria-selected="true">
                             <span id="action-block" class="fa fa-power-off fa-2x" aria-hidden="true"></span>
                             {% trans "Power" %}
-                        </a>
+                        </button>
                     </li>
-                    <li class="nav-item">
-                        <a href="#access" class="nav-link action-button" aria-controls="access" role="tab" data-toggle="tab">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link action-button" aria-controls="access" data-bs-toggle="pill" data-bs-target="#access" type="button" role="tab" aria-selected="false">
                             <span id="action-block" class="fa fa-lock" aria-hidden="true"></span>
                             {% trans "Access" %}
-                        </a>
+                        </button>
                     </li>
-                    <li class="nav-item">
-                        <a href="#resize" class="nav-link action-button" aria-controls="resize" role="tab" data-toggle="tab">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link action-button" aria-controls="resize" data-bs-toggle="pill" data-bs-target="#resize" type="button" role="tab" aria-selected="false">
                             <span id="action-block" class="fa fa-expand" aria-hidden="true"></span>
                             {% trans "Resize" %}
-                        </a>
+                        </button>
                     </li>
                     {% if allow_admin_or_not_template %}
-                        <li class="nav-item">
-                        <a href="#snapshots" class="nav-link action-button" aria-controls="snapshots" role="tab" data-toggle="tab">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link action-button" aria-controls="snapshots" data-bs-toggle="pill" data-bs-target="#snapshots" type="button" role="tab" aria-selected="false">
                             <span id="action-block" class="fa fa-camera" aria-hidden="true"></span>
                             {% trans "Snapshot" %}
-                        </a>
+                        </button>
                     </li>
                     {% endif %}
-                    <li class="nav-item">
-                        <a href="#settings" class="nav-link action-button" aria-controls="settings" role="tab" data-toggle="tab">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link action-button" aria-controls="settings" data-bs-toggle="pill" data-bs-target="#settings" type="button" role="tab" aria-selected="false">
                             <span id="action-block" class="fa fa-cog" aria-hidden="true"></span>
                             {% trans "Settings" %}
-                        </a>
+                        </button>
                     </li>
-                    <li class="nav-item">
-                        <a href="#graphics" id="chartgraphs" class="nav-link action-button" aria-controls="graphics" role="tab" data-toggle="tab">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link action-button" aria-controls="graphics" data-bs-toggle="pill" data-bs-target="#graphics" type="button" role="tab" aria-selected="false">
                             <span id="action-block" class="fa fa-bar-chart" aria-hidden="true"></span>
                             {% trans "Stats" %}
-                        </a>
+                        </button>
                     </li>
-                     <li class="nav-item">
-                        <a href="#undefine" class="nav-link action-button" aria-controls="undefine" role="tab" data-toggle="tab">
+                     <li class="nav-item" role="presentation">
+                        <button class="nav-link action-button" aria-controls="undefine" data-bs-toggle="pill" data-bs-target="#undefine" type="button" role="tab" aria-selected="false">
                             <span id="action-block" class="fa fa-trash" aria-hidden="true"></span>
                             {% trans "Destroy" %}
-                        </a>
+                        </button>
                     </li>
                 </ul>
                 <!-- Tab panes -->
@@ -739,5 +739,8 @@
             })
         });
     }
+    var popover = new bootstrap.Popover(document.querySelector('.popover-dismiss'), {
+        trigger: 'focus'
+    })
 </script>
 {% endblock %}

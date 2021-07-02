@@ -83,7 +83,7 @@
     <script>
         function log_message(msg, type) {
             var exist = $('#status').is('div');
-            status_div = $('<div id="status" class="alert alert-' + type + ' role="alert"><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>' + msg + '</div>');
+            status_div = $('<div id="status" class="alert alert-' + type + ' role="alert"><button type="button" class="btn-close" aria-label="Close"></button>' + msg + '</div>');
             if (exist) {
                 $('#status').remove();
                 $('body').prepend(status_div);

@@ -15,13 +15,13 @@
     <tbody class="searchable">
         {% for compute in computes %}
             {% if compute.status is True and compute.instance_set.count > 0 %}
-                <tr class="font-weight-bold active" style="border-bottom: 2px solid darkgray;border-top: 2px solid darkgray;">
+                <tr class="fw-bold active" style="border-bottom: 2px solid darkgray;border-top: 2px solid darkgray;">
                     <td>
                         <span id="collapse_host_instances_{{ compute.id }}" class="fa fa-chevron-up" onclick="hide_host_instances('{{ compute.id }}');"></span>
                     </td>
                     <td>
                         <a class="text-secondary" href="{% url 'overview' compute.id %}">{{ compute.name }}</a>
-                        <span id="inst_count_badge_{{ compute.id }}" class="badge badge-secondary d-none">{{ compute.instance_set.count }}</span>
+                        <span id="inst_count_badge_{{ compute.id }}" class="badge bg-secondary d-none">{{ compute.instance_set.count }}</span>
                     </td>
                     <td class="d-none d-sm-table-cell"></td>
                     <td>

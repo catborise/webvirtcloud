@@ -78,7 +78,7 @@
                         <input type="hidden" name="edit_xml"/>
                         <textarea id="edit_editor">{{ xml }}</textarea>
                     </div>
-                    <button type="submit" class="btn btn-primary float-right" name="edit_network">
+                    <button type="submit" class="btn btn-primary float-end" name="edit_network">
                         {% trans "Edit" %}
                     </button>
                 </form>
@@ -158,8 +158,8 @@
                 {% trans 'Show' %}
             </button>
             <div id="collapseipv4fix" class="collapse">
-                <div class="input-append form-inline float-right">
-                    <div class="form-group row">
+                <div class="input-append form-inline float-end">
+                    <div class="row">
                         <input type="text" class="form-control" id="filter_input">
                     </div>
                     <input type="button" class="btn btn-secondary" id="filter_button" value="Filter">
@@ -268,8 +268,8 @@
                 {% trans 'Show' %}
             </button>
             <div id="collapseipv6fix" class="collapse">
-                <div class="input-append form-inline float-right">
-                    <div class="form-group">
+                <div class="input-append form-inline float-end">
+                    <div class="">
                         <input type="text" class="form-control" id="filter_input_ipv6">
                     </div>
                     <input type="button" class="btn btn-secondary" id="filter_button_ipv6" value="Filter">
@@ -349,7 +349,7 @@
                         <td class="text-nowrap">
                             <input name="qos_direction" value="{{ q }}" hidden/>
                             <button type="submit" class="btn btn-sm btn-primary"
-                                    name="set_qos" data-toggle="modal"
+                                    name="set_qos" data-bs-toggle="modal"
                                     title="{% trans "Edit QoS" %}" onclick="return confirm('{% trans "Are you sure?" %}')">
                                 <i class="fa fa-save"></i>
                             </button>

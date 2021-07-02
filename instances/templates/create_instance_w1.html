@@ -48,25 +48,25 @@
                         
                             <div class="center-block">
                             <form method="post" role="form" aria-label="Select instance architecture form">{% csrf_token %}
-                                <div class="form-group row">
+                                <div class="row">
                                     <label class="col-sm-3 col-form-label">{% trans "Architecture" %}</label>
                                     <div class="col-sm-6">
-                                         <select class="custom-select" id="select_archs" name="archs" onchange="get_machine_types({{ compute_id }}, value);">
+                                         <select class="form-select" id="select_archs" name="archs" onchange="get_machine_types({{ compute_id }}, value);">
                                             {% for hpv in hypervisors %}
                                             <option value="{{ hpv }}" {% if hpv == default_arch %}selected{% endif %}>{{ hpv }}</option>
                                             {% endfor %}
                                         </select>
                                     </div>
                                 </div>
-                                <div class="form-group row">
+                                <div class="row">
                                     <label class="col-sm-3 col-form-label">{% trans "Chipset" %}</label>
                                     <div class="col-sm-6">
-                                        <select class="custom-select" id="select_chipset" name="chipset">
+                                        <select class="form-select" id="select_chipset" name="chipset">
                                         <!-- fill with script -->
                                         </select>
                                     </div>
                                 </div>
-                                <div class="form-group row">
+                                <div class="row">
                                     <div class="col-sm-6 offset-3">
                                     <button class="btn btn-block btn-primary"  type="button" name="create_instance" onclick="goto_create()">
                                          {% trans "Next" %}
@@ -85,7 +85,7 @@
                                      <input type="hidden" name="dom_xml"/>
                                     <textarea id="editor"></textarea>
                                 </div>
-                                <button type="submit" class="btn btn-primary float-right" name="create_xml" onclick="showPleaseWaitDialog()">
+                                <button type="submit" class="btn btn-primary float-end" name="create_xml" onclick="showPleaseWaitDialog()">
                                     {% trans "Create" %}
                                 </button>
                             </form>
