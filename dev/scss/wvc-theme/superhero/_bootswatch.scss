@@ -140,3 +140,9 @@ label,
     background-color: $table-hover-bg;
   }
 }
+
+.breadcrumb {
+  a {
+    text-decoration: none;
+  }
+}

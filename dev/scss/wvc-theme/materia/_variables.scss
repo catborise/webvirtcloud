@@ -56,12 +56,12 @@ $font-weight-base:          400 !default;
 
 // Buttons
 
-$input-btn-padding-y:       .8rem !default;
+$input-btn-padding-y:       .5rem !default;
 $input-btn-padding-x:       1rem !default;
 
 // Forms
 
-$input-padding-y:                1rem !default;
+$input-padding-y:                .5rem !default;
 $input-padding-x:                0 !default;
 $input-padding-y-sm:             0 !default;
 $input-padding-x-sm:             0 !default;
@@ -85,7 +85,7 @@ $nav-tabs-border-color:         transparent !default;
 
 // Navbar
 
-$navbar-padding-y:                  1rem !default;
+$navbar-padding-y:                  .5rem !default;
 $navbar-dark-color:                 rgba($white, .75) !default;
 $navbar-dark-hover-color:           $white !default;
 
@@ -112,3 +112,10 @@ $progress-border-radius:        0 !default;
 $btn-close-color:            $white !default;
 $btn-close-opacity:          .6 !default;
 $btn-close-hover-opacity:    1 !default;
+
+// Breadcrumbs
+
+$breadcrumb-padding-y:              .375rem !default;
+$breadcrumb-padding-x:              .75rem !default;
+
+$link-decoration:                   none !default;

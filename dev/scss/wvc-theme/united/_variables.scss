@@ -36,7 +36,7 @@ $success:       $green !default;
 $info:          $cyan !default;
 $warning:       $yellow !default;
 $danger:        $red !default;
-$light:         $gray-200 !default;
+$light:         $gray-100 !default;
 $dark:          $purple !default;
 
 $min-contrast-ratio:   1.8 !default;
@@ -54,3 +54,10 @@ $font-family-sans-serif:      Ubuntu, -apple-system, BlinkMacSystemFont, "Segoe 
 
 $table-dark-bg:               $dark !default;
 $table-dark-border-color:     darken($dark, 5%) !default;
+
+// Breadcrumbs
+
+$breadcrumb-padding-y:              .375rem !default;
+$breadcrumb-padding-x:              .75rem !default;
+
+$link-decoration:                   none !default;

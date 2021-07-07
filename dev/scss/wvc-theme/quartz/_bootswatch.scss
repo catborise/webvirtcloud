@@ -97,6 +97,9 @@ body {
 
 .form-select {
   transition: border-color .15s ease-in-out;
+  option {
+    background-color: $primary;
+  }
 }
 
 .bg-light .form-control {

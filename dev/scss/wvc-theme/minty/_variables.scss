@@ -36,7 +36,7 @@ $success:       $green !default;
 $info:          $cyan !default;
 $warning:       $yellow !default;
 $danger:        $red !default;
-$light:         $gray-100 !default;
+$light:         $primary !default;
 $dark:          $gray-800 !default;
 
 $min-contrast-ratio:   1.45 !default;
@@ -104,3 +104,5 @@ $breadcrumb-bg:                     $primary !default;
 $breadcrumb-divider-color:          $white !default;
 $breadcrumb-active-color:           $breadcrumb-divider-color !default;
 $breadcrumb-border-radius:          .25rem !default;
+
+$link-decoration:                   none !default;

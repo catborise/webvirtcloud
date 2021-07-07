@@ -55,7 +55,6 @@ $h3-font-size:                2rem !default;
 
 // Tables
 
-$table-accent-bg:             $gray-200 !default;
 $table-bg-scale:              0 !default;
 
 // Dropdowns
@@ -67,13 +66,13 @@ $dropdown-link-hover-bg:            $primary !default;
 // Navs
 
 $nav-link-padding-y:                .5rem !default !default;
-$nav-link-padding-x:                2rem !default;
+$nav-link-padding-x:                1.5rem !default;
 $nav-link-disabled-color:           $gray-600 !default !default;
 $nav-tabs-border-color:             $gray-200 !default;
 
 // Navbar
 
-$navbar-padding-y:                  1rem !default;
+$navbar-padding-y:                  .7rem !default;
 $navbar-dark-color:                 $white !default;
 $navbar-dark-hover-color:           $primary !default;
 $navbar-dark-active-color:          $primary !default;
@@ -112,3 +111,5 @@ $breadcrumb-border-radius:          .25rem !default;
 $btn-close-color:            $white !default;
 $btn-close-opacity:          .4 !default;
 $btn-close-hover-opacity:    1 !default;
+
+$link-decoration:                   none !default;

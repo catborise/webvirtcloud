@@ -104,7 +104,7 @@
                                         <label class="col-sm-3 col-form-label">{% trans "Storage" %}</label>
                                         <div class="col-sm-6">
                                             <div class="dropdown">
-                                                <button id="select_storage" class="btn btn-secondary dropdown-toggle form-control" type="button" data-toggle="dropdown">{% trans 'Select Pool' %}...</button>
+                                                <button id="select_storage" class="btn btn-secondary dropdown-toggle form-control" type="button" data-bs-toggle="dropdown">{% trans 'Select Pool' %}...</button>
                                                 <div class="dropdown-menu">
                                                     {% for storage in storages_host %}
                                                         <a class="dropdown-item" href="#" onclick="get_volumes({{ instance.compute.id }}, '{{ storage }}')">{{ storage }}</a>
@@ -117,7 +117,7 @@
                                     <div class="row">
                                         <label class="col-sm-3 col-form-label" >{% trans "Volume" %}</label>
                                         <div class="col-sm-6">
-                                            <select id="vols" name="vols" class="form-control" disabled>
+                                            <select id="vols" name="vols" class="form-select" disabled>
                                                 <option value="" selected>{% trans 'None' %}</option>
                                                 <!-- populate with javascript -->
                                             </select>

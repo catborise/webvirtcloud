@@ -52,7 +52,7 @@ $body-color:                $cyan !default;
 
 // Links
 
-$link-color:                              $body-color !default;
+$link-color:                  $body-color !default;
 
 // Components
 
@@ -89,9 +89,9 @@ $input-placeholder-color:               rgba($white, .4) !default;
 
 $input-group-addon-bg:                  $input-disabled-bg !default;
 
-$form-range-track-bg:             $input-bg !default;
+$form-range-track-bg:                   $input-bg !default;
 
-$form-range-thumb-disabled-bg:             $purple !default;
+$form-range-thumb-disabled-bg:          $purple !default;
 
 // Navs
 
@@ -102,11 +102,8 @@ $nav-tabs-link-active-color:        $component-active-bg !default;
 // Pagination
 
 $pagination-bg:                     transparent !default;
-
 $pagination-focus-bg:               transparent !default;
-
 $pagination-hover-bg:               transparent !default;
-
 $pagination-disabled-color:         $text-muted !default;
 $pagination-disabled-bg:            transparent !default;
 
@@ -124,9 +121,7 @@ $tooltip-opacity:                   1 !default;
 // Popovers
 
 $popover-bg:                        $primary !default;
-
 $popover-header-color:              $white !default;
-
 $popover-body-color:                $white !default;
 
 // Toasts
@@ -158,5 +153,9 @@ $list-group-action-active-bg:       $list-group-hover-bg !default;
 
 // Breadcrumbs
 
+$breadcrumb-padding-y:              .375rem !default;
+$breadcrumb-padding-x:              .75rem !default;
 $breadcrumb-divider-color:          $text-muted !default;
 $breadcrumb-active-color:           $component-active-bg !default;
+
+$link-decoration:                   none !default;

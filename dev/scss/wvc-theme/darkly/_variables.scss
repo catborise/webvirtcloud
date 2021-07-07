@@ -61,7 +61,7 @@ $text-muted:                  $gray-600 !default;
 
 // Tables
 
-$table-accent-bg:             $gray-800 !default;
+$table-accent-bg:             transparent;
 $table-border-color:          $gray-700 !default;
 
 $table-bg-scale:              0 !default;
@@ -98,7 +98,7 @@ $nav-tabs-link-active-border-color: $nav-tabs-border-color $nav-tabs-border-colo
 
 // Navbar
 
-$navbar-padding-y:                  1rem !default;
+$navbar-padding-y:                 .75rem !default;
 $navbar-dark-color:                rgba($white, .6) !default;
 $navbar-dark-hover-color:          $white !default;
 $navbar-light-color:                rgba($gray-900, .7) !default;
@@ -171,3 +171,5 @@ $btn-close-hover-opacity:    1 !default;
 // Code
 
 $pre-color:                         inherit !default;
+
+$link-decoration:                   none !default;

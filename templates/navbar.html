@@ -5,7 +5,7 @@
 <nav class="navbar navbar-expand-md navbar-dark bg-primary mb-3" aria-label="Main top navbar">
   <div class="container">
     <a class="navbar-brand" href="{% url 'index' %}">WebVirtCloud</a>
-    <button type="button" class="navbar-toggler" data-toggle="collapse" data-target="#navbar" aria-expanded="false" aria-label="Toggle navigation">
+    <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar" aria-expanded="false" aria-label="Toggle navigation">
       <span class="navbar-toggler-icon"></span>
     </button>
     <div class="collapse navbar-collapse" id="navbar">
@@ -22,7 +22,7 @@
       <ul class="navbar-nav ms-auto">
         {% if request.user.is_superuser %}
         <li class="nav-item dropdown {% app_active request 'admin' %}">
-          <a class="nav-link" id="administration" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+          <a class="nav-link" id="administration" href="#" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
             {% icon 'wrench' %}
           </a>
           <div class="dropdown-menu" aria-labelledby="administration">
@@ -34,7 +34,7 @@
         </li>
         {% endif %}
         <li class="nav-item dropdown {% class_active request '^/accounts' %}">
-          <a class="nav-link dropdown-toggle" href="#" id="navbarUserDropdown" data-toggle="dropdown" role="button" aria-expanded="false">
+          <a class="nav-link dropdown-toggle" href="#" id="navbarUserDropdown" data-bs-toggle="dropdown" role="button" aria-expanded="false">
             <i class="fa fa-fw fa-user"></i> {{ request.user.username }}
           </a>
           <div class="dropdown-menu" aria-labelledby="navbarUserDropdown">

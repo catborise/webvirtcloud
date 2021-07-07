@@ -110,3 +110,9 @@ table,
 .list-group {
   font-size: $font-size-sm;
 }
+
+.breadcrumb {
+  a {
+    text-decoration: none;
+  }
+}

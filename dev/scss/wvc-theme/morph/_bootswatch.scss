@@ -296,6 +296,9 @@ $btn-box-shadow-inset: inset 2px 3px 6px rgba($black, .2), inset -3px -2px 6px r
 .breadcrumb {
   @include shadow();
   border-radius: $border-radius;
+  a {
+    text-decoration: none;
+  }
 }
 
 .pagination {

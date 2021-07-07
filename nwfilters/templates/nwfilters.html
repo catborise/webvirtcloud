@@ -15,8 +15,8 @@
     <div class="row">
         <div class="col-lg-12">
             <nav aria-label="breadcrumb">
-            <ol class="breadcrumb bg-light shadow-sm">
-                <li class="breadcrumb-item active">
+            <ol class="breadcrumb shadow-sm">
+                <li class="breadcrumb-item">
                     <a href="{% url 'overview' compute.id %}"><i class="fa fa-dashboard"></i> {% trans "Overview" %}</a>
                 </li>
                 <li class="breadcrumb-item">
@@ -59,7 +59,7 @@
                     {% for nwfilter in nwfilters %}
                     <tr>
                         <th scope="row">{{ forloop.counter }}</th>
-                        <td><a class="link-dark" href="{% url 'nwfilter' compute.id nwfilter.name %} ">{{ nwfilter.uuid }}</a></td>
+                        <td><a class="link-primary" href="{% url 'nwfilter' compute.id nwfilter.name %} ">{{ nwfilter.uuid }}</a></td>
                         <td>{{ nwfilter.name }}</td>
                         <td>
                             <div class="modal fade" id="Show{{ forloop.counter }}" tabindex="-1" role="dialog" aria-labelledby="showNWFilter" aria-hidden="true">
@@ -80,7 +80,7 @@
                                     </div> <!-- /.modal-content -->
                                 </div> <!-- /.modal-dialog -->
                             </div> <!-- /.modal -->
-                            <button class="btn btn-sm btn-secondary" data-bs-toggle="modal" data-target="#Show{{ forloop.counter }}" title="{% trans "Show" %}">
+                            <button class="btn btn-sm btn-secondary" data-bs-toggle="modal" data-bs-target="#Show{{ forloop.counter }}" title="{% trans "Show" %}">
                                 <i class="fa fa-eye"></i>
                             </button>
                         </td>
@@ -110,7 +110,7 @@
                                     </div> <!-- /.modal-content -->
                                 </div> <!-- /.modal-dialog -->
                             </div> <!-- /.modal -->
-                            <button class="btn btn-sm btn-secondary" data-bs-toggle="modal" data-target="#Clone{{ forloop.counter }}" title="{% trans "Clone" %}"><i class="fa fa-files-o"></i></button>
+                            <button class="btn btn-sm btn-secondary" data-bs-toggle="modal" data-bs-target="#Clone{{ forloop.counter }}" title="{% trans "Clone" %}"><i class="fa fa-files-o"></i></button>
                         </td>
                         <td>
                             <form action="" method="post" role="form" aria-label="Delete NWFilter form">{% csrf_token %}

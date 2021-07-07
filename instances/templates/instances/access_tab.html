@@ -1,5 +1,5 @@
 {% load i18n %}
-<div role="tabpanel" class="tab-pane" id="access" aria-label="Instance access options">
+<div class="tab-pane" id="access" role="tabpanel" aria-label="Instance access options">
     <!-- Nav tabs -->
     <ul class="nav nav-tabs" role="tablist">
         <li class="nav-item" role="presentation">
@@ -66,7 +66,7 @@
                 <button type="button" id="consoleBtnGroup" class="btn btn-lg btn-success"
                     onclick="open_console('lite')">{% trans 'Console' %}</button>
                 <button type="button" class="btn btn-success dropdown-toggle dropdown-toggle-split"
-                    data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                    data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
                     <span class="sr-only">{%  trans 'Toggle Dropdown' %}</span>
                 </button>
                 <div class="dropdown-menu">
@@ -86,7 +86,7 @@
         {% if app_settings.SHOW_ACCESS_ROOT_PASSWORD == 'True' %}
         <div role="tabpanel" class="tab-pane tab-pane-bordered" id="rootpasswd">
             <p>{% trans "You need shut down your instance and enter a new root password." %}</p>
-            <form action="{% url 'instances:rootpasswd' instance.id %}" class="form-inline" method="post"
+            <form action="{% url 'instances:rootpasswd' instance.id %}" method="post"
                 role="form" aria-label="Add root password to instance form">
                 {% csrf_token %}
                 <div class="row">
@@ -109,7 +109,7 @@
         {% if app_settings.SHOW_ACCESS_SSH_KEYS == 'True' %}
         <div role="tabpanel" class="tab-pane tab-pane-bordered" id="sshkeys">
             <p>{% trans "You need shut down your instance and choose your public key." %}</p>
-            <form action="{% url 'instances:add_public_key' instance.id %}" class="form-inline" method="post"
+            <form action="{% url 'instances:add_public_key' instance.id %}"method="post"
                 role="form" aria-label="Add public key to instance form">
                 {% csrf_token %}
                 <div class="row">

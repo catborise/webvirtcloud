@@ -93,6 +93,12 @@ $web-font-path: "https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;6
   border: 1px solid $gray-400 !important;
 }
 
+.breadcrumb {
+  a {
+    text-decoration: none;
+  }
+}
+
 // Typography
 
 body {

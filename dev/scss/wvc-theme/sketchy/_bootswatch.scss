@@ -324,6 +324,9 @@ select.form-control {
 .breadcrumb {
   border: 2px solid $gray-800;
   border-radius: $border-radius-sketchy;
+  a {
+     text-decoration: none;
+  }
 }
 
 .pagination {

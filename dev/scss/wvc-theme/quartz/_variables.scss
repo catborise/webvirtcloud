@@ -43,7 +43,7 @@ $min-contrast-ratio:   1.5 !default;
 
 // Spacing
 
-$spacer: 2rem !default;
+$spacer: 1rem !default;
 
 // Body
 
@@ -52,7 +52,7 @@ $body-color:                $white !default;
 
 // Links
 
-$link-color:                              $white !default;
+$link-color:                $white !default;
 
 // Components
 
@@ -83,8 +83,8 @@ $table-bg-scale:              0 !default;
 
 // Buttons + Forms
 
-$input-btn-padding-y:         .75rem !default;
-$input-btn-padding-x:         1.5rem !default;
+$input-btn-padding-y:         .5rem !default;
+$input-btn-padding-x:         1rem !default;
 
 // Buttons
 
@@ -114,6 +114,7 @@ $form-check-input-border:                 1px solid $border-color !default;
 
 $form-select-indicator-color:       $white !default;
 $form-select-focus-box-shadow:    none !default;
+
 
 $form-range-track-bg:             rgba($black, .2) !default;
 
@@ -214,9 +215,14 @@ $list-group-action-hover-color:     $white !default;
 
 // Breadcrumbs
 
+$breadcrumb-padding-y:              .375rem !default;
+$breadcrumb-padding-x:              .75rem !default;
+$breadcrumb-bg:                     transparent !default;
 $breadcrumb-divider-color:          $white !default;
 $breadcrumb-active-color:           $white !default;
 
 // Close
 
-$btn-close-color:            $white !default;
+$btn-close-color:                   $white !default;
+
+$link-decoration:                   none !default;

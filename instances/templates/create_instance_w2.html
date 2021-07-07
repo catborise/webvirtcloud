@@ -30,30 +30,30 @@
     {% endfor %}
     {% endif %}
 
-    <div class="row" id="max-width-page">
+    <div class="row">
         <div class="col-lg-12">
             <div role="tabpanel">
             <!-- Nav tabs -->
                 <ul class="nav nav-tabs" role="tablist" aria-label="Instance create method">
-                     <li class="nav-item">
-                        <a class="nav-link  float-end" href="#" role="tab" data-toggle="tab" onclick="goto_compute()">
+                     <li class="nav-item" role="presentation">
+                        <button class="nav-link float-end" data-bs-toggle="tab" data-bs-target="#" type="button" role="tab" aria-controls="go_compute" onclick="goto_compute()">
                             <span class="fa fa-arrow-left"></span>
-                        </a>
+                        </button>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link active"  href="#flavor" aria-controls="flavor" role="tab" data-toggle="tab">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#flavor" type="button" role="tab" aria-controls="flavor" aria-selected="true">
                             {% trans "Flavor" %}
-                        </a>
+                        </button>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#addCustom" aria-controls="addCustom" role="tab" data-toggle="tab">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#addCustom" type="button" role="tab" aria-controls="addCustom" aria-selected="false">
                             {% trans "Custom" %}
-                        </a>
+                        </button>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#addFromTemp" aria-controls="addFromTemp" role="tab" data-toggle="tab">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#addFromTemp" type="button" role="tab" aria-controls="addFromTemp" aria-selected="false">
                             {% trans "Template" %}
-                        </a>
+                        </button>
                     </li>
                 </ul>
                 <!-- Tab panes -->
@@ -113,7 +113,7 @@
                                                                 <div class="row">
                                                                     <label class="col-sm-4 col-form-label">{% trans "Firmware" %}</label>
                                                                     <div class="col-sm-7">
-                                                                        <select class="form-control" id="select_firmware" name="firmware">
+                                                                        <select class="form-select" id="select_firmware" name="firmware">
                                                                             {% for frm in firmwares %}
                                                                             <option value="{{ frm }}" {% if frm in default_firmware %}selected{% endif %}>{{ frm }}</option>
                                                                             {% endfor %}
@@ -125,7 +125,7 @@
                                                                 <div class="row">
                                                                     <label class="col-sm-4 col-form-label">{% trans "VCPU Config" %}</label>
                                                                     <div class="col-sm-7">
-                                                                        <select class="form-control" id="vcpu_mode" name="vcpu_mode">
+                                                                        <select class="form-select" id="vcpu_mode" name="vcpu_mode">
                                                                             <option value=""> {% trans 'no-mode' %}</option>
                                                                             {% for mode in dom_caps.cpu_modes %}
                                                                                 {% if mode == 'custom' %}
@@ -148,7 +148,7 @@
                                                                     <label class="col-sm-4 col-form-label">{% trans "Storage" %}</label>
                                                                     <div class="col-sm-7">
                                                                         <input type="hidden" name="cache_mode" value="default">
-                                                                        <select class="form-control" name="storage">
+                                                                        <select class="form-select" name="storage">
                                                                             {% if storages %}
                                                                                 {% for storage in storages %}
                                                                                     <option value="{{ storage }}">{{ storage }}</option>
@@ -162,7 +162,7 @@
                                                                 <div class="row">
                                                                     <label class="col-sm-4 col-form-label">{% trans "Network" %}</label>
                                                                     <div class="col-sm-7">
-                                                                        <select class="form-control" name="networks">
+                                                                        <select class="form-select" name="networks">
                                                                             {% for network in networks %}
                                                                                 <option value="{{ network }}">{{ network }}</option>
                                                                             {% endfor %}
@@ -171,8 +171,8 @@
                                                                 </div>
                                                                  <div class="row">
                                                                     <label class="col-sm-4 col-form-label">{% trans "Advanced" %}</label>
-                                                                    <div class="col-sm-7">
-                                                                        <button class="btn btn-block btn-outline-light" type="button" data-toggle="collapse" data-target="#flavAddCollapse" aria-expanded="false" aria-controls="collapseExample">
+                                                                    <div class="d-grid col-sm-7">
+                                                                        <button class="btn btn-outline-light" type="button" data-bs-toggle="collapse" data-bs-target="#flavAddCollapse" aria-expanded="false" aria-controls="flavAddCollapse">
                                                                             <span class="fa fa-caret-down"></span>
                                                                         </button>
                                                                     </div>        
@@ -181,7 +181,7 @@
                                                                     <div class="row">
                                                                         <label class="col-sm-4 col-form-label">{% trans "NWFilter" %}</label>
                                                                         <div class="col-sm-7">
-                                                                            <select class="form-control" name="nwfilter">
+                                                                            <select class="form-select" name="nwfilter">
                                                                                 <option value="">{% trans "None" %}</option>
                                                                                 {% for nwfilter in nwfilters %}
                                                                                     <option value="{{ nwfilter }}">{{ nwfilter }}</option>
@@ -192,7 +192,7 @@
                                                                     <div class="row">
                                                                         <label class="col-sm-4 col-form-label">{% trans "HDD cache mode" %}</label>
                                                                         <div class="col-sm-7">
-                                                                            <select class="form-control" id="cache_mode" name="cache_mode">
+                                                                            <select class="form-select" id="cache_mode" name="cache_mode">
                                                                                 {% for mode, name in cache_modes %}
                                                                                     <option value="{{ mode }}" {% if mode == default_cache %}selected {% endif %}>
                                                                                     {% trans name %}</option>
@@ -210,7 +210,7 @@
                                                                     <div class="row">
                                                                         <label class="col-sm-4 col-form-label">{% trans "Graphics" %}</label>
                                                                         <div class="col-sm-7">
-                                                                            <select class="form-control" name="graphics">
+                                                                            <select class="form-select" name="graphics">
                                                                                 {% for graphics in dom_caps.graphics_types %}
                                                                                 <option value="{{ graphics }}" {% if default_graphics == graphics %}selected{% endif %}>{{ graphics }}</option>
                                                                                 {% endfor %}
@@ -221,7 +221,7 @@
                                                                     <div class="row">
                                                                         <label class="col-sm-4 col-form-label">{% trans "Video" %}</label>
                                                                         <div class="col-sm-7">
-                                                                            <select class="form-control" name="video">
+                                                                            <select class="form-select" name="video">
                                                                                 {% if not videos %}
                                                                                     <option value="vga">vga</option>
                                                                                     <option value="cirrus">cirrus</option>
@@ -328,7 +328,7 @@
                      <div class="row">
                         <label class="col-sm-3 col-form-label">{% trans "VCPU Config" %}</label>
                         <div class="col-sm-7">
-                            <select id="vcpu_mode" name="vcpu_mode" class="form-select">
+                            <select class="form-select" id="vcpu_mode" name="vcpu_mode">
                                 <option value=""> {% trans 'no-mode' %}</option>
                                 {% for mode in dom_caps.cpu_modes %}
                                     {% if mode == 'custom' %}
@@ -355,7 +355,7 @@
                         <label class="col-sm-1 col-form-label">{% trans "MB" %}</label>
                     </div>
                     <div id="disk_list_div" class="row d-none">
-                        <label id="added_disks" class="col-sm-3 col-form-label">{% trans "Added Disks" %}</label>
+                        <label class="col-sm-3 col-form-label" id="added_disks">{% trans "Added Disks" %}</label>
                         <div class="col-sm-7">
                          <ul id="img-list" class="row">
                               <!-- populated from javascript -->
@@ -366,7 +366,7 @@
                         <label class="col-sm-3 col-form-label">{% trans "HDD" %}</label>
                         <input id="images" name="images" type="hidden" value=""/>
                         <div class="col-sm-3">
-                            <select id="storage-control" name="storage-control" class="form-control" onchange="get_cust_vols({{ compute_id }}, value);">
+                            <select class="form-select" id="storage-control" name="storage-control" onchange="get_cust_vols({{ compute_id }}, value);">
                                 {% if storages %}
                                     <option value disabled selected>{% trans "Select pool" %}...</option>
                                     {% for storage in storages %}
@@ -378,7 +378,7 @@
                             </select>
                         </div>
                         <div class="col-sm-4">
-                            <select id="image-control" class="form-control" name="image-control" multiple="multiple">
+                            <select class="form-select" id="image-control" name="image-control" multiple="multiple">
                                 <!-- populated from javascript -->
                             </select>
                         </div>
@@ -390,7 +390,7 @@
                                 <!-- populated from javascript -->
                             </ul>
                             <input id="networks" type="hidden" name="networks" value=""/>
-                            <select id="network-control" name="network-control" class="form-control" multiple="multiple">
+                            <select class="form-select" id="network-control" name="network-control" multiple="multiple">
                                 {% for network in networks %}
                                     <option value="{{ network }}">{{ network }}</option>
                                 {% endfor %}
@@ -399,13 +399,13 @@
                     </div>
                     <div class="row">
                         <label class="col-sm-3 col-form-label">{% trans "Advanced" %}</label>
-                        <div class="col-sm-7">
-                            <button class="btn btn-block btn-outline-light" type="button" data-toggle="collapse" data-target="#customAdvCollapse" aria-expanded="false" aria-controls="collapseExample">
+                        <div class="d-grid col-sm-7">
+                            <button class="btn btn-outline-light" type="button" data-bs-toggle="collapse" data-bs-target="#custadvcollapse" aria-expanded="false" aria-controls="custadvcollapse">
                                 <span class="fa fa-caret-down"></span>
                             </button>
                         </div>        
                     </div>
-                    <div class="collapse" id="customAdvCollapse">
+                    <div class="collapse" id="custadvcollapse">
                         <div class="row meta-prealloc">
                             <label class="col-sm-3 col-form-label">{% trans "Disk Metadata" %}</label>
                             <div class="col-sm-7">
@@ -416,7 +416,7 @@
                         <div class="row">
                             <label class="col-sm-3 col-form-label">{% trans "HDD Cache Mode" %}</label>
                             <div class="col-sm-7">
-                                <select id="cache_mode" name="cache_mode" class="form-control">
+                                <select class="form-select" id="cache_mode" name="cache_mode">
                                     {% for mode, name in cache_modes %}
                                         <option value="{{ mode }}" {% if mode == default_cache %}selected {% endif %}>
                                             {% trans name %}</option>
@@ -427,7 +427,7 @@
                         <div class="row">
                             <label class="col-sm-3 col-form-label">{% trans "NWFilter" %}</label>
                             <div class="col-sm-7">
-                                <select name="nwfilter" class="form-select">
+                                <select class="form-select" name="nwfilter">
                                     <option value="">{% trans "None" %}</option>
                                     {% for nwfilter in nwfilters %}
                                         <option value="{{ nwfilter }}">{{ nwfilter }}</option>
@@ -439,7 +439,7 @@
                             <div class="row">
                                 <label class="col-sm-3 col-form-label">{% trans "Graphics" %}</label>
                                 <div class="col-sm-7">
-                                    <select name="graphics" class="form-select">
+                                    <select class="form-select" name="graphics">
                                         {% for graphics in dom_caps.graphics_types %}
                                         <option value="{{ graphics }}" {% if default_graphics == graphics %}selected{% endif %}>{{ graphics }}</option>
                                         {% endfor %}
@@ -450,7 +450,7 @@
                         <div class="row">
                             <label class="col-sm-3 col-form-label">{% trans "Video" %}</label>
                             <div class="col-sm-7">
-                                <select name="video" class="form-select">
+                                <select class="form-select" name="video">
                                     {% if not videos %}
                                         <option value="vga">vga</option>
                                         <option value="cirrus">cirrus</option>
@@ -464,7 +464,7 @@
                         <div class="row">
                             <label class="col-sm-3 col-form-label">{% trans "Console Access" %}</label>
                             <div class="col-sm-7">
-                                <select name="listener_addr" class="form-select">
+                                <select class="form-select" name="listener_addr">
                                     {% for addr, label in listener_addr %}
                                         <option value="{{ addr }}" {% if addr == "0.0.0.0" %} selected {% endif %}>{{ label }}</option>
                                     {% endfor %}
@@ -493,13 +493,13 @@
                         {% endif %}
                     </div>
                     <div class="row">
-                        <div class="col-sm-7 offset-3">
+                        <div class="d-grid col-sm-7 offset-3">
                         {% if storages %}
-                            <button type="submit" class="btn btn-block btn-primary" name="create" formnovalidate onclick="showPleaseWaitDialog()" value="1">
+                            <button type="submit" class="btn btn-primary" name="create" formnovalidate onclick="showPleaseWaitDialog()" value="1">
                                 {% trans "Create" %}
                             </button>
                         {% else %}
-                            <button class="btn btn-block btn-primary disabled">
+                            <button class="btn btn-primary disabled">
                                 {% trans "Create" %}
                             </button>
                         {% endif %}
@@ -540,7 +540,7 @@
                         <div class="row">
                             <label class="col-sm-3 col-form-label">{% trans "VCPU Config" %}</label>
                             <div class="col-sm-7">
-                                <select id="vcpu_mode" name="vcpu_mode" class="form-select">
+                                <select class="form-select" id="vcpu_mode" name="vcpu_mode">
                                     <option value=""> {% trans 'no-mode' %}</option>
                                     {% for mode in dom_caps.cpu_modes %}
                                         {% if mode == 'custom' %}
@@ -581,7 +581,7 @@
                                 </select>
                             </div>
                             <div class="col-sm-4">
-                                <select id="template" class="form-control" name="template" disabled>
+                                <select class="form-select" id="template" name="template" disabled>
                                     <!-- populated from javascript -->
                                 </select>
                             </div>
@@ -589,7 +589,7 @@
                         <div class="row">
                             <label class="col-sm-3 col-form-label">{% trans "Storage" %}</label>
                             <div class="col-sm-7">
-                                <select id="storage" name="storage" class="form-control" disabled>
+                                <select class="form-select" id="storage" name="storage" disabled>
                                     {% if storages %}
                                         {% for storage in storages %}
                                             <option value="{{ storage }}" >{{ storage }}</option>
@@ -603,7 +603,7 @@
                         <div class="row">
                             <label class="col-sm-3 col-form-label">{% trans "Network" %}</label>
                             <div class="col-sm-7">
-                                <select name="networks" class="form-select">
+                                <select class="form-select" name="networks">
                                     {% for network in networks %}
                                         <option value="{{ network }}">{{ network }}</option>
                                     {% endfor %}
@@ -612,8 +612,8 @@
                         </div>
                         <div class="row">
                             <label class="col-sm-3 col-form-label">{% trans "Advanced" %}</label>
-                            <div class="col-sm-7">
-                                <button class="btn btn-block btn-outline-light" type="button" data-toggle="collapse" data-target="#tempAdvCollapse" aria-expanded="false" aria-controls="collapseExample">
+                            <div class="d-grid col-sm-7">
+                                <button class="btn btn-outline-light" type="button" data-bs-toggle="collapse" data-bs-target="#tempAdvCollapse" aria-expanded="false" aria-controls="tempAdvCollapse">
                                     <span class="fa fa-caret-down"></span>
                                 </button>
                             </div>        
@@ -629,7 +629,7 @@
                             <div class="row">
                                 <label class="col-sm-3 col-form-label">{% trans "HDD cache mode" %}</label>
                                 <div class="col-sm-7">
-                                    <select id="cache_mode" name="cache_mode" class="form-select">
+                                    <select class="form-select" id="cache_mode" name="cache_mode">
                                         {% for mode, name in cache_modes %}
                                             <option value="{{ mode }}" {% if mode == default_cache %}selected{% endif %}>
                                             {% trans name %}</option>
@@ -640,7 +640,7 @@
                             <div class="row">
                                 <label class="col-sm-3 col-form-label">{% trans "NWFilter" %}</label>
                                 <div class="col-sm-7">
-                                    <select name="nwfilter" class="form-select">
+                                    <select class="form-select" name="nwfilter">
                                         <option value="">{% trans "None" %}</option>
                                         {% for nwfilter in nwfilters %}
                                             <option value="{{ nwfilter }}">{{ nwfilter }}</option>
@@ -652,7 +652,7 @@
                             <div class="row">
                                 <label class="col-sm-3 col-form-label">{% trans "Graphics" %}</label>
                                 <div class="col-sm-7">
-                                    <select name="graphics" class="form-select">
+                                    <select class="form-select" name="graphics">
                                         {% for graphics in dom_caps.graphics_types %}
                                         <option value="{{ graphics }}" {% if default_graphics == graphics %}selected{% endif %}>{{ graphics }}</option>
                                         {% endfor %}
@@ -663,7 +663,7 @@
                             <div class="row">
                                 <label class="col-sm-3 col-form-label">{% trans "Video" %}</label>
                                 <div class="col-sm-7">
-                                    <select name="video" class="form-select">
+                                    <select class="form-select" name="video">
                                         {% if not videos %}
                                             <option value="vga">vga</option>
                                             <option value="cirrus">cirrus</option>
@@ -677,7 +677,7 @@
                             <div class="row">
                                 <label class="col-sm-3 col-form-label">{% trans "Console Access" %}</label>
                                 <div class="col-sm-7">
-                                    <select name="listener_addr" class="form-select">
+                                    <select class="form-select" name="listener_addr">
                                         {% for addr, label in listener_addr %}
                                             <option value="{{ addr }}" {% if addr == "0.0.0.0" %} selected {% endif %}>{{ label }}</option>
                                         {% endfor %}
@@ -706,9 +706,9 @@
                             {% endif %}
                         </div>
                         <div class="row">
-                            <div class="col-sm-7 offset-3">
+                            <div class="d-grid col-sm-7 offset-3">
                             {% if storages %}
-                                <button type="submit" class="btn btn-block btn-primary" name="create" value="1" formnovalidate onclick="showPleaseWaitDialog()">
+                                <button type="submit" class="btn btn-primary" name="create" value="1" formnovalidate onclick="showPleaseWaitDialog()">
                                     {% trans "Create" %}
                                 </button>
                             {% else %}
@@ -727,7 +727,7 @@
 
 {% endblock %}
 {% block script %}
-<script src="{% static "js/bootstrap-multiselect.js" %}"></script>
+<script src="{% static 'js/bootstrap-multiselect.js' %}"></script>
 <script>
     function toggleValue(string, updated_value, checked) {
         let result = '';

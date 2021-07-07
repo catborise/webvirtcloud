@@ -80,6 +80,12 @@ $web-font-path: "https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,
   }
 }
 
+.breadcrumb {
+  a {
+    color: $navbar-light-color;
+    text-decoration: none;
+  }
+}
 // Containers
 
 .card,

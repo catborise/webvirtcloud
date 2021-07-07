@@ -1,5 +1,5 @@
 {% load i18n %}
-<div role="tabpanel" class="tab-pane" id="resize">
+<div class="tab-pane" id="resize" role="tabpanel">
     <!-- Nav tabs -->
     <ul class="nav nav-tabs" role="tablist" aria-label="Instance resize options">
         <li class="nav-item" role="presentation">
@@ -64,14 +64,14 @@
                     <div class="col-sm-6">
                         {% for id, vcpu in instance.vcpus.items %}
                             <form action="{% url 'instances:set_vcpu' instance.id %}" method="post" role="form" aria-label="Resize instance cpu form">{% csrf_token %}
-                            <div class="col-sm-3">
+                            <div class="d-grid col-sm-3">
                                 <input name="id" value="{{ id }}" hidden/>
                                 {% if vcpu.enabled == 'yes' and vcpu.hotpluggable == "yes" %}
-                                        <button type="submit" class="btn btn-block btn-success" value="False" name="set_vcpu" title="{% trans "Disable" %}">{{ id }}</button>
+                                        <button type="submit" class="btn btn-success" value="False" name="set_vcpu" title="{% trans "Disable" %}">{{ id }}</button>
                                 {% elif vcpu.enabled == 'yes' and vcpu.hotpluggable == "no" %}
-                                        <button type="button" class="btn btn btn-block btn-info" title="{% trans "Constant" %}">{{ id }}</button>
+                                        <button type="button" class="btn btn-info" title="{% trans "Constant" %}">{{ id }}</button>
                                 {% else %}
-                                        <button type="submit" class="btn btn btn-block btn-secondary" value="True" name="set_vcpu" title="{% trans "Enable" %}">{{ id }}</button>
+                                        <button type="submit" class="btn btn-secondary" value="True" name="set_vcpu" title="{% trans "Enable" %}">{{ id }}</button>
                                 {% endif %}
                             </div>
                             </form>

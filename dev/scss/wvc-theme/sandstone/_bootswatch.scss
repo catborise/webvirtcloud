@@ -124,6 +124,7 @@ input,
 
 .breadcrumb {
   @extend .sandstone;
+  text-decoration: none;
   border: 1px solid $gray-300;
 }
 

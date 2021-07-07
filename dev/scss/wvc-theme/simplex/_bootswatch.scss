@@ -121,6 +121,9 @@ label {
 
 .breadcrumb {
   border: 1px solid shade-color($white, 13%);
+  a {
+    text-decoration: none;
+  }
 }
 
 .pagination {

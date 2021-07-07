@@ -1,14 +1,13 @@
 {% load i18n %}
 {% load django_bootstrap5 %}
 {% load icons %}
-<div role="tabpanel" class="tab-pane" id="settings">
-
+<div class="tab-pane" id="settings" role="tabpanel">
     <!-- Nav tabs -->
     <ul class="nav nav-tabs" role="tablist" aria-label="Instance settings">
         {% if request.user.is_superuser %}
             {% if instance.guest_agent_ready %}
             <li class="nav-item" role="presentation">
-                <button class="px-1 nav-link" data-bs-toggle="tab" data-bs-target="#osinfo" type="button" role="tab" aria-controls="osinfo" aria-selected="false" onclick="get_osinfo()">
+                <button class="px-1 nav-link" data-bs-toggle="tab" id="osinfo-tab" data-bs-target="#osinfo" type="button" role="tab" aria-controls="osinfo" aria-selected="false" onclick="get_osinfo();">
                     <span class="fa fa-info-circle"></span>
                 </button>
             </li>
@@ -177,7 +176,7 @@
                                         title="{% trans 'Details' %}"
                                         tabindex="0"
                                         data-trigger="focus"
-                                        data-toggle="popover"
+                                        data-bs-toggle="popover"
                                         data-bs-html="true"
                                         data-bs-content="<strong>{% trans 'Bus' %}:</strong> {{ cd.bus }} <br/>
                                             <strong>{% trans 'Device' %}:</strong> {{ cd.dev }}">
@@ -194,9 +193,9 @@
                                     </select>
                                     
                                     {% if instance.media_iso and allow_admin_or_not_template %}
-                                        <button type="submit" class="btn btn-sm btn-success float-left" name="mount_iso" value="{{ cd.dev }}">{% trans "Mount" %}</button>
+                                        <button type="submit" class="btn btn-sm btn-success" name="mount_iso" value="{{ cd.dev }}">{% trans "Mount" %}</button>
                                     {% else %}
-                                        <button class="btn btn-sm btn-success float-left disabled">{% trans "Mount" %}</button>
+                                        <button class="btn btn-sm btn-success disabled">{% trans "Mount" %}</button>
                                     {% endif %}
                                     {% if instance.status == 5 and allow_admin_or_not_template %}
                                         <a  href="{% url 'instances:detach_cdrom' instance.id cd.dev %}" class="btn btn-sm btn-danger float-end" title="{% trans "Detach CD-ROM (remove device)" %}">
@@ -210,12 +209,24 @@
                             <form action="{% url 'instances:unmount_iso' instance.id %}" method="post">
                                 {% csrf_token %}
                                 <div class="input-group">
+                                    <a class="btn btn-secondary"
+                                        role="button"        
+                                        name="details"
+                                        title="{% trans 'Details' %}"
+                                        tabindex="0"
+                                        data-trigger="focus"
+                                        data-bs-toggle="popover"
+                                        data-bs-html="true"
+                                        data-bs-content="<strong>{% trans 'Bus' %}:</strong> {{ cd.bus }} <br/>
+                                            <strong>{% trans 'Device' %}:</strong> {{ cd.dev }}">
+                                            {% trans "CD-ROM" %} {{ forloop.counter }}
+                                    </a>
                                     <input type="text" class="form-control" value="{{ cd.image }}" disabled/>
                                     <input type="hidden" name="path" value="{{ cd.path }}">
                                     {% if allow_admin_or_not_template %}
-                                        <button type="submit" class="btn btn-sm btn-success float-left" value="{{ cd.dev }}" name="umount_iso">{% trans "Unmount" %}</button>
+                                        <button type="submit" class="btn btn-sm btn-success" value="{{ cd.dev }}" name="umount_iso">{% trans "Unmount" %}</button>
                                     {% else %}
-                                        <button class="btn btn-sm btn-success float-left disabled" value="{{ cd.dev }}" name="umount_iso">{% trans "Unmount" %}</button>
+                                        <button class="btn btn-sm btn-success disabled" value="{{ cd.dev }}" name="umount_iso">{% trans "Unmount" %}</button>
                                     {% endif %}
                                 </div>
                             </form>
@@ -232,7 +243,7 @@
                     {% trans "Instance Volume" %}
                     {% include 'add_instance_volume.html' %}
                 </p>    
-                <table class="table table-hover mt-3">
+                <table class="table table-hover">
                     <thead>
                         <tr>
                             <th scope="col">{% trans "Device" %}</th>
@@ -252,7 +263,7 @@
                                         title="{% trans 'Details' %}"
                                         tabindex="1"
                                         data-trigger="focus"
-                                        data-toggle="popover"
+                                        data-bs-toggle="popover"
                                         data-bs-html="true"
                                         data-bs-content="<strong>Bus:</strong> {{ disk.bus }} <br/>
                                                         <strong>Format:</strong> {{ disk.format }} <br/>
@@ -481,7 +492,7 @@
                             <td colspan="3">
                                 <div class="input-group">
                                     <span class="input-group-text px-2">{% trans 'Model' %}</span>
-                                    <input type="text" class="form-control" value="{{ network.model }}" aria-label="model" aria-describedby="model" readonly>
+                                    <input type="text" class="form-control px-2" value="{{ network.model }}" aria-label="model" aria-describedby="model" readonly>
                                 </div>
                             </td>
                         </tr>
@@ -562,7 +573,7 @@
         </div>
         <div role="tabpanel" class="tab-pane tab-pane-bordered" id="migrate">
             <p>{% trans "For migration both host servers must have equal settings and OS type" %}</p>
-            <form action="{% url 'instances:migrate' instance.id %}" class="ml-3 form" method="post" role="form" aria-label="Migrate instance form">
+            <form action="{% url 'instances:migrate' instance.id %}" class="ms-3 form" method="post" role="form" aria-label="Migrate instance form">
                 {% csrf_token %}
                 <div class="row">
                     <label class="col-sm-3 col-form-label">{% trans "Original host" %}</label>
@@ -850,7 +861,7 @@
             <p class="fw-bold">{% trans "To set instance video model, shutdown the instance." %}</p>
             <form action="{% url 'instances:set_video_model' instance.id %}" method="post" role="form" aria-label="Set instance video model form">{% csrf_token %}
                 <div class="row">
-                    <label for="video_model_select" class="col-sm-3 col-form-label">{% trans "Primary Video Model" %}</label>
+                    <label class="col-sm-3 col-form-label" for="video_model_select">{% trans "Primary Video Model" %}</label>
                     <div class="col-sm-6">
                         <div class="input-group">
                             <select id="video_model_select" class="form-select" name="video_model">
@@ -901,7 +912,7 @@
             {% endif %}
             <form action="{% url 'instances:set_guest_agent' instance.id %}" method="post" role="form" aria-label="Enable/Disable Qemu Guest Agent form">{% csrf_token %}
                 <div class="row">
-                    <label for="guest_agent" class="col-sm-3 col-form-label">{% trans "Qemu Guest Agent" %}</label>
+                    <label class="col-sm-3 col-form-label" for="guest_agent">{% trans "Qemu Guest Agent" %}</label>
                     <div class="col-sm-6">
                         <div class="input-group">
                             <select id="guest_agent" class="form-select" name="guest_agent">

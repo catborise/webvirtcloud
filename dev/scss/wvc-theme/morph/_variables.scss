@@ -75,8 +75,8 @@ $text-muted:                  lighten($body-color, 15%) !default;
 
 // Buttons + Forms
 
-$input-btn-padding-y:         1rem !default;
-$input-btn-padding-x:         1.5rem !default;
+$input-btn-padding-y:         .5rem !default;
+$input-btn-padding-x:         1rem !default;
 
 // Buttons
 
@@ -105,7 +105,7 @@ $form-switch-focus-color:         $form-switch-color !default;
 $form-select-indicator-color:       $body-color !default;
 $form-select-box-shadow:          $box-shadow-inset !default;
 
-$form-range-track-bg:             rgba(darken($body-bg, 50%), .15) !default;
+$form-range-track-bg:                      rgba(darken($body-bg, 50%), .15) !default;
 $form-range-thumb-bg:                      $gray-100 !default;
 $form-range-thumb-active-bg:               $form-range-thumb-bg !default;
 $form-range-thumb-disabled-bg:             $gray-200 !default;
@@ -226,3 +226,5 @@ $breadcrumb-active-color:           $link-color !default;
 // Close
 
 $btn-close-color:            $body-color !default;
+
+$link-decoration:                   none !default;

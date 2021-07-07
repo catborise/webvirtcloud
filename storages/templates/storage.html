@@ -14,8 +14,8 @@
     <div class="row">
         <div class="col-lg-12">
             
-            <ol class="breadcrumb bg-light shadow-sm">
-               <li class="breadcrumb-item active">
+            <ol class="breadcrumb shadow-sm">
+               <li class="breadcrumb-item">
                     <a href="{% url 'overview' compute.id %}"><i class="fa fa-dashboard"></i> {% trans "Overview" %}</a>
                 </li>
                 <li class="breadcrumb-item">
@@ -159,7 +159,7 @@
                             </div> <!-- /.modal-dialog -->
                         </div> <!-- /.modal -->
                         {% ifnotequal volume.type "iso" %}
-                            <button class="btn btn-sm btn-secondary" data-bs-toggle="modal" data-target="#Clone{{ forloop.counter }}" title="{% trans "Clone" %}">
+                            <button class="btn btn-sm btn-secondary" data-bs-toggle="modal" data-bs-target="#Clone{{ forloop.counter }}" title="{% trans "Clone" %}">
                                 <i class="fa fa-files-o"></i>
                             </button>
                         {% else %}

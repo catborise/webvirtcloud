@@ -312,7 +312,9 @@ legend {
   background-color: transparent;
   @include btn-shadow($gray-800);
 
-  a,
+  a {
+    text-decoration: none;
+  }
   a:hover {
     color: $white;
   }
