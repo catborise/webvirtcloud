@@ -390,7 +390,7 @@ def migrate(request, pk):
     target_host = Compute.objects.get(id=compute_id)
 
     try:
-        utils.migrate_instance(target_host, instance, request.user, live, unsafe, xml_del, offline)
+        utils.migrate_instance(target_host, instance, request.user, live, unsafe, xml_del, offline, autoconverge, compress, postcopy)
     except libvirtError as err:
         messages.error(request, err)
 
