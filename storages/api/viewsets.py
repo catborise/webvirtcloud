@@ -1,19 +1,14 @@
-from dataclasses import fields
-
 from django.shortcuts import get_object_or_404
 from computes.models import Compute
-from instances.models import Instance
 from rest_framework import status, viewsets
-from rest_framework import permissions
 from rest_framework.decorators import action
+from appsettings.settings import app_settings
 
-from instances.utils import migrate_instance
 from vrtManager.storage import wvmStorages, wvmStorage
 
-from .serializers import StoragesSerializer, VolumeSerializer
-from ..models import Volume
+from .serializers import StoragesSerializer, StorageSerializer, VolumeSerializer
 from rest_framework.response import Response
-from instances.views import poweron, powercycle, poweroff, force_off, suspend, resume, destroy, migrate
+
 
 
 class StorageViewSet(viewsets.ViewSet):
@@ -28,7 +23,7 @@ class StorageViewSet(viewsets.ViewSet):
         conn = wvmStorages(compute.hostname, compute.login, compute.password, compute.type)
         queryset = conn.get_storages_info()
 
-        serializer = StoragesSerializer(queryset, many=True, context={'request': request})        
+        serializer = StoragesSerializer(queryset, many=True, context={'request': request})
 
         return Response(serializer.data)
         
@@ -37,43 +32,56 @@ class StorageViewSet(viewsets.ViewSet):
 
         conn = wvmStorage(compute.hostname, compute.login, compute.password, compute.type, pk)
 
-        storages = conn.get_storages()
-        state = conn.is_active()
-        size, free = conn.get_size()
-        used = size - free
-        if state:
-            percent = (used * 100) // size
-        else:
-            percent = 0
-        status = conn.get_status()
-        path = conn.get_target_path()
-        type = conn.get_type()
-        autostart = conn.get_autostart()
+        infoset = {
+            "state": conn.is_active(),
+            "size": conn.get_size()[0],
+            "free": conn.get_size()[1],
+            "status": conn.get_status(),
+            "path": conn.get_target_path(),
+            "type": conn.get_type(),
+            "autostart": conn.get_autostart(),
+            "volumes": conn.update_volumes()
+        }
 
-        if state:
-            conn.refresh()
-            volumes = conn.update_volumes()
-        else:
-            volumes = None
+        serializer = StorageSerializer(infoset, many=False, context={'request': request})
+        return Response(serializer.data)
 
-    def create(self, request):
-        serializer = StorageSerializer(data=request.data)
-        if serializer.is_valid():
-            instance = serializer.validated_data['instance']
-            target_host = serializer.validated_data['target_compute']
-            live = serializer.validated_data['live']
-            unsafe = serializer.validated_data['unsafe']
-            xml_del = serializer.validated_data['xml_del']
-            offline = serializer.validated_data['offline']
-            autoconverge = serializer.validated_data['autoconverge']
-            postcopy  = serializer.validated_data['postcopy']
-            compress = serializer.validated_data['compress']
+    
+    @action(detail=True, methods=['post'])
+    def start(self, request, pk=None, compute_pk=None):
+        compute = get_object_or_404(Compute, pk=compute_pk)
 
-            migrate_instance(target_host, instance, request.user, live, unsafe, xml_del, offline, autoconverge, compress, postcopy)
+        conn = wvmStorage(compute.hostname, compute.login, compute.password, compute.type, pk)
+        ret = conn.start()
+        conn.close()
+        return Response({'status': 'Pool start command send: ' + str(ret)})
 
-            return Response({'status': 'instance migrate is started'})
-        else:
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)    
+    @action(detail=True, methods=['post'])
+    def stop(self, request, pk=None, compute_pk=None):
+        compute = get_object_or_404(Compute, pk=compute_pk)
+
+        conn = wvmStorage(compute.hostname, compute.login, compute.password, compute.type, pk)
+        ret = conn.stop()
+        conn.close()
+        return Response({'status': 'Pool stop command send: ' + str(ret)})
+
+    @action(detail=True, methods=['post'])
+    def refresh(self, request, pk=None, compute_pk=None):
+        compute = get_object_or_404(Compute, pk=compute_pk)
+
+        conn = wvmStorage(compute.hostname, compute.login, compute.password, compute.type, pk)
+        ret = conn.refresh()
+        conn.close()
+        return Response({'status': 'Pool refresh command send: ' + str(ret)})
+
+    @action(detail=True, methods=['post'])
+    def XML_description(self, request, pk=None, compute_pk=None):
+        compute = get_object_or_404(Compute, pk=compute_pk)
+
+        conn = wvmStorage(compute.hostname, compute.login, compute.password, compute.type, pk)
+        ret = conn._XMLDesc(0)
+        conn.close()
+        return Response({'return': str(ret)})
 
 
 class VolumeViewSet(viewsets.ViewSet):
@@ -81,66 +89,74 @@ class VolumeViewSet(viewsets.ViewSet):
     """
     A simple ViewSet for listing or retrieving Storage Volumes.
     """
-    def list(self, request):
-        q = {}
+    serializer_class = VolumeSerializer
+    lookup_value_regex = "[^/]+"
+
+    def list(self, request, storage_pk=None, compute_pk=None):
         
-        queryset = Instance.objects.all().prefetch_related("userinstance_set")
-        serializer = VolumeSerializer(queryset, many=True, context={'request': request})
-        
+        compute = get_object_or_404(Compute, pk=compute_pk)
+
+        conn = wvmStorage(compute.hostname, compute.login, compute.password, compute.type, storage_pk)
+        state = conn.is_active()
+
+        if state:
+            conn.refresh()
+            volume_queryset = conn.update_volumes()
+        else:
+            volume_queryset = None
+        conn.close()
+        serializer = VolumeSerializer(volume_queryset, many=True, context={'request': request})
+
         return Response(serializer.data)
 
+    def retrieve(self, request, storage_pk=None, compute_pk=None, pk=None):
+        compute = get_object_or_404(Compute, pk=compute_pk)
 
-    def retrieve(self, request, pk=None):
-        queryset = get_instance(request.user, pk)
+        conn = wvmStorage(compute.hostname, compute.login, compute.password, compute.type, storage_pk)
+        state = conn.is_active()
         
-        serializer = InstanceSerializer(queryset, context={'request': request})
+        if state:
+            volume_queryset = conn.get_volume_details(pk)
+        else:
+            volume_queryset = None
+        conn.close()
+        serializer = VolumeSerializer(volume_queryset, many=False, context={'request': request})
 
         return Response(serializer.data)
-    
 
-    @action(detail=True, methods=['post'])
-    def poweron(self, request, pk=None):
-        poweron(request, pk)
-        
-        return Response({'status': 'poweron command send'})
-    
-    @action(detail=True, methods=['post'])
-    def poweroff(self, request, pk=None):
-        poweroff(request, pk)
-        
-        return Response({'status': 'poweroff command send'})
-    
-    @action(detail=True, methods=['post'])
-    def powercycle(self, request, pk=None):
-        powercycle(request, pk)
-        
-        return Response({'status': 'powercycle command send'})
-    
-    @action(detail=True, methods=['post'])
-    def forceoff(self, request, pk=None):
-        force_off(request, pk)
-        
-        return Response({'status': 'force off command send'})
+    def create(self, request, storage_pk=None, compute_pk=None):
+        compute = get_object_or_404(Compute, pk=compute_pk)
 
-    @action(detail=True, methods=['post'])
-    def suspend(self, request, pk=None):
-        suspend(request, pk)
-        
-        return Response({'status': 'suspend command send'})
+        conn = wvmStorage(compute.hostname, compute.login, compute.password, compute.type, storage_pk)
 
-    @action(detail=True, methods=['post'])
-    def resume(self, request, pk=None):
-        resume(request, pk)
-        
-        return Response({'status': 'resume command send'})
-    
-    @action(detail=True, methods=['post'])
-    def instancedestroy(self, request, pk=None):
-        destroy(request, pk)
-        
-        return Response({'status': 'instance destroy command send'})
-    
+        serializer = VolumeSerializer(data=request.data)
+        if serializer.is_valid():
+            state = conn.is_active()
+            if state:
+                conn.refresh()
+                ret = conn.create_volume(
+                    serializer.validated_data['name'],
+                    serializer.validated_data['size'],
+                    serializer.validated_data['type'],
+                    serializer.validated_data['meta_prealloc'],
+                    int(app_settings.INSTANCE_VOLUME_DEFAULT_OWNER_UID),
+                    int(app_settings.INSTANCE_VOLUME_DEFAULT_OWNER_GID),
+                )
+                conn.close()
+                return Response({'status': 'Volume: ' + ret + ' is created'})
+            else:
+                return Response({'status': 'Pool is not active'})
+        else:
+            return Response({'status': 'Data is not right for create volume'})
 
-        
+    def destroy(self, request, storage_pk=None, compute_pk=None, pk=None):
+        compute = get_object_or_404(Compute, pk=compute_pk)
 
+        conn = wvmStorage(compute.hostname, compute.login, compute.password, compute.type, storage_pk)
 
+        if conn.is_active():
+            conn.del_volume(pk)
+            conn.close()
+            return Response({'status': 'Volume: ' + pk + ' is deleted'})
+        else:
+            return Response({'status': 'Pool is not active'})

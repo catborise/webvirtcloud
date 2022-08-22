@@ -3,7 +3,8 @@ from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 
 from libvirt import VIR_DOMAIN_XML_SECURE
-from webvirtcloud.settings import QEMU_CONSOLE_LISTEN_ADDRESSES
+from vrtManager.create import wvmCreate
+from webvirtcloud.settings import QEMU_CONSOLE_LISTENER_ADDRESSES
 
 from computes.models import Compute
 from vrtManager.instance import wvmInstance
@@ -152,8 +153,8 @@ class Instance(models.Model):
         return self.proxy.get_console_keymap()
 
     @cached_property
-    def console_listen_address(self):
-        return self.proxy.get_console_listen_addr()
+    def console_listener_address(self):
+        return self.proxy.get_console_listener_addr()
 
     @cached_property
     def guest_agent(self):
@@ -224,7 +225,8 @@ class MigrateInstance(models.Model):
         managed = False
 
 
-class NewInstance(models.Model):
+class CreateInstance(models.Model):
+    compute = models.ForeignKey(Compute, related_name='host', on_delete=models.DO_NOTHING)
     name = models.CharField(max_length=64, error_messages={'required': _('No Virtual Machine name has been entered')})
     firmware = models.CharField(max_length=50)
     vcpu = models.IntegerField(error_messages={'required': _('No VCPU has been entered')})
@@ -238,17 +240,18 @@ class NewInstance(models.Model):
     images = models.CharField(max_length=256, blank=True)
     cache_mode = models.CharField(max_length=12, error_messages={'required': _('Please select HDD cache mode')})
     hdd_size = models.IntegerField(blank=True)
-    meta_prealloc = models.BooleanField(default=False)
+    meta_prealloc = models.BooleanField(default=False, blank=True)
     virtio = models.BooleanField(default=True)
     qemu_ga = models.BooleanField(default=False)
     mac = models.CharField(max_length=17, blank=True)
     console_pass = models.CharField(max_length=64, blank=True)
     graphics = models.CharField(max_length=12, error_messages={'required': _('Please select a graphics type')})
     video = models.CharField(max_length=12, error_messages={'required': _('Please select a video driver')})
-    listener_addr = models.CharField(max_length=20, choices=QEMU_CONSOLE_LISTEN_ADDRESSES)
+    listener_addr = models.CharField(max_length=20, choices=QEMU_CONSOLE_LISTENER_ADDRESSES)
 
     class Meta:
         managed = False
+
 
 class PermissionSet(models.Model):
     """

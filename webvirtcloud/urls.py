@@ -1,22 +1,25 @@
+from django.conf import settings
+from django.urls import include, path, re_path
+from rest_framework import permissions
+from drf_yasg.views import get_schema_view
+from drf_yasg import openapi
 from appsettings.views import appsettings
 from console.views import console
-from django.conf import settings
-from django.urls import include, path
 from instances.views import index
-from rest_framework_nested import routers
-from computes.api.viewsets import ComputeViewSet
-from storages.api.viewsets import StorageViewSet, VolumeViewSet
-from instances.api.viewsets import InstanceViewSet, MigrateViewSet
 
 
-router = routers.SimpleRouter()
-router.register(r'computes', ComputeViewSet)
-router.register(r'instances', InstanceViewSet, basename='instance')
-router.register(r'migrate', MigrateViewSet, basename='instance')
-
-compute_router = routers.NestedSimpleRouter(router, r'computes', lookup='compute')
-compute_router.register(r'instances', InstanceViewSet, basename='compute-instances')
-compute_router.register(r'storages', StorageViewSet, basename='compute-storages')
+schema_view = get_schema_view(
+   openapi.Info(
+      title="Webvirtcloud REST-API",
+      default_version='v1',
+      description="Webvirtcloud REST API",
+      terms_of_service="https://www.google.com/policies/terms/",
+      contact=openapi.Contact(email="catborise@gmail.com"),
+      license=openapi.License(name="BSD License"),
+   ),
+   public=True,
+   permission_classes=(permissions.AllowAny,),
+)
 
 urlpatterns = [
     path("", index, name="index"),
@@ -30,8 +33,10 @@ urlpatterns = [
     path("i18n/", include("django.conf.urls.i18n")),
     path("logs/", include("logs.urls")),
     path('api-auth/', include('rest_framework.urls', namespace='rest_framework')),
-    path('api/v1/', include(router.urls)),
-    path('api/v1/', include(compute_router.urls)),
+    path('api/v1/', include("webvirtcloud.urls-api")),
+    re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
+    re_path(r'^swagger/$', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
+    re_path(r'^redoc/$', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
 ]
 
 if settings.DEBUG:
