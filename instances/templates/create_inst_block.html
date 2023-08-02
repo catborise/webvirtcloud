@@ -28,7 +28,7 @@
                             <tbody>
                                 {% for compute in computes %}
                                     {% if compute.status is True %}
-                                        <tr>
+                                        <tr style="text-decoration: none">
                                             <td>{{ compute.name }}</td>
                                             <td>{{ compute.cpu_count }}</td>
                                             <td>
