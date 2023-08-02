@@ -14,7 +14,13 @@ from accounts.models import *
 
 from . import forms
 from .utils import get_user_totp_device, send_email_with_otp
+from django.contrib.auth.views import LoginView
+from logs.views import addlogmsg
 
+class CustomLoginView(LoginView):
+    def form_invalid(self, form):
+        addlogmsg("-", "-", "-", "Failed Login Attempt")
+        return self.render_to_response(self.get_context_data(form=form))
 
 def profile(request):
     publickeys = UserSSHKey.objects.filter(user_id=request.user.id)
