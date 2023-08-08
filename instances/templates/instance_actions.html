@@ -15,7 +15,7 @@
         <a class="btn btn-sm btn-secondary disabled" title="{% trans "Power Off" %}">{% bs_icon 'power' %}</a>
         <a class="btn btn-sm btn-secondary disabled" title="{% trans "Power Cycle" %}">{% bs_icon 'repeat' %}</a>
         <button class="btn btn-sm btn-secondary disabled" title="{% trans "VNC Console" %}" disabled>
-            <span class="bi bi-eye"></span>
+            <span>{% bs_icon 'eye' %}</span>
         </button>
     {% endif %}
     {% if instance.proxy.instance.info.0 == 3 %}
@@ -28,7 +28,7 @@
         </a>
         <a class="btn btn-sm btn-secondary disabled" title="{% trans "Power Cycle" %}">{% bs_icon 'repeat' %}</a>
         <button class="btn btn-sm btn-secondary disabled" title="{% trans "VNC Console" %}" disabled>
-            <span class="bi bi-eye"></span>
+            <span>{% bs_icon 'eye'%} </span>
         </button>
     {% endif %}
     {% if instance.proxy.instance.info.0 == 1 %}
@@ -39,7 +39,7 @@
         <a class="btn btn-sm btn-secondary" href="{% url 'instances:powercycle' instance.id %}">{% bs_icon 'repeat' %}</a>
         <button class="btn btn-sm btn-secondary" type="button" onclick='open_console("{{ instance.compute.id }}-{{ instance.get_uuid }}")'
             title="{% trans "Console" %}">
-            <span class="bi bi-eye"></span>
+            <span>{% bs_icon 'eye'%} </span>
         </button>
     {% endif %}
 </form>

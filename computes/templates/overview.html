@@ -96,7 +96,7 @@
             <div class="my-3 card border-success">
                 <div class="card-body">
                     <h5 class="card-title">
-                        <i class="bi bi-arrow-right"></i> 
+                        {% bs_icon 'arrow-right' %} 
                         {% trans "CPU Utilization" %}
                     </h5>
                     <canvas id="cpuChart" width="735" height="160"></canvas>
@@ -106,7 +106,7 @@
             <div class="my-3 card border-primary">
                     <div class="card-body">
                         <h5 class="card-title ">
-                            <i class="bi bi-arrow-right"></i> {% trans "RAM Utilization" %}
+                            {% bs_icon 'arrow-right'%} {% trans "RAM Utilization" %}
                         </h5>
                         <canvas id="memChart" width="735" height="160"></canvas>
                     </div>

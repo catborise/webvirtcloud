@@ -90,12 +90,12 @@
                                                 <input type="hidden" name="name" value="{{ snap.name }}">
                                                 {% if instance.status == 5 %}
                                                     <button type="submit" class="btn btn-sm btn-primary" name="revert_snapshot" title="{% trans 'Revert to this Snapshot' %}" onclick="return confirm('Are you sure?')">
-                                                            <span class="bi bi-download"></span>
+                                                            <span>{% bs_icon 'download' %} </span>
                                                     </button>
                                                 {% else %}
                                                     <button type="button" class="btn btn-sm btn-primary disabled"
                                                             title="{% trans "To restore snapshots you need Power Off the instance." %}">
-                                                            <span class="bi bi-download"></span>
+                                                            <span>{% bs_icon 'download' %} </span>
                                                     </button>
                                                 {% endif %}
                                             </form>
@@ -123,7 +123,7 @@
                                                 <input type="hidden" name="date" value="{{ ext_snap.date }}">
                                                 <input type="hidden" name="desc" value="{{ ext_snap.description }}">
                                                 <button type="submit" class="btn btn-sm btn-primary" name="revert_external_snapshot" title="{% trans 'Revert to this Snapshot' %}" onclick="return confirm('You are going to lose your unsaved work by reverting to this snapshot state. Are you sure?')">
-                                                        <span class="bi bi-download"></span>
+                                                        <span>{% bs_icon 'download' %} </span>
                                                 </button>
                                             </form>
                                         </td>
