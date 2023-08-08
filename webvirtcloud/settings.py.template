@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "logs",
     "qr_code",
     "rest_framework",
+    "django_bootstrap_icons",
 ]
 
 MIDDLEWARE = [
