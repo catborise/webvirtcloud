@@ -20,7 +20,7 @@
             {% if compute.status is True and compute.instance_set.count > 0 %}
                 <tr class="table-secondary fw-bold border-bottom border-dark">
                     <td>
-                        <span id="collapse_host_instances_{{ compute.id }}" class="fa fa-chevron-up" onclick="hide_host_instances('{{ compute.id }}');"></span>
+                        <span id="collapse_host_instances_{{ compute.id }}" class="bi bi-chevron-up" onclick="hide_host_instances('{{ compute.id }}');"></span>
                     </td>
                     <td>
                         <a class="link-dark" href="{% url 'overview' compute.id %}">{{ compute.name }}</a>
