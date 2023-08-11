@@ -127,6 +127,7 @@ else:
         Path.joinpath(BASE_DIR, "static"),
     ]
 
+BS_ICONS_CACHE = Path.joinpath(BASE_DIR, 'static/icon_cache')
 BS_ICONS_CACHE = Path.joinpath(BASE_DIR, 'static/bs_icons')
 
 # Default primary key field type
@@ -165,6 +166,11 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True
         },
+        'django.request': {
+            "handlers": ["mail_admins"],
+            "level": "ERROR",
+            "propagate": True,
+        }
     },
 }
 
