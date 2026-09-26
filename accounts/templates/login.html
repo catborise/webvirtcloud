@@ -20,8 +20,8 @@
         </div>
 
         {% if form.errors %}
-            <div class="signin-alert" role="alert">
-                <i class="bi bi-exclamation-triangle-fill fs-5 flex-shrink-0"></i>
+            <div class="alert alert-danger d-flex align-items-center mb-4" role="alert">
+                <i class="bi bi-exclamation-triangle-fill fs-5 me-2 flex-shrink-0"></i>
                 <div>{% trans "Incorrect username or password." %}</div>
             </div>
         {% endif %}
@@ -49,7 +49,7 @@
 
             <input type="hidden" name="next" value="{{ next }}">
 
-            <button id="btn-signin" class="btn-signin-submit" type="submit">
+            <button id="btn-signin" class="btn btn-primary btn-signin-submit" type="submit">
                 <i class="bi bi-box-arrow-in-right"></i>
                 <span id="btn-text">{% trans "Sign In" %}</span>
             </button>
