@@ -247,7 +247,8 @@ class ConsoleViewsTestCase(TestCase):
         # Attempt XSS injection via query parameters
         url = (
             reverse("console")
-            + f"?token={self.token}&view=lite&view_only=alert('xss')&scale=true&clip_viewport=1"
+            + f"?token={self.token}"
+            + "&view=lite&view_only=alert('xss')&scale=true&clip_viewport=1"
         )
         response = self.client.get(url)
 
@@ -320,12 +321,13 @@ class ConsoleViewsTestCase(TestCase):
         self.assertIn("resize: 'scale',", content_scale)
 
         # resize_session=True -> 'remote'
-        url_remote = reverse("console") + f"?token={self.token}&view=full&resize_session=true"
+        url_remote = (
+            reverse("console") + f"?token={self.token}&view=full&resize_session=true"
+        )
         resp_remote = self.client.get(url_remote)
         self.assertEqual(resp_remote.status_code, 200)
         content_remote = resp_remote.content.decode("utf-8")
         self.assertIn("resize: 'remote',", content_remote)
-
 
     @patch("console.views.wvmInstance")
     def test_console_libvirt_error_fallback(self, mock_wvm):
