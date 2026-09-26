@@ -177,6 +177,9 @@
     }
 
     let fullPath = '{{ ws_path|escapejs }}';
+    if (fullPath.startsWith('/')) {
+        fullPath = fullPath.substring(1);
+    }
     const token = '{{ token|escapejs }}';
     if (token) {
         fullPath += (fullPath.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
@@ -184,7 +187,7 @@
 
     const defaults = {
         autoconnect: true,
-        resize: {{ scale|yesno:"'scale','off'" }},
+        resize: '{% if resize_session %}remote{% elif scale %}scale{% else %}off{% endif %}',
         view_only: {{ view_only|yesno:"true,false" }},
         view_clip: {{ clip_viewport|yesno:"true,false" }},
         {% if perms.instances.passwordless_console and console_passwd %}
@@ -194,7 +197,7 @@
 
     const mandatory = {
         host: '{{ ws_host|escapejs }}',
-        port: {{ ws_port }},
+        port: {{ ws_port|default:6080 }},
         path: fullPath,
     };
 

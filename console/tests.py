@@ -284,7 +284,48 @@ class ConsoleViewsTestCase(TestCase):
         resp_full = self.client.get(url_full)
         self.assertEqual(resp_full.status_code, 200)
         content_full = resp_full.content.decode("utf-8")
-        self.assertIn(r"O\u0027Brian", content_full)
+        # In script tag, password must use JS unicode escape and not HTML entities
+        main_script_block = [
+            s.split("</script>")[0]
+            for s in content_full.split("<script")
+            if "defaults" in s
+        ][0]
+        self.assertIn(r"password: 'O\u0027Brian", main_script_block)
+        self.assertNotIn("&#39;", main_script_block)
+        self.assertNotIn("&#x27;", main_script_block)
+
+    @patch("console.views.wvmInstance")
+    def test_console_full_resize_syntax_validity(self, mock_wvm):
+        mock_conn = MagicMock()
+        mock_conn.get_console_type.return_value = "vnc"
+        mock_conn.get_console_websocket_port.return_value = None
+        mock_wvm.return_value = mock_conn
+
+        self.client.force_login(self.admin_user)
+
+        # Default: scale=False, resize_session=False -> 'off'
+        url = reverse("console") + f"?token={self.token}&view=full"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        content = resp.content.decode("utf-8")
+        self.assertIn("resize: 'off',", content)
+        self.assertNotIn("&#x27;off&#x27;", content)
+        self.assertNotIn("&#39;off&#39;", content)
+
+        # scale=True, resize_session=False -> 'scale'
+        url_scale = reverse("console") + f"?token={self.token}&view=full&scale=true"
+        resp_scale = self.client.get(url_scale)
+        self.assertEqual(resp_scale.status_code, 200)
+        content_scale = resp_scale.content.decode("utf-8")
+        self.assertIn("resize: 'scale',", content_scale)
+
+        # resize_session=True -> 'remote'
+        url_remote = reverse("console") + f"?token={self.token}&view=full&resize_session=true"
+        resp_remote = self.client.get(url_remote)
+        self.assertEqual(resp_remote.status_code, 200)
+        content_remote = resp_remote.content.decode("utf-8")
+        self.assertIn("resize: 'remote',", content_remote)
+
 
     @patch("console.views.wvmInstance")
     def test_console_libvirt_error_fallback(self, mock_wvm):
