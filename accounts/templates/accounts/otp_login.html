@@ -10,48 +10,100 @@
 {% endblock style %}
 
 {% block content %}
-<div class="login-box">
-    <div class="page-header">
-        <a href="/"><h1>WebVirtCloud</h1></a>
-    </div>
-    <hr>
-    <div class="col-12" role="main">
+<div class="signin-wrapper">
+    <div class="signin-card">
+        <div class="signin-brand">
+            <div class="signin-logo-badge">
+                <i class="bi bi-shield-check"></i>
+            </div>
+            <h1 class="signin-title">{% trans "Two-Factor Auth" %}</h1>
+            <p class="signin-subtitle">{% trans "Enter your authentication code to continue" %}</p>
+        </div>
+
         {% if form.errors %}
-            <div class="alert alert-danger" role="alert">
-                {% bootstrap_form_errors form %}
+            <div class="signin-alert" role="alert">
+                <i class="bi bi-exclamation-triangle-fill fs-5 flex-shrink-0"></i>
+                <div>{% bootstrap_form_errors form type='non_fields' %}</div>
             </div>
         {% endif %}
 
-        <form id="form-signin" class="form-signin" method="post" role="form" aria-label="Login form">{% csrf_token %}
-            <h2 class="form-signin-heading">{% trans "Sign In" %}</h2>
-            {% bootstrap_field form.username layout='inline' %}
-            {% bootstrap_field form.password layout='inline' %}
-            {% bootstrap_field form.otp_token layout='inline'%}
-            <a href="{% url 'accounts:email_otp' %}" class="float-end">{% trans "I do not have/lost my OTP!" %}</a>
-            <br>
-            <div class="d-grid">
-                <button id="btn-signin" class="btn btn-lg btn-success" type="submit">{% trans "Sign In" %}</button>
+        <form id="form-signin" method="post" role="form" aria-label="OTP Login form">
+            {% csrf_token %}
+            <div class="mb-3">
+                <label class="signin-field-label" for="id_username">{% trans "Username" %}</label>
+                <div class="signin-input-group">
+                    <span class="signin-input-icon"><i class="bi bi-person"></i></span>
+                    <input type="text" id="id_username" class="signin-input form-control" name="username" value="{{ form.username.value|default:'' }}" placeholder="{% trans 'Enter username' %}" autocapitalize="none" autocorrect="off" required>
+                </div>
             </div>
+
+            <div class="mb-3">
+                <label class="signin-field-label" for="id_password">{% trans "Password" %}</label>
+                <div class="signin-input-group">
+                    <span class="signin-input-icon"><i class="bi bi-shield-lock"></i></span>
+                    <input type="password" id="id_password" class="signin-input form-control" name="password" placeholder="{% trans 'Enter password' %}" required>
+                    <button class="signin-toggle-pwd" type="button" id="btn-toggle-pwd" tabindex="-1" aria-label="{% trans 'Toggle password visibility' %}">
+                        <i class="bi bi-eye" id="toggle-icon"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <label class="signin-field-label mb-0" for="id_otp_token">{% trans "Security Code" %}</label>
+                    <a href="{% url 'accounts:email_otp' %}" class="signin-link small">{% trans "Lost OTP?" %}</a>
+                </div>
+                <div class="signin-input-group">
+                    <span class="signin-input-icon"><i class="bi bi-key"></i></span>
+                    <input type="text" id="id_otp_token" class="signin-input form-control font-monospace" name="otp_token" placeholder="000000" inputmode="numeric" pattern="[0-9]*" maxlength="6" autofocus required>
+                </div>
+            </div>
+
+            <button id="btn-signin" class="btn-signin-submit" type="submit">
+                <i class="bi bi-shield-lock-fill"></i>
+                <span id="btn-text">{% trans "Verify & Sign In" %}</span>
+            </button>
         </form>
+
+        <div class="signin-footer">
+            <span class="d-inline-flex align-items-center">
+                <span class="pulse-indicator"></span>
+                <span>{% trans "2FA Protection Active" %}</span>
+            </span>
+            <span class="font-monospace">v2.0.0</span>
+        </div>
     </div>
 </div>
-{% endblock content %}
+{% endblock %}
 
 {% block script %}
 <script>
     $(document).ready(function() {
-        $("#btn-signin").click(function() {
-            // disable button
-            $(this).prop("disabled", true);
-            // add spinner to button
-            $(this).html(
-            `
-            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-            {% trans "Loading" %}...
-            `
-            );
-            $("#form-signin").submit();
+        $('body').addClass('signin-page');
+
+        // Toggle password visibility
+        $('#btn-toggle-pwd').on('click', function(e) {
+            e.preventDefault();
+            var $pwd = $('#id_password');
+            var $icon = $('#toggle-icon');
+            if ($pwd.attr('type') === 'password') {
+                $pwd.attr('type', 'text');
+                $icon.removeClass('bi-eye').addClass('bi-eye-slash');
+            } else {
+                $pwd.attr('type', 'password');
+                $icon.removeClass('bi-eye-slash').addClass('bi-eye');
+            }
         });
-});
+
+        // Submit loading state
+        $('#form-signin').on('submit', function() {
+            var $btn = $('#btn-signin');
+            $btn.prop('disabled', true);
+            $btn.html(
+                '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>' +
+                '{% trans "Verifying..." %}'
+            );
+        });
+    });
 </script>
-{% endblock script%}
+{% endblock script %}
