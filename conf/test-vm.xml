@@ -105,7 +105,7 @@
         </input>
         <input type="mouse" bus="ps2" />
         <input type="keyboard" bus="ps2" />
-        <graphics type="spice" autoport="yes" listen="0.0.0.0">
+        <graphics type="vnc" autoport="yes" listen="0.0.0.0">
             <listen type="address" address="0.0.0.0" />
         </graphics>
         <video>

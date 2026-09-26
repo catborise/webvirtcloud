@@ -22,7 +22,7 @@ The platform provides:
 | **Web Framework** | Django 4.2 LTS | Core web framework, ORM, and MVC application foundation |
 | **API** | Django REST Framework (DRF) + `drf-spectacular` | RESTful API endpoints with OpenAPI 3.0 / Swagger & ReDoc documentation |
 | **Virtualization API** | `libvirt-python` + `lxml` | Libvirt API bindings and dynamic domain/storage/network XML generation |
-| **Console / VNC** | WebSockify + noVNC | In-browser HTML5 VNC/SPICE console access via WebSocket |
+| **Console / VNC** | WebSockify + noVNC | In-browser HTML5 VNC console access via WebSocket |
 | **Frontend** | Django Templates, Bootstrap 5, Bootstrap Icons, jQuery | Server-rendered responsive and dynamic user interface |
 | **Identity & Security** | Django Auth, `django-otp` (2FA/TOTP), `django-auth-ldap` | Role-based authorization, two-factor authentication, and optional LDAP/Active Directory support |
 | **Web / WSGI Server** | Nginx + Gunicorn + WhiteNoise | Static file delivery and reverse proxy architecture |
@@ -116,7 +116,7 @@ The most critical Python package in the project. Instead of persisting hyperviso
   - Supports Two-Factor Authentication (TOTP / QR code) and optional enterprise LDAP/Active Directory synchronization.
 
 ### 4.5. `console/` (Remote Console Access)
-- **`novncd`**: Python-based WebSockify daemon bridging browser-based noVNC clients to the hypervisor's VNC/SPICE TCP ports via WebSockets.
+- **`novncd`**: Python-based WebSockify daemon bridging browser-based noVNC clients to the hypervisor's VNC TCP ports via WebSockets.
 - **`sshtunnels.py`**: If the hypervisor is remote and VNC ports are not publicly exposed, establishes an on-demand encrypted SSH tunnel to forward console traffic safely.
 
 ### 4.6. `datasource/` (Cloud-Init Support)
@@ -160,7 +160,7 @@ Built on Django REST Framework with `drf-nested-routers`, providing a structured
 ## 6. Deployment & Service Lifecycle
 
 1. **Gunicorn**: WSGI application server running `webvirtcloud.wsgi:application` (binds to a Unix socket or port 8000).
-2. **novncd**: Background WebSockify daemon translating VNC/SPICE TCP ports to WebSockets on port 6080.
+2. **novncd**: Background WebSockify daemon translating VNC TCP ports to WebSockets on port 6080.
 3. **Nginx**: Front-facing reverse proxy handling ports 80/443, serving static assets directly, proxying dynamic web requests to Gunicorn, and routing WebSocket console traffic to `novncd`.
 4. **Supervisor / Runit / Systemd**: Process supervision managing Gunicorn and novncd daemon lifecycles with automatic restarts.
 

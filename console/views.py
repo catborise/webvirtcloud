@@ -104,8 +104,8 @@ def console(request):
     if ws_path:
         ws_path = ws_path.strip("/") + "/" if ws_path.strip("/") else ""
 
-    if console_type == "vnc" or console_type == "spice":
-        console_page = "console-" + console_type + "-" + view_type + ".html"
+    if console_type == "vnc":
+        console_page = "console-vnc-" + view_type + ".html"
         response = render(request, console_page, locals())
     elif console_type == "pty":
         socketio_public_host = getattr(settings, "SOCKETIO_PUBLIC_HOST", None)
@@ -126,6 +126,11 @@ def console(request):
         if console_type is None:
             console_error = _(
                 "Fail to get console. Please check the console configuration of your VM."
+            )
+        elif console_type == "spice":
+            console_error = _(
+                "SPICE console protocol is deprecated and no longer supported. "
+                "Please switch VM graphics to VNC."
             )
         else:
             console_error = _("Console type '%(type)s' has not support") % {

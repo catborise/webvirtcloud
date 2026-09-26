@@ -5,7 +5,7 @@
 
 ## Description
 
-WebVirtCloud is a virtualization web interface for administrators and users. It allows delegating virtual machines to users with role-based permissions. A built-in noVNC / SPICE console presents a full graphical interface to the guest domain. KVM is currently the supported hypervisor.
+WebVirtCloud is a virtualization web interface for administrators and users. It allows delegating virtual machines to users with role-based permissions. A built-in noVNC console presents a full graphical interface to the guest domain. KVM is currently the supported hypervisor.
 
 ## Features
 * QEMU/KVM Hypervisor Management
@@ -14,7 +14,7 @@ WebVirtCloud is a virtualization web interface for administrators and users. It 
 * Manage Multiple QEMU/KVM Hypervisors
 * Manage Hypervisor Datastore pools and storage volumes
 * Manage Hypervisor Networks and interfaces
-* Instance Console Access with Web Browsers (noVNC & SPICE)
+* Instance Console Access with Web Browsers (noVNC & xterm.js)
 * Libvirt API-based web management UI
 * User-based Authorization, Authentication, and 2FA (OTP)
 * User can add SSH public key to root in Instance
@@ -322,7 +322,7 @@ sudo zypper install -y dmidecode && sudo systemctl restart libvirtd
 ```
 
 > **Security Notice (Compute Node Firewall):**
-> Libvirt compute nodes listen on VNC/SPICE ports (`5900`–`65535`) to allow WebVirtCloud to proxy graphical consoles. Ensure your firewall (`ufw`, `firewalld`, or `iptables`) restricts these ports to accept connections **only** from the WebVirtCloud panel IP, and never exposes them directly to public networks.
+> Libvirt compute nodes listen on VNC ports (`5900`–`65535`) to allow WebVirtCloud to proxy graphical consoles. Ensure your firewall (`ufw`, `firewalld`, or `iptables`) restricts these ports to accept connections **only** from the WebVirtCloud panel IP, and never exposes them directly to public networks.
 
 ---
 

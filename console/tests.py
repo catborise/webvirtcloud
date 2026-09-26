@@ -102,21 +102,7 @@ class ConsoleViewsTestCase(TestCase):
         self.assertEqual(response.context["ws_port"], 5900)
 
     @patch("console.views.wvmInstance")
-    def test_console_superuser_spice_lite(self, mock_wvm):
-        mock_conn = MagicMock()
-        mock_conn.get_console_type.return_value = "spice"
-        mock_conn.get_console_websocket_port.return_value = None
-        mock_wvm.return_value = mock_conn
-
-        self.client.force_login(self.admin_user)
-        url = reverse("console") + f"?token={self.token}&view=lite"
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, "console-spice-lite.html")
-
-    @patch("console.views.wvmInstance")
-    def test_console_superuser_spice_full(self, mock_wvm):
+    def test_console_superuser_spice_deprecated(self, mock_wvm):
         mock_conn = MagicMock()
         mock_conn.get_console_type.return_value = "spice"
         mock_conn.get_console_websocket_port.return_value = None
@@ -127,7 +113,8 @@ class ConsoleViewsTestCase(TestCase):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, "console-spice-full.html")
+        self.assertTemplateUsed(response, "console-vnc-lite.html")
+        self.assertIn("SPICE", str(response.context["console_error"]))
 
     @patch("console.views.wvmInstance")
     def test_console_superuser_pty(self, mock_wvm):

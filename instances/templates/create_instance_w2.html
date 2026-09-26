@@ -222,7 +222,9 @@
                                                                         <div class="col-sm-7">
                                                                             <select class="form-select" name="graphics">
                                                                                 {% for graphics in dom_caps.graphics_types %}
+                                                                                {% if graphics != 'spice' %}
                                                                                 <option value="{{ graphics }}" {% if default_graphics == graphics %}selected{% endif %}>{{ graphics }}</option>
+                                                                                {% endif %}
                                                                                 {% endfor %}
                                                                             </select>
                                                                         </div>
@@ -487,7 +489,9 @@
                                 <div class="col-sm-7">
                                     <select class="form-select" name="graphics">
                                         {% for graphics in dom_caps.graphics_types %}
+                                        {% if graphics != 'spice' %}
                                         <option value="{{ graphics }}" {% if default_graphics == graphics %}selected{% endif %}>{{ graphics }}</option>
+                                        {% endif %}
                                         {% endfor %}
                                     </select>
                                 </div>
@@ -739,7 +743,9 @@
                                 <div class="col-sm-7">
                                     <select class="form-select" name="graphics">
                                         {% for graphics in dom_caps.graphics_types %}
+                                        {% if graphics != 'spice' %}
                                         <option value="{{ graphics }}" {% if default_graphics == graphics %}selected{% endif %}>{{ graphics }}</option>
+                                        {% endif %}
                                         {% endfor %}
                                     </select>
                                 </div>
