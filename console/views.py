@@ -1,14 +1,15 @@
 # pylint: disable=no-name-in-module,no-member
 import re
 
-from accounts.models import UserInstance
-from appsettings.settings import app_settings
+from django.conf import settings
 from django.http.response import HttpResponseServerError
 from django.shortcuts import render
 from django.utils.translation import gettext_lazy as _
-from instances.models import Instance
-from django.conf import settings
 from libvirt import libvirtError
+
+from accounts.models import UserInstance
+from appsettings.settings import app_settings
+from instances.models import Instance
 from vrtManager.instance import wvmInstance
 
 
@@ -18,18 +19,20 @@ def console(request):
     :return:
     """
     console_error = None
+    token = ""
+    view_type = "lite"
+    view_only = app_settings.CONSOLE_VIEW_ONLY.lower()
+    scale = app_settings.CONSOLE_SCALE.lower()
+    resize_session = app_settings.CONSOLE_RESIZE_SESSION.lower()
+    clip_viewport = app_settings.CONSOLE_CLIP_VIEWPORT.lower()
 
     if request.method == "GET":
-        token = request.GET.get("token", "")
-        view_type = request.GET.get("view", "lite")
-        view_only = request.GET.get("view_only", app_settings.CONSOLE_VIEW_ONLY.lower())
-        scale = request.GET.get("scale", app_settings.CONSOLE_SCALE.lower())
-        resize_session = request.GET.get(
-            "resize_session", app_settings.CONSOLE_RESIZE_SESSION.lower()
-        )
-        clip_viewport = request.GET.get(
-            "clip_viewport", app_settings.CONSOLE_CLIP_VIEWPORT.lower()
-        )
+        token = request.GET.get("token", token)
+        view_type = request.GET.get("view", view_type)
+        view_only = request.GET.get("view_only", view_only)
+        scale = request.GET.get("scale", scale)
+        resize_session = request.GET.get("resize_session", resize_session)
+        clip_viewport = request.GET.get("clip_viewport", clip_viewport)
 
     try:
         temptoken = token.split("-", 1)

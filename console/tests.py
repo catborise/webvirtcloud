@@ -1,19 +1,27 @@
+# pylint: disable=no-member
 import importlib.machinery
+import importlib.util
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from accounts.models import UserInstance
-from computes.models import Compute
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.test import TestCase, override_settings
 from django.urls import reverse
-from instances.models import Instance
 from libvirt import libvirtError
 
+from accounts.models import UserInstance
+from computes.models import Compute
+from instances.models import Instance
+
 # Dynamically load console/novncd script for testing
-NOVNCD_PATH = Path(__file__).resolve().parent / "novncd"
-novncd_mod = importlib.machinery.SourceFileLoader("novncd_mod", str(NOVNCD_PATH)).load_module()
+NOVNCD_PATH = str(Path(__file__).resolve().parent / "novncd")
+_loader = importlib.machinery.SourceFileLoader("novncd_mod", NOVNCD_PATH)
+_spec = importlib.util.spec_from_file_location(
+    "novncd_mod", NOVNCD_PATH, loader=_loader
+)
+novncd_mod = importlib.util.module_from_spec(_spec)
+_loader.exec_module(novncd_mod)
 
 
 class ConsoleViewsTestCase(TestCase):
@@ -281,7 +289,6 @@ class ConsoleViewsTestCase(TestCase):
             )
 
 
-
 class NovncdDaemonLogicTestCase(TestCase):
     def setUp(self):
         self.get_parser = novncd_mod.get_parser
@@ -296,7 +303,9 @@ class NovncdDaemonLogicTestCase(TestCase):
 
     def test_novncd_parser_custom_arguments(self):
         parser = self.get_parser()
-        opts = parser.parse_args(["-v", "-d", "-H", "192.168.1.100", "-p", "7070", "-c", "/path/to/cert.pem"])
+        opts = parser.parse_args(
+            ["-v", "-d", "-H", "192.168.1.100", "-p", "7070", "-c", "/path/to/cert.pem"]
+        )
         self.assertTrue(opts.verbose)
         self.assertTrue(opts.debug)
         self.assertEqual(opts.host, "192.168.1.100")
@@ -305,7 +314,15 @@ class NovncdDaemonLogicTestCase(TestCase):
 
     @patch.object(novncd_mod, "get_connection_infos")
     def test_compatibility_mixin_token_from_cookie(self, mock_get_info):
-        mock_get_info.return_value = ("host1", 22, "root", 1, "192.168.1.50", 5900, None)
+        mock_get_info.return_value = (
+            "host1",
+            22,
+            "root",
+            1,
+            "192.168.1.50",
+            5900,
+            None,
+        )
 
         handler = self.CompatibilityMixIn()
         handler.headers = {"cookie": "other=123; token=1-uuid-from-cookie; test=456"}
@@ -322,7 +339,15 @@ class NovncdDaemonLogicTestCase(TestCase):
 
     @patch.object(novncd_mod, "get_connection_infos")
     def test_compatibility_mixin_token_from_query_params(self, mock_get_info):
-        mock_get_info.return_value = ("host2", 22, "root", 1, "192.168.1.50", 5901, None)
+        mock_get_info.return_value = (
+            "host2",
+            22,
+            "root",
+            1,
+            "192.168.1.50",
+            5901,
+            None,
+        )
 
         handler = self.CompatibilityMixIn()
         handler.headers = {}
@@ -350,4 +375,6 @@ class NovncdDaemonLogicTestCase(TestCase):
 
         mock_get_info.assert_not_called()
         socket_factory.assert_not_called()
-        handler.msg.assert_called_with("No console token provided in cookie or query parameters")
+        handler.msg.assert_called_with(
+            "No console token provided in cookie or query parameters"
+        )
