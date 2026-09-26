@@ -12,6 +12,12 @@ from libvirt import libvirtError
 from vrtManager.instance import wvmInstance
 
 
+def to_bool(val, default=False):
+    if val is None:
+        return default
+    return str(val).strip().lower() in ("true", "1", "yes")
+
+
 def console(request):
     """
     :param request:
@@ -20,18 +26,30 @@ def console(request):
     console_error = None
     token = ""
     view_type = "lite"
-    view_only = app_settings.CONSOLE_VIEW_ONLY.lower()
-    scale = app_settings.CONSOLE_SCALE.lower()
-    resize_session = app_settings.CONSOLE_RESIZE_SESSION.lower()
-    clip_viewport = app_settings.CONSOLE_CLIP_VIEWPORT.lower()
+    view_only = to_bool(app_settings.CONSOLE_VIEW_ONLY, default=False)
+    scale = to_bool(app_settings.CONSOLE_SCALE, default=False)
+    resize_session = to_bool(app_settings.CONSOLE_RESIZE_SESSION, default=False)
+    clip_viewport = to_bool(app_settings.CONSOLE_CLIP_VIEWPORT, default=False)
 
     if request.method == "GET":
         token = request.GET.get("token", token)
-        view_type = request.GET.get("view", view_type)
-        view_only = request.GET.get("view_only", view_only)
-        scale = request.GET.get("scale", scale)
-        resize_session = request.GET.get("resize_session", resize_session)
-        clip_viewport = request.GET.get("clip_viewport", clip_viewport)
+        view_type = (
+            "full"
+            if str(request.GET.get("view", view_type)).strip().lower() == "full"
+            else "lite"
+        )
+        if "view_only" in request.GET:
+            view_only = to_bool(request.GET.get("view_only"), default=view_only)
+        if "scale" in request.GET:
+            scale = to_bool(request.GET.get("scale"), default=scale)
+        if "resize_session" in request.GET:
+            resize_session = to_bool(
+                request.GET.get("resize_session"), default=resize_session
+            )
+        if "clip_viewport" in request.GET:
+            clip_viewport = to_bool(
+                request.GET.get("clip_viewport"), default=clip_viewport
+            )
 
     try:
         temptoken = token.split("-", 1)

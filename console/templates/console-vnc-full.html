@@ -176,24 +176,24 @@
         bindKeyAction('ctrlaltf' + (i + 1), () => sendCtrlAltFN(i));
     }
 
-    let fullPath = '{{ ws_path }}';
-    const token = '{{ token }}';
+    let fullPath = '{{ ws_path|escapejs }}';
+    const token = '{{ token|escapejs }}';
     if (token) {
         fullPath += (fullPath.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
     }
 
     const defaults = {
         autoconnect: true,
-        resize: '{{ scale }}' === 'true' ? 'scale' : 'off',
-        view_only: {{ view_only }},
-        view_clip: {{ clip_viewport }},
+        resize: {{ scale|yesno:"'scale','off'" }},
+        view_only: {{ view_only|yesno:"true,false" }},
+        view_clip: {{ clip_viewport|yesno:"true,false" }},
         {% if perms.instances.passwordless_console and console_passwd %}
-        password: '{{ console_passwd }}',
+        password: '{{ console_passwd|escapejs }}',
         {% endif %}
     };
 
     const mandatory = {
-        host: '{{ ws_host }}',
+        host: '{{ ws_host|escapejs }}',
         port: {{ ws_port }},
         path: fullPath,
     };

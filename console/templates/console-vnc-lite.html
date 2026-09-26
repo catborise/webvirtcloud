@@ -260,17 +260,17 @@
 
     // Read parameters specified in the URL query string
     // By default, use the host and port of server that served this file
-    const host = readQueryVariable('host', '{{ ws_host }}');
-    let port = readQueryVariable('port', '{{ ws_port }}');
+    const host = readQueryVariable('host', '{{ ws_host|escapejs }}');
+    let port = readQueryVariable('port', '{{ ws_port|escapejs }}');
 
-    {% if perms.instances.passwordless_console %}
-        const password = '{{ console_passwd }}';
+    {% if perms.instances.passwordless_console and console_passwd %}
+        const password = '{{ console_passwd|escapejs }}';
     {% else %}
         const password = readQueryVariable('password');
     {% endif %}
 
     //const path = readQueryVariable('path', 'websockify');
-    const path = readQueryVariable('path', '{{ ws_path }}');
+    const path = readQueryVariable('path', '{{ ws_path|escapejs }}');
 
     // | | |         | | |
     // | | | Connect | | |
@@ -294,7 +294,7 @@
     } else {
         url += '/';
     }
-    const token = readQueryVariable('token', '{{ token }}');
+    const token = readQueryVariable('token', '{{ token|escapejs }}');
     if (token) {
         url += (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
     }
@@ -310,10 +310,10 @@
     rfb.addEventListener("desktopname", updateDesktopName);
 
     // Set parameters that can be changed on an active connection
-    rfb.scaleViewport = {{ scale }};
-    rfb.viewOnly = {{ view_only }};
-    rfb.resizeSession = {{ resize_session }};
-    rfb.clipViewport = {{ clip_viewport }};
+    rfb.scaleViewport = {{ scale|yesno:"true,false" }};
+    rfb.viewOnly = {{ view_only|yesno:"true,false" }};
+    rfb.resizeSession = {{ resize_session|yesno:"true,false" }};
+    rfb.clipViewport = {{ clip_viewport|yesno:"true,false" }};
 
 </script>
 {% endblock %}

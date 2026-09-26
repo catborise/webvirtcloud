@@ -237,6 +237,56 @@ class ConsoleViewsTestCase(TestCase):
         self.assertEqual(response.context["ws_host"], "panel.example.com")
 
     @patch("console.views.wvmInstance")
+    def test_console_xss_protection_query_parameters(self, mock_wvm):
+        mock_conn = MagicMock()
+        mock_conn.get_console_type.return_value = "vnc"
+        mock_conn.get_console_websocket_port.return_value = None
+        mock_wvm.return_value = mock_conn
+
+        self.client.force_login(self.admin_user)
+        # Attempt XSS injection via query parameters
+        url = (
+            reverse("console")
+            + f"?token={self.token}&view=lite&view_only=alert('xss')&scale=true&clip_viewport=1"
+        )
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["view_only"], False)
+        self.assertEqual(response.context["scale"], True)
+        self.assertEqual(response.context["clip_viewport"], True)
+
+        content = response.content.decode("utf-8")
+        self.assertNotIn("alert('xss')", content)
+        self.assertIn("rfb.viewOnly = false;", content)
+        self.assertIn("rfb.scaleViewport = true;", content)
+
+    @patch("console.views.wvmInstance")
+    def test_console_password_escapejs_escaping(self, mock_wvm):
+        mock_conn = MagicMock()
+        mock_conn.get_console_type.return_value = "vnc"
+        mock_conn.get_console_websocket_port.return_value = None
+        mock_conn.get_console_passwd.return_value = "O'Brian<script>&123"
+        mock_wvm.return_value = mock_conn
+
+        self.client.force_login(self.admin_user)
+
+        # Test Lite mode
+        url_lite = reverse("console") + f"?token={self.token}&view=lite"
+        resp_lite = self.client.get(url_lite)
+        self.assertEqual(resp_lite.status_code, 200)
+        content_lite = resp_lite.content.decode("utf-8")
+        self.assertIn(r"O\u0027Brian", content_lite)
+        self.assertNotIn("&#39;", content_lite)
+
+        # Test Full mode
+        url_full = reverse("console") + f"?token={self.token}&view=full"
+        resp_full = self.client.get(url_full)
+        self.assertEqual(resp_full.status_code, 200)
+        content_full = resp_full.content.decode("utf-8")
+        self.assertIn(r"O\u0027Brian", content_full)
+
+    @patch("console.views.wvmInstance")
     def test_console_libvirt_error_fallback(self, mock_wvm):
         mock_wvm.side_effect = libvirtError("Connection to libvirtd failed")
 

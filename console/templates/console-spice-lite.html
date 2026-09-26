@@ -65,7 +65,7 @@
 
         // By default, use the host and port of server that served this file
         // host = spice_query_var('host', window.location.hostname);
-        host = '{{ ws_host| safe }}';
+        host = '{{ ws_host|escapejs }}';
 
         // Note that using the web server port only makes sense
         //  if your web server has a reverse proxy to relay the WebSocket
@@ -80,7 +80,7 @@
             }
         }
         //port = spice_query_var('port', default_port);
-        port = '{{ ws_port| safe }}';
+        port = '{{ ws_port|escapejs }}';
         if (window.location.protocol == 'https:') {
             scheme = "wss://";
         }
@@ -93,17 +93,16 @@
         }
 
         if (password === undefined) {
-            {% if perms.instances.passwordless_console %}
-                password = '{{ console_passwd }}';
+            {% if perms.instances.passwordless_console and console_passwd %}
+                password = '{{ console_passwd|escapejs }}';
             {% else %}
                 password = prompt('{% trans "Password" %}');
             {% endif %}
-            //password = '{{ console_passwd | safe }}';
         }
         if (password === 'None') password = '';
 
         //var path = spice_query_var('path', 'websockify');
-        var path = spice_query_var('path', '{{ ws_path }}');
+        var path = spice_query_var('path', '{{ ws_path|escapejs }}');
 
         if ((!host) || (!port)) {
             console.log('{% trans "must specify host and port in URL" %}');
