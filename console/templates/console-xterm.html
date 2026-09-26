@@ -105,7 +105,35 @@
         return defaultValue;
     }
 
-        window.onresize = resize
-        window.onload = resize
+        function bindTerminalKey(id, str) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    socket.emit("pty_input", {"input": str});
+                });
+            }
+        }
+        bindTerminalKey('ctrlc', '\x03');
+        bindTerminalKey('ctrld', '\x04');
+        bindTerminalKey('ctrlz', '\x1a');
+        bindTerminalKey('ctrlbackslash', '\x1c');
+        bindTerminalKey('sendtab', '\t');
+        bindTerminalKey('sendesc', '\x1b');
+
+        const fsBtn = document.getElementById('fullscreen_button');
+        if (fsBtn) {
+            fsBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                if (document.fullscreenElement) {
+                    document.exitFullscreen().catch(() => {});
+                } else {
+                    document.documentElement.requestFullscreen().catch(() => {});
+                }
+            });
+        }
+
+        window.onresize = resize;
+        window.onload = resize;
 </script>
 {% endblock %}

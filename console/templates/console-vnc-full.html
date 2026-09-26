@@ -69,6 +69,116 @@
     src='{% static "js/novnc/vendor/browser-es-module-loader/dist/browser-es-module-loader.js" %}'></script>
 <!-- actual script modules -->
 <script type="module" crossorigin="anonymous" src="{% static "js/novnc/app/ui.js" %}"></script>
+<script type="module" crossorigin="anonymous">
+    import UI from '{% static "js/novnc/app/ui.js" %}';
+    import KeyTable from '{% static "js/novnc/core/input/keysym.js" %}';
+
+    const fnKeys = [
+        { keysym: KeyTable.XK_F1, code: 'F1' },
+        { keysym: KeyTable.XK_F2, code: 'F2' },
+        { keysym: KeyTable.XK_F3, code: 'F3' },
+        { keysym: KeyTable.XK_F4, code: 'F4' },
+        { keysym: KeyTable.XK_F5, code: 'F5' },
+        { keysym: KeyTable.XK_F6, code: 'F6' },
+        { keysym: KeyTable.XK_F7, code: 'F7' },
+        { keysym: KeyTable.XK_F8, code: 'F8' },
+        { keysym: KeyTable.XK_F9, code: 'F9' },
+        { keysym: KeyTable.XK_F10, code: 'F10' },
+        { keysym: KeyTable.XK_F11, code: 'F11' },
+        { keysym: KeyTable.XK_F12, code: 'F12' }
+    ];
+
+    function sendSingleKey(keysym, code) {
+        if (!UI.rfb) { return false; }
+        UI.rfb.sendKey(keysym, code, true);
+        UI.rfb.sendKey(keysym, code, false);
+        return false;
+    }
+
+    function sendKeyCombo(keys) {
+        if (!UI.rfb) { return false; }
+        for (let i = 0; i < keys.length; i++) {
+            UI.rfb.sendKey(keys[i].keysym, keys[i].code, true);
+        }
+        for (let i = keys.length - 1; i >= 0; i--) {
+            UI.rfb.sendKey(keys[i].keysym, keys[i].code, false);
+        }
+        return false;
+    }
+
+    function sendCtrlAltDel() {
+        if (UI.rfb && typeof UI.rfb.sendCtrlAltDel === 'function') {
+            UI.rfb.sendCtrlAltDel();
+        } else {
+            sendKeyCombo([
+                { keysym: KeyTable.XK_Control_L, code: 'ControlLeft' },
+                { keysym: KeyTable.XK_Alt_L, code: 'AltLeft' },
+                { keysym: KeyTable.XK_Delete, code: 'Delete' }
+            ]);
+        }
+        return false;
+    }
+
+    function sendCtrlAltFN(f) {
+        if (f < 0 || f >= fnKeys.length) { return false; }
+        return sendKeyCombo([
+            { keysym: KeyTable.XK_Control_L, code: 'ControlLeft' },
+            { keysym: KeyTable.XK_Alt_L, code: 'AltLeft' },
+            fnKeys[f]
+        ]);
+    }
+
+    function bindKeyAction(id, handler) {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('click', (e) => {
+                e.preventDefault();
+                handler();
+            });
+        }
+    }
+
+    bindKeyAction('fullscreen_button', () => {
+        if (typeof UI.fullscreen === 'function') {
+            UI.fullscreen();
+        }
+    });
+
+    bindKeyAction('ctrlaltdel', sendCtrlAltDel);
+    bindKeyAction('ctrlaltbackspace', () => sendKeyCombo([
+        { keysym: KeyTable.XK_Control_L, code: 'ControlLeft' },
+        { keysym: KeyTable.XK_Alt_L, code: 'AltLeft' },
+        { keysym: KeyTable.XK_BackSpace, code: 'Backspace' }
+    ]));
+    bindKeyAction('alttab', () => sendKeyCombo([
+        { keysym: KeyTable.XK_Alt_L, code: 'AltLeft' },
+        { keysym: KeyTable.XK_Tab, code: 'Tab' }
+    ]));
+    bindKeyAction('superkey', () => sendSingleKey(KeyTable.XK_Super_L, 'MetaLeft'));
+    bindKeyAction('sendesc', () => sendSingleKey(KeyTable.XK_Escape, 'Escape'));
+    bindKeyAction('sendtab', () => sendSingleKey(KeyTable.XK_Tab, 'Tab'));
+
+    bindKeyAction('ctrlc', () => sendKeyCombo([
+        { keysym: KeyTable.XK_Control_L, code: 'ControlLeft' },
+        { keysym: KeyTable.XK_c, code: 'KeyC' }
+    ]));
+    bindKeyAction('ctrlz', () => sendKeyCombo([
+        { keysym: KeyTable.XK_Control_L, code: 'ControlLeft' },
+        { keysym: KeyTable.XK_z, code: 'KeyZ' }
+    ]));
+    bindKeyAction('ctrld', () => sendKeyCombo([
+        { keysym: KeyTable.XK_Control_L, code: 'ControlLeft' },
+        { keysym: KeyTable.XK_d, code: 'KeyD' }
+    ]));
+    bindKeyAction('ctrlbackslash', () => sendKeyCombo([
+        { keysym: KeyTable.XK_Control_L, code: 'ControlLeft' },
+        { keysym: KeyTable.XK_backslash, code: 'Backslash' }
+    ]));
+
+    for (let i = 0; i < 12; i++) {
+        bindKeyAction('ctrlaltf' + (i + 1), () => sendCtrlAltFN(i));
+    }
+</script>
 <!-- end scripts -->
 {% endblock %}
 

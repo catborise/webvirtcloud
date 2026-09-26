@@ -34,6 +34,7 @@
 <script type="module" crossorigin="anonymous">
     // RFB holds the API to connect and communicate with a VNC server
     import RFB from '{% static "js/novnc/core/rfb.js" %}';
+    import KeyTable from '{% static "js/novnc/core/input/keysym.js" %}';
 
     let rfb;
     let desktopName;
@@ -66,12 +67,62 @@
         desktopName = e.detail.name;
     }
 
+    function sendSingleKey(keysym, code) {
+        if (!rfb) { return false; }
+        rfb.sendKey(keysym, code, true);
+        rfb.sendKey(keysym, code, false);
+        return false;
+    }
+
+    function sendKeyCombo(keys) {
+        if (!rfb) { return false; }
+        for (let i = 0; i < keys.length; i++) {
+            rfb.sendKey(keys[i].keysym, keys[i].code, true);
+        }
+        for (let i = keys.length - 1; i >= 0; i--) {
+            rfb.sendKey(keys[i].keysym, keys[i].code, false);
+        }
+        return false;
+    }
+
     // Since most operating systems will catch Ctrl+Alt+Del
     // before they get a chance to be intercepted by the browser,
     // we provide a way to emulate this key sequence.
     function sendCtrlAltDel() {
-        rfb.sendCtrlAltDel();
+        if (rfb && typeof rfb.sendCtrlAltDel === 'function') {
+            rfb.sendCtrlAltDel();
+        } else {
+            sendKeyCombo([
+                { keysym: KeyTable.XK_Control_L, code: 'ControlLeft' },
+                { keysym: KeyTable.XK_Alt_L, code: 'AltLeft' },
+                { keysym: KeyTable.XK_Delete, code: 'Delete' }
+            ]);
+        }
         return false;
+    }
+
+    const fnKeys = [
+        { keysym: KeyTable.XK_F1, code: 'F1' },
+        { keysym: KeyTable.XK_F2, code: 'F2' },
+        { keysym: KeyTable.XK_F3, code: 'F3' },
+        { keysym: KeyTable.XK_F4, code: 'F4' },
+        { keysym: KeyTable.XK_F5, code: 'F5' },
+        { keysym: KeyTable.XK_F6, code: 'F6' },
+        { keysym: KeyTable.XK_F7, code: 'F7' },
+        { keysym: KeyTable.XK_F8, code: 'F8' },
+        { keysym: KeyTable.XK_F9, code: 'F9' },
+        { keysym: KeyTable.XK_F10, code: 'F10' },
+        { keysym: KeyTable.XK_F11, code: 'F11' },
+        { keysym: KeyTable.XK_F12, code: 'F12' }
+    ];
+
+    function sendCtrlAltFN(f) {
+        if (f < 0 || f >= fnKeys.length) { return false; }
+        return sendKeyCombo([
+            { keysym: KeyTable.XK_Control_L, code: 'ControlLeft' },
+            { keysym: KeyTable.XK_Alt_L, code: 'AltLeft' },
+            fnKeys[f]
+        ]);
     }
 
     function fullscreen() {
@@ -89,38 +140,56 @@
                 document.msExitFullscreen();
             }
         } else {
-            if (document.documentElement.requestFullscreen) {
-                document.documentElement.requestFullscreen();
-            } else if (document.documentElement.mozRequestFullScreen) {
-                document.documentElement.mozRequestFullScreen();
-            } else if (document.documentElement.webkitRequestFullscreen) {
-                document.documentElement.webkitRequestFullscreen(Element.ALLOW_KEYBOARD_INPUT);
-            } else if (document.body.msRequestFullscreen) {
-                document.body.msRequestFullscreen();
+            const el = document.documentElement;
+            const request = el.requestFullscreen ||
+                el.mozRequestFullScreen ||
+                el.webkitRequestFullscreen ||
+                el.msRequestFullscreen;
+            if (request) {
+                request.call(el).catch(() => {});
             }
         }
         return false;
     }
-    function sendCtrlAltFN(f) {
-        rfb.sendCtrlAltFN(f);
-        return false;
-    }
+
+    document.addEventListener('fullscreenchange', () => {
+        if (document.fullscreenElement) {
+            if ('keyboard' in navigator && typeof navigator.keyboard.lock === 'function') {
+                navigator.keyboard.lock(['AltLeft', 'AltRight', 'Tab', 'Escape']).catch(() => {});
+            }
+        } else {
+            if ('keyboard' in navigator && typeof navigator.keyboard.unlock === 'function') {
+                navigator.keyboard.unlock();
+            }
+        }
+    });
+
     function machineShutdown() {
-        rfb.machineShutdown();
+        if (rfb) { rfb.machineShutdown(); }
         return false;
     }
     function machineReboot() {
-        rfb.machineReboot();
+        if (rfb) { rfb.machineReboot(); }
         return false;
     }
     function machineReset() {
-        rfb.machineReset();
+        if (rfb) { rfb.machineReset(); }
         return false;
     }
 
     // Show a status text in the top bar
     function status(text) {
         document.getElementById('noVNC_status').textContent = text;
+    }
+
+    function bindKeyAction(id, handler) {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('click', (e) => {
+                e.preventDefault();
+                handler();
+            });
+        }
     }
 
     // This function extracts the value of one variable from the
@@ -143,25 +212,46 @@
         return defaultValue;
     }
 
-    document.getElementById('sendCtrlAltDelButton').onclick = sendCtrlAltDel;
-    document.getElementById('machineShutdownButton').onclick = machineShutdown;
-    document.getElementById('machineRebootButton').onclick = machineReboot;
-    document.getElementById('machineResetButton').onclick = machineReset;
-    document.getElementById('fullscreen_button').onclick = fullscreen;
+    bindKeyAction('sendCtrlAltDelButton', sendCtrlAltDel);
+    bindKeyAction('machineShutdownButton', machineShutdown);
+    bindKeyAction('machineRebootButton', machineReboot);
+    bindKeyAction('machineResetButton', machineReset);
+    bindKeyAction('fullscreen_button', fullscreen);
 
-    document.getElementById('ctrlaltdel').addEventListener('click', sendCtrlAltDel);
-    document.getElementById('ctrlaltf1').addEventListener('click', function () { sendCtrlAltFN(0); });
-    document.getElementById('ctrlaltf2').addEventListener('click', function () { sendCtrlAltFN(1); });
-    document.getElementById('ctrlaltf3').addEventListener('click', function () { sendCtrlAltFN(2); });
-    document.getElementById('ctrlaltf4').addEventListener('click', function () { sendCtrlAltFN(3); });
-    document.getElementById('ctrlaltf5').addEventListener('click', function () { sendCtrlAltFN(4); });
-    document.getElementById('ctrlaltf6').addEventListener('click', function () { sendCtrlAltFN(5); });
-    document.getElementById('ctrlaltf7').addEventListener('click', function () { sendCtrlAltFN(6); });
-    document.getElementById('ctrlaltf8').addEventListener('click', function () { sendCtrlAltFN(7); });
-    document.getElementById('ctrlaltf9').addEventListener('click', function () { sendCtrlAltFN(8); });
-    document.getElementById('ctrlaltf10').addEventListener('click', function () { sendCtrlAltFN(9); });
-    document.getElementById('ctrlaltf11').addEventListener('click', function () { sendCtrlAltFN(10); });
-    document.getElementById('ctrlaltf12').addEventListener('click', function () { sendCtrlAltFN(11); });
+    bindKeyAction('ctrlaltdel', sendCtrlAltDel);
+    bindKeyAction('ctrlaltbackspace', () => sendKeyCombo([
+        { keysym: KeyTable.XK_Control_L, code: 'ControlLeft' },
+        { keysym: KeyTable.XK_Alt_L, code: 'AltLeft' },
+        { keysym: KeyTable.XK_BackSpace, code: 'Backspace' }
+    ]));
+    bindKeyAction('alttab', () => sendKeyCombo([
+        { keysym: KeyTable.XK_Alt_L, code: 'AltLeft' },
+        { keysym: KeyTable.XK_Tab, code: 'Tab' }
+    ]));
+    bindKeyAction('superkey', () => sendSingleKey(KeyTable.XK_Super_L, 'MetaLeft'));
+    bindKeyAction('sendesc', () => sendSingleKey(KeyTable.XK_Escape, 'Escape'));
+    bindKeyAction('sendtab', () => sendSingleKey(KeyTable.XK_Tab, 'Tab'));
+
+    bindKeyAction('ctrlc', () => sendKeyCombo([
+        { keysym: KeyTable.XK_Control_L, code: 'ControlLeft' },
+        { keysym: KeyTable.XK_c, code: 'KeyC' }
+    ]));
+    bindKeyAction('ctrlz', () => sendKeyCombo([
+        { keysym: KeyTable.XK_Control_L, code: 'ControlLeft' },
+        { keysym: KeyTable.XK_z, code: 'KeyZ' }
+    ]));
+    bindKeyAction('ctrld', () => sendKeyCombo([
+        { keysym: KeyTable.XK_Control_L, code: 'ControlLeft' },
+        { keysym: KeyTable.XK_d, code: 'KeyD' }
+    ]));
+    bindKeyAction('ctrlbackslash', () => sendKeyCombo([
+        { keysym: KeyTable.XK_Control_L, code: 'ControlLeft' },
+        { keysym: KeyTable.XK_backslash, code: 'Backslash' }
+    ]));
+
+    for (let i = 0; i < 12; i++) {
+        bindKeyAction('ctrlaltf' + (i + 1), () => sendCtrlAltFN(i));
+    }
 
     // Read parameters specified in the URL query string
     // By default, use the host and port of server that served this file
