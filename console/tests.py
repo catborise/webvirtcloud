@@ -4,15 +4,14 @@ import importlib.util
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from accounts.models import UserInstance
+from computes.models import Compute
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.test import TestCase, override_settings
 from django.urls import reverse
-from libvirt import libvirtError
-
-from accounts.models import UserInstance
-from computes.models import Compute
 from instances.models import Instance
+from libvirt import libvirtError
 
 # Dynamically load console/novncd script for testing
 NOVNCD_PATH = str(Path(__file__).resolve().parent / "novncd")
@@ -20,6 +19,8 @@ _loader = importlib.machinery.SourceFileLoader("novncd_mod", NOVNCD_PATH)
 _spec = importlib.util.spec_from_file_location(
     "novncd_mod", NOVNCD_PATH, loader=_loader
 )
+assert _spec is not None
+assert _spec.loader is not None
 novncd_mod = importlib.util.module_from_spec(_spec)
 _loader.exec_module(novncd_mod)
 

@@ -1,15 +1,14 @@
 # pylint: disable=no-name-in-module,no-member
 import re
 
+from accounts.models import UserInstance
+from appsettings.settings import app_settings
 from django.conf import settings
 from django.http.response import HttpResponseServerError
 from django.shortcuts import render
 from django.utils.translation import gettext_lazy as _
-from libvirt import libvirtError
-
-from accounts.models import UserInstance
-from appsettings.settings import app_settings
 from instances.models import Instance
+from libvirt import libvirtError
 from vrtManager.instance import wvmInstance
 
 
