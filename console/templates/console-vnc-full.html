@@ -21,55 +21,40 @@
                 Remove this if you use the .htaccess -->
 <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 
- <!-- Icons (see app/images/icons/Makefile for what the sizes are for) -->
-<link rel="icon" sizes="16x16" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-16x16.png" %}">
-<link rel="icon" sizes="24x24" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-24x24.png" %}">
-<link rel="icon" sizes="32x32" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-32x32.png" %}">
-<link rel="icon" sizes="48x48" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-48x48.png" %}">
-<link rel="icon" sizes="60x60" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-60x60.png" %}">
-<link rel="icon" sizes="64x64" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-64x64.png" %}">
-<link rel="icon" sizes="72x72" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-72x72.png" %}">
-<link rel="icon" sizes="76x76" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-76x76.png" %}">
-<link rel="icon" sizes="96x96" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-96x96.png" %}">
-<link rel="icon" sizes="120x120" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-120x120.png" %}">
-<link rel="icon" sizes="144x144" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-144x144.png" %}">
-<link rel="icon" sizes="152x152" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-152x152.png" %}">
-<link rel="icon" sizes="192x192" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-192x192.png" %}">
-<!-- Firefox currently mishandles SVG, see #1419039
+    <link rel="icon" type="image/x-icon" href="{% static "js/novnc/app/images/icons/novnc.ico" %}">
     <link rel="icon" sizes="any" type="image/svg+xml" href="{% static "js/novnc/app/images/icons/novnc-icon.svg" %}">
-    -->
-<!-- Repeated last so that legacy handling will pick this -->
-<link rel="icon" sizes="16x16" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-16x16.png" %}">
 
-<!-- Apple iOS Safari settings -->
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<!-- Home Screen Icons (favourites and bookmarks use the normal icons) -->
-<link rel="apple-touch-icon" sizes="60x60" type="image/png"
-    href="{% static "js/novnc/app/images/icons/novnc-60x60.png" %}">
-<link rel="apple-touch-icon" sizes="76x76" type="image/png"
-    href="{% static "js/novnc/app/images/icons/novnc-76x76.png" %}">
-<link rel="apple-touch-icon" sizes="120x120" type="image/png"
-    href="{% static "js/novnc/app/images/icons/novnc-120x120.png" %}">
-<link rel="apple-touch-icon" sizes="152x152" type="image/png"
-    href="{% static "js/novnc/app/images/icons/novnc-152x152.png" %}">
+    <!-- Apple iOS Safari settings -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
-<!-- Stylesheets -->
-<link rel="stylesheet" href="{% static "js/novnc/app/styles/base.css" %}" />
+    <!-- iOS Home Screen Icons -->
+    <link rel="apple-touch-icon" sizes="40x40" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-ios-40.png" %}">
+    <link rel="apple-touch-icon" sizes="58x58" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-ios-58.png" %}">
+    <link rel="apple-touch-icon" sizes="60x60" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-ios-60.png" %}">
+    <link rel="apple-touch-icon" sizes="76x76" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-ios-76.png" %}">
+    <link rel="apple-touch-icon" sizes="80x80" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-ios-80.png" %}">
+    <link rel="apple-touch-icon" sizes="87x87" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-ios-87.png" %}">
+    <link rel="apple-touch-icon" sizes="120x120" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-ios-120.png" %}">
+    <link rel="apple-touch-icon" sizes="152x152" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-ios-152.png" %}">
+    <link rel="apple-touch-icon" sizes="167x167" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-ios-167.png" %}">
+    <link rel="apple-touch-icon" sizes="180x180" type="image/png" href="{% static "js/novnc/app/images/icons/novnc-ios-180.png" %}">
 
-<!-- this is included as a normal file in order to catch script-loading errors as well -->
-<script src="{% static "js/novnc/app/error-handler.js" %}"></script>
+    <!-- Stylesheets -->
+    <link rel="stylesheet" href="{% static "js/novnc/app/styles/constants.css" %}">
+    <link rel="stylesheet" href="{% static "js/novnc/app/styles/base.css" %}">
+    <link rel="stylesheet" href="{% static "js/novnc/app/styles/input.css" %}">
 
-<!-- begin scripts -->
-<!-- promise polyfills promises for IE11 -->
-<script src="{% static "js/novnc/vendor/promise.js" %}"></script>
-<!-- ES2015/ES6 modules polyfill -->
-<script nomodule
-    src='{% static "js/novnc/vendor/browser-es-module-loader/dist/browser-es-module-loader.js" %}'></script>
-<!-- actual script modules -->
-<script type="module" crossorigin="anonymous" src="{% static "js/novnc/app/ui.js" %}"></script>
-<script type="module" crossorigin="anonymous">
+    <!-- Images that will later appear via CSS -->
+    <link rel="preload" as="image" href="{% static "js/novnc/app/images/info.svg" %}">
+    <link rel="preload" as="image" href="{% static "js/novnc/app/images/error.svg" %}">
+    <link rel="preload" as="image" href="{% static "js/novnc/app/images/warning.svg" %}">
+
+    <script type="module" crossorigin="anonymous" src="{% static "js/novnc/app/error-handler.js" %}"></script>
+
+    <!-- actual script modules -->
+    <script type="module" crossorigin="anonymous">
     import UI from '{% static "js/novnc/app/ui.js" %}';
     import KeyTable from '{% static "js/novnc/core/input/keysym.js" %}';
 
@@ -190,6 +175,30 @@
     for (let i = 0; i < 12; i++) {
         bindKeyAction('ctrlaltf' + (i + 1), () => sendCtrlAltFN(i));
     }
+
+    let fullPath = '{{ ws_path }}';
+    const token = '{{ token }}';
+    if (token) {
+        fullPath += (fullPath.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
+    }
+
+    const defaults = {
+        autoconnect: true,
+        resize: '{{ scale }}' === 'true' ? 'scale' : 'off',
+        view_only: {{ view_only }},
+        view_clip: {{ clip_viewport }},
+        {% if perms.instances.passwordless_console and console_passwd %}
+        password: '{{ console_passwd }}',
+        {% endif %}
+    };
+
+    const mandatory = {
+        host: '{{ ws_host }}',
+        port: {{ ws_port }},
+        path: fullPath,
+    };
+
+    UI.start({ settings: { defaults, mandatory } });
 </script>
 <!-- end scripts -->
 {% endblock %}
@@ -384,47 +393,74 @@
         </div>
     </div>
 
-    <div id="noVNC_control_bar_hint"></div>
+    </div> <!-- End of noVNC_control_bar -->
 
-</div> <!-- End of noVNC_control_bar -->
-
-<!-- Status Dialog -->
-<div id="noVNC_status"></div>
-
-<!-- Connect button -->
-<div class="noVNC_center">
-    <div id="noVNC_connect_dlg">
-        <div class="noVNC_logo" translate="no"><span>no</span>VNC</div>
-        <div id="noVNC_connect_button">
-            <div><img src="{% static "js/novnc/app/images/connect.svg" %}"> Connect</div>
+    <div id="noVNC_hint_anchor" class="noVNC_vcenter">
+        <div id="noVNC_control_bar_hint">
         </div>
     </div>
-</div>
 
-<!-- Password Dialog -->
-<div class="noVNC_center noVNC_connect_layer">
-    <div id="noVNC_credentials_dlg" class="noVNC_panel">
-        <form aria-label="noVNC password form">
-            <ul>
-                <li id="noVNC_username_block">
-                    <label>Username:</label>
-                    <input id="noVNC_username_input">
-                </li>
-                <li id="noVNC_password_block">
-                    <label>Password:</label>
-                    {% if perms.instances.passwordless_console %}
-                        <input id="noVNC_password_input" type="password" value='{{ console_passwd }}' />
-                    {% else %}
-                        <input id="noVNC_password_input" type="password" />
-                    {% endif %}
-                </li>
-                <li>
-                    <input id="noVNC_credentials_button" type="submit" value="Send Credentials" class="noVNC_submit" />
-                </li>
-            </ul>
-        </form>
+    <!-- Status Dialog -->
+    <div id="noVNC_status"></div>
+
+    <!-- Connect button -->
+    <div class="noVNC_center">
+        <div id="noVNC_connect_dlg">
+            <p class="noVNC_logo" translate="no"><span>no</span>VNC</p>
+            <div>
+                <button id="noVNC_connect_button">
+                    <img alt="" src="{% static "js/novnc/app/images/connect.svg" %}"> {% trans 'Connect' %}
+                </button>
+            </div>
+        </div>
     </div>
-</div>
+
+    <!-- Server key verification dialog -->
+    <div class="noVNC_center noVNC_connect_layer">
+    <div id="noVNC_verify_server_dlg" class="noVNC_panel"><form>
+        <div class="noVNC_heading">
+            {% trans 'Server identity' %}
+        </div>
+        <div>
+            {% trans 'The server has provided the following identifying information:' %}
+        </div>
+        <div id="noVNC_fingerprint_block">
+            {% trans 'Fingerprint:' %}
+            <span id="noVNC_fingerprint"></span>
+        </div>
+        <div>
+            {% trans 'Please verify that the information is correct and press "Approve". Otherwise press "Reject".' %}
+        </div>
+        <div class="button_row">
+            <input id="noVNC_approve_server_button" type="submit" value="{% trans 'Approve' %}">
+            <input id="noVNC_reject_server_button" type="button" value="{% trans 'Reject' %}">
+        </div>
+    </form></div>
+    </div>
+
+    <!-- Password dialog -->
+    <div class="noVNC_center noVNC_connect_layer">
+    <div id="noVNC_credentials_dlg" class="noVNC_panel"><form>
+        <div class="noVNC_heading">
+            {% trans 'Credentials' %}
+        </div>
+        <div id="noVNC_username_block">
+            <label for="noVNC_username_input">{% trans 'Username' %}:</label>
+            <input id="noVNC_username_input">
+        </div>
+        <div id="noVNC_password_block">
+            <label for="noVNC_password_input">{% trans 'Password' %}:</label>
+            {% if perms.instances.passwordless_console %}
+                <input id="noVNC_password_input" type="password" value="{{ console_passwd }}">
+            {% else %}
+                <input id="noVNC_password_input" type="password">
+            {% endif %}
+        </div>
+        <div class="button_row">
+            <input id="noVNC_credentials_button" type="submit" value="{% trans 'Send credentials' %}">
+        </div>
+    </form></div>
+    </div>
 
 <!-- Transition Screens -->
 <div id="noVNC_transition">
