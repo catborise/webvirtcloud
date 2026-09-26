@@ -67,21 +67,33 @@
         desktopName = e.detail.name;
     }
 
+    function isConnected() {
+        return rfb && (!rfb._rfbConnectionState || rfb._rfbConnectionState === 'connected');
+    }
+
     function sendSingleKey(keysym, code) {
-        if (!rfb) { return false; }
+        if (!isConnected()) { return false; }
         rfb.sendKey(keysym, code, true);
-        rfb.sendKey(keysym, code, false);
+        setTimeout(() => {
+            if (isConnected()) {
+                rfb.sendKey(keysym, code, false);
+            }
+        }, 20);
         return false;
     }
 
     function sendKeyCombo(keys) {
-        if (!rfb) { return false; }
+        if (!isConnected()) { return false; }
         for (let i = 0; i < keys.length; i++) {
             rfb.sendKey(keys[i].keysym, keys[i].code, true);
         }
-        for (let i = keys.length - 1; i >= 0; i--) {
-            rfb.sendKey(keys[i].keysym, keys[i].code, false);
-        }
+        setTimeout(() => {
+            if (isConnected()) {
+                for (let i = keys.length - 1; i >= 0; i--) {
+                    rfb.sendKey(keys[i].keysym, keys[i].code, false);
+                }
+            }
+        }, 20);
         return false;
     }
 
@@ -89,7 +101,7 @@
     // before they get a chance to be intercepted by the browser,
     // we provide a way to emulate this key sequence.
     function sendCtrlAltDel() {
-        if (rfb && typeof rfb.sendCtrlAltDel === 'function') {
+        if (isConnected() && typeof rfb.sendCtrlAltDel === 'function') {
             rfb.sendCtrlAltDel();
         } else {
             sendKeyCombo([
@@ -165,15 +177,15 @@
     });
 
     function machineShutdown() {
-        if (rfb) { rfb.machineShutdown(); }
+        if (isConnected()) { rfb.machineShutdown(); }
         return false;
     }
     function machineReboot() {
-        if (rfb) { rfb.machineReboot(); }
+        if (isConnected()) { rfb.machineReboot(); }
         return false;
     }
     function machineReset() {
-        if (rfb) { rfb.machineReset(); }
+        if (isConnected()) { rfb.machineReset(); }
         return false;
     }
 

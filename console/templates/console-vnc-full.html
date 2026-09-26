@@ -88,26 +88,38 @@
         { keysym: KeyTable.XK_F12, code: 'F12' }
     ];
 
+    function isConnected() {
+        return UI.rfb && (!UI.rfb._rfbConnectionState || UI.rfb._rfbConnectionState === 'connected');
+    }
+
     function sendSingleKey(keysym, code) {
-        if (!UI.rfb) { return false; }
+        if (!isConnected()) { return false; }
         UI.rfb.sendKey(keysym, code, true);
-        UI.rfb.sendKey(keysym, code, false);
+        setTimeout(() => {
+            if (isConnected()) {
+                UI.rfb.sendKey(keysym, code, false);
+            }
+        }, 20);
         return false;
     }
 
     function sendKeyCombo(keys) {
-        if (!UI.rfb) { return false; }
+        if (!isConnected()) { return false; }
         for (let i = 0; i < keys.length; i++) {
             UI.rfb.sendKey(keys[i].keysym, keys[i].code, true);
         }
-        for (let i = keys.length - 1; i >= 0; i--) {
-            UI.rfb.sendKey(keys[i].keysym, keys[i].code, false);
-        }
+        setTimeout(() => {
+            if (isConnected()) {
+                for (let i = keys.length - 1; i >= 0; i--) {
+                    UI.rfb.sendKey(keys[i].keysym, keys[i].code, false);
+                }
+            }
+        }, 20);
         return false;
     }
 
     function sendCtrlAltDel() {
-        if (UI.rfb && typeof UI.rfb.sendCtrlAltDel === 'function') {
+        if (isConnected() && typeof UI.rfb.sendCtrlAltDel === 'function') {
             UI.rfb.sendCtrlAltDel();
         } else {
             sendKeyCombo([
