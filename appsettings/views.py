@@ -1,6 +1,7 @@
 import os
 
 import sass
+from admin.decorators import superuser_only
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseRedirect
@@ -11,7 +12,7 @@ from logs.views import addlogmsg
 from appsettings.models import AppSettings
 
 
-@login_required
+@superuser_only
 def appsettings(request):
     """
     :param request:

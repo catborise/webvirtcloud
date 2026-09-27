@@ -36,3 +36,10 @@ class AppSettingsTestCase(TestCase):
 
         setting.refresh_from_db()
         self.assertEqual(setting.value, new_val)
+
+    def test_appsettings_non_superuser_forbidden(self):
+        from django.contrib.auth.models import User
+        regular_user = User.objects.create_user(username="regular", password="pwd")
+        self.client.force_login(regular_user)
+        response = self.client.get(reverse("appsettings"))
+        self.assertEqual(response.status_code, 403)

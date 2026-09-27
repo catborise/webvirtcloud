@@ -4,8 +4,13 @@ from vrtManager.connection import CONN_SOCKET, CONN_SSH, CONN_TCP, CONN_TLS
 
 
 class ComputeSerializer(serializers.ModelSerializer):
-    # Use <input type="password"> for the input.
-    password = serializers.CharField(style={"input_type": "password"})
+    password = serializers.CharField(
+        style={"input_type": "password"},
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
     # Use a radio input instead of a select input.
     conn_types = (
         (CONN_SSH, "SSH"),

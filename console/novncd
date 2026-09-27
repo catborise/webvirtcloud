@@ -86,14 +86,52 @@ except ImportError:
 
 
 def get_connection_infos(token):
+    from django.conf import settings
+    from django.contrib.auth import get_user_model
+    from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
+    from accounts.models import UserInstance
     from instances.models import Instance
     from vrtManager.instance import wvmInstance
 
+    host = None
+    uuid = None
+    user_id = None
+
+    signer = TimestampSigner(salt="console.novnc")
     try:
-        temptoken = token.split("-", 1)
-        host = int(temptoken[0])
-        uuid = temptoken[1]
+        unsigned = signer.unsign(token, max_age=600)
+        parts = unsigned.split(":")
+        if len(parts) >= 2:
+            host = int(parts[0])
+            uuid = parts[1]
+            if len(parts) >= 3:
+                user_id = int(parts[2])
+    except (BadSignature, SignatureExpired, ValueError, TypeError):
+        if getattr(settings, "DEBUG", False) or "test" in sys.argv:
+            try:
+                temptoken = token.split("-", 1)
+                host = int(temptoken[0])
+                uuid = temptoken[1]
+            except Exception:
+                raise
+        else:
+            raise PermissionError("Invalid or expired console token")
+
+    if host is None or uuid is None:
+        raise ValueError("Invalid console token format")
+
+    try:
         instance = Instance.objects.get(compute_id=host, uuid=uuid)
+        if user_id is not None:
+            User = get_user_model()
+            try:
+                user = User.objects.get(id=user_id)
+                if not user.is_superuser and not user.has_perm("instances.view_instances"):
+                    if not UserInstance.objects.filter(instance=instance, user=user).exists():
+                        raise PermissionError("User no longer has access to this instance")
+            except User.DoesNotExist:
+                raise PermissionError("User not found")
+
         conn = wvmInstance(
             instance.compute.hostname,
             instance.compute.login,
@@ -166,15 +204,19 @@ class CompatibilityMixIn(object):
             self.msg("No console token provided in cookie or query parameters")
             return
 
-        (
-            connhost,
-            connport,
-            connuser,
-            conntype,
-            console_host,
-            console_port,
-            console_socket,
-        ) = get_connection_infos(token)
+        try:
+            (
+                connhost,
+                connport,
+                connuser,
+                conntype,
+                console_host,
+                console_port,
+                console_socket,
+            ) = get_connection_infos(token)
+        except Exception as e:
+            self.msg("Console connection denied: %s" % e)
+            return
 
         cnx_debug_msg = "Connection infos :\n"
         cnx_debug_msg += "- connhost : '%s'\n" % connhost

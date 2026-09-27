@@ -8,6 +8,7 @@ from accounts.models import UserInstance
 from computes.models import Compute
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
+from django.core.signing import TimestampSigner
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from instances.models import Instance
@@ -81,7 +82,11 @@ class ConsoleViewsTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "console-vnc-lite.html")
-        self.assertEqual(response.cookies["token"].value, self.token)
+        signer = TimestampSigner(salt="console.novnc")
+        unsigned = signer.unsign(response.cookies["token"].value, max_age=600)
+        self.assertEqual(
+            unsigned, f"{self.compute.id}:{self.instance.uuid}:{self.admin_user.id}"
+        )
         self.assertEqual(response.context["ws_path"], "novncd/")
         self.assertEqual(response.context["ws_port"], 6080)
         self.assertEqual(response.context["console_passwd"], "vncsecret")
@@ -459,3 +464,60 @@ class NovncdDaemonLogicTestCase(TestCase):
         handler.msg.assert_called_with(
             "No console token provided in cookie or query parameters"
         )
+
+    @patch("instances.models.Instance.objects.get")
+    @patch("vrtManager.instance.wvmInstance")
+    def test_get_connection_infos_valid_signed_token(self, mock_wvm, mock_inst_get):
+        User = get_user_model()
+        user = User.objects.filter(is_superuser=True).first()
+        mock_instance = MagicMock()
+        mock_instance.compute.hostname = "127.0.0.1"
+        mock_instance.compute.login = "root"
+        mock_instance.compute.password = ""
+        mock_instance.compute.type = 1
+        mock_instance.name = "test-vm"
+        mock_inst_get.return_value = mock_instance
+
+        mock_conn = MagicMock()
+        mock_conn.get_console_listener_addr.return_value = "127.0.0.1"
+        mock_conn.get_console_port.return_value = 5900
+        mock_conn.get_console_socket.return_value = None
+        mock_wvm.return_value = mock_conn
+
+        signer = TimestampSigner(salt="console.novnc")
+        token = signer.sign(f"1:test-uuid:{user.id}")
+
+        infos = novncd_mod.get_connection_infos(token)
+        self.assertEqual(infos[0], "127.0.0.1")
+        self.assertEqual(infos[5], 5900)
+
+    @patch("sys.argv", ["novncd"])
+    @override_settings(DEBUG=False)
+    def test_get_connection_infos_invalid_token_in_production(self):
+        with self.assertRaises(PermissionError):
+            novncd_mod.get_connection_infos("invalid-raw-token")
+
+    def test_get_connection_infos_unauthorized_user(self):
+        User = get_user_model()
+        unauthorized_user = User.objects.create_user(
+            username="unauthorized_console_user",
+            password="password",
+        )
+        compute = Compute.objects.create(
+            name="novnc-unauth-compute",
+            hostname="127.0.0.1",
+            login="root",
+            password="",
+            type=1,
+        )
+        instance = Instance.objects.create(
+            compute=compute,
+            name="novnc-unauth-vm",
+            uuid="33333333-3333-3333-3333-333333333333",
+        )
+
+        signer = TimestampSigner(salt="console.novnc")
+        token = signer.sign(f"{compute.id}:{instance.uuid}:{unauthorized_user.id}")
+
+        with self.assertRaises(PermissionError):
+            novncd_mod.get_connection_infos(token)

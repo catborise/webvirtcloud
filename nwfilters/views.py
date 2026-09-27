@@ -139,6 +139,7 @@ def nwfilters(request, compute_id):
     )
 
 
+@superuser_only
 def nwfilter(request, compute_id, nwfltr):
     """
     :param request:

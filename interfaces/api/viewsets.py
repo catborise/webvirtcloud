@@ -1,19 +1,18 @@
 from django.shortcuts import get_object_or_404
 from computes.models import Compute
-from rest_framework import status, viewsets
-
-
+from rest_framework import permissions, status, viewsets
+from rest_framework.response import Response
 from vrtManager.interface import wvmInterfaces, wvmInterface
 
 from .serializers import InterfacesSerializer
-from rest_framework.response import Response
-
 
 
 class InterfaceViewSet(viewsets.ViewSet):
     """
     A viewset for listing retrieving interfaces.
     """
+
+    permission_classes = [permissions.IsAdminUser]
     
     def list(self, request, compute_pk=None):
         queryset = []

@@ -13,10 +13,12 @@ class ComputeViewSet(viewsets.ModelViewSet):
 
     queryset = Compute.objects.all().order_by("name")
     serializer_class = ComputeSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAdminUser]
 
 
 class ComputeArchitecturesView(viewsets.ViewSet):
+    permission_classes = [permissions.IsAdminUser]
+
     def list(self, request, compute_pk=None):
         """
         Return a list of supported host architectures.
@@ -42,6 +44,8 @@ class ComputeArchitecturesView(viewsets.ViewSet):
 
 
 class ComputeMachinesView(viewsets.ViewSet):
+    permission_classes = [permissions.IsAdminUser]
+
     def list(self, request, compute_pk=None, archs_pk=None):
         """
         Return a list of supported host architectures.

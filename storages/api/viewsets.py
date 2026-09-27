@@ -1,7 +1,7 @@
 from appsettings.settings import app_settings
 from computes.models import Compute
 from django.shortcuts import get_object_or_404
-from rest_framework import status, viewsets
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from vrtManager.storage import wvmStorage, wvmStorages
@@ -13,6 +13,8 @@ class StorageViewSet(viewsets.ViewSet):
     """
     A viewset for listing retrieving storages.
     """
+
+    permission_classes = [permissions.IsAdminUser]
 
     def list(self, request, compute_pk=None):
 
@@ -103,6 +105,7 @@ class VolumeViewSet(viewsets.ViewSet):
     A simple ViewSet for listing or retrieving Storage Volumes.
     """
 
+    permission_classes = [permissions.IsAdminUser]
     serializer_class = VolumeSerializer
     lookup_value_regex = "[^/]+"
 

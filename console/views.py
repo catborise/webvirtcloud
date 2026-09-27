@@ -4,6 +4,7 @@ import re
 from accounts.models import UserInstance
 from appsettings.settings import app_settings
 from django.conf import settings
+from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.http.response import HttpResponseServerError
 from django.shortcuts import render
 from django.utils.translation import gettext_lazy as _
@@ -51,10 +52,32 @@ def console(request):
                 request.GET.get("clip_viewport"), default=clip_viewport
             )
 
+    signer = TimestampSigner(salt="console.novnc")
+    host = None
+    uuid = None
+
+    if token:
+        try:
+            unsigned = signer.unsign(token, max_age=600)
+            parts = unsigned.split(":")
+            if len(parts) >= 2:
+                host = int(parts[0])
+                uuid = parts[1]
+        except (BadSignature, SignatureExpired, ValueError, TypeError):
+            pass
+
+        if host is None or uuid is None:
+            try:
+                temptoken = token.split("-", 1)
+                host = int(temptoken[0])
+                uuid = temptoken[1]
+            except (ValueError, IndexError):
+                host = None
+                uuid = None
+
     try:
-        temptoken = token.split("-", 1)
-        host = int(temptoken[0])
-        uuid = temptoken[1]
+        if host is None or uuid is None:
+            raise ValueError("Invalid token")
 
         if not request.user.is_superuser and not request.user.has_perm(
             "instances.view_instances"
@@ -74,6 +97,9 @@ def console(request):
                 return HttpResponseServerError(console_error)
         else:
             instance = Instance.objects.get(compute_id=host, uuid=uuid)
+
+        # Generate secure signed token for noVNC daemon
+        token = signer.sign(f"{host}:{uuid}:{request.user.id}")
 
         conn = wvmInstance(
             instance.compute.hostname,

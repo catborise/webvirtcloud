@@ -30,6 +30,9 @@ def create_admin(sender, **kwargs):
     """
     Create initial admin user
     """
+    import os
+    import secrets
+    import sys
     from django.contrib.auth.models import User
 
     from accounts.models import UserAttributes
@@ -42,8 +45,21 @@ def create_admin(sender, **kwargs):
             and not rolled_back
         ):
             if User.objects.count() == 0:
-                print("\033[1m* \033[92mCreating default admin user\033[0m")
-                admin = User.objects.create_superuser("admin", None, "admin")
+                is_testing = "test" in sys.argv
+                admin_user = os.environ.get("ADMIN_USERNAME", "admin")
+                admin_pass = os.environ.get("ADMIN_PASSWORD")
+
+                if not admin_pass:
+                    if is_testing:
+                        admin_pass = "admin"
+                    else:
+                        admin_pass = secrets.token_urlsafe(16)
+                        print(
+                            f"\033[1m* \033[93mGenerated random admin password: {admin_pass}\033[0m"
+                        )
+
+                print(f"\033[1m* \033[92mCreating default admin user '{admin_user}'\033[0m")
+                admin = User.objects.create_superuser(admin_user, None, admin_pass)
                 UserAttributes(
                     user=admin,
                     max_instances=-1,

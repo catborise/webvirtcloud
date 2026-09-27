@@ -72,9 +72,16 @@ class InstanceViewSet(viewsets.ViewSet):
 
         utils.refresh_instance_database(compute)
 
-        queryset = Instance.objects.filter(compute=compute).prefetch_related(
-            "userinstance_set"
-        )
+        if request.user.is_superuser or request.user.has_perm(
+            "instances.view_instances"
+        ):
+            queryset = Instance.objects.filter(compute=compute).prefetch_related(
+                "userinstance_set"
+            )
+        else:
+            queryset = Instance.objects.filter(
+                compute=compute, userinstance__user=request.user
+            ).prefetch_related("userinstance_set")
         serializer = InstanceSerializer(
             queryset, many=True, context={"request": request}
         )
@@ -127,6 +134,7 @@ class MigrateViewSet(viewsets.ViewSet):
     A viewset for migrating instances.
     """
 
+    permission_classes = [permissions.IsAdminUser]
     serializer_class = MigrateSerializer
     queryset = ""
 
@@ -163,12 +171,16 @@ class MigrateViewSet(viewsets.ViewSet):
 
 class FlavorViewSet(viewsets.ModelViewSet):
     """
-    API endpoint that allows flavor to be viewed.
+    API endpoint that allows flavor to be viewed or edited.
     """
 
     queryset = Flavor.objects.all().order_by("id")
     serializer_class = FlavorSerializer
-    permission_classes = [permissions.IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAdminUser()]
 
 
 class CreateInstanceViewSet(viewsets.ViewSet):
@@ -176,6 +188,7 @@ class CreateInstanceViewSet(viewsets.ViewSet):
     A viewset for creating instances.
     """
 
+    permission_classes = [permissions.IsAdminUser]
     serializer_class = CreateInstanceSerializer
     queryset = ""
 

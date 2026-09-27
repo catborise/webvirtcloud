@@ -3,13 +3,14 @@
 # gstfsd - WebVirtCloud daemon for managing VM's filesystem
 #
 
+import os
 import socketserver
 import json
 import guestfs
 import re
 
-PORT = 16510
-ADDRESS = "0.0.0.0"
+PORT = int(os.environ.get("GSTFSD_PORT", 16510))
+ADDRESS = os.environ.get("GSTFSD_BIND_HOST", "127.0.0.1")
 
 
 class MyTCPServer(socketserver.ThreadingTCPServer):

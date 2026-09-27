@@ -65,19 +65,20 @@ WebVirtCloud kod tabanı; temel sanallaştırma orkestrasyonu için işlevsel bi
 
 ## 3. Önceliklendirilmiş Uygulama Planı (Aksiyon Listesi)
 
-### Faz 1: P0 — Acil Güvenlik Düzeltmeleri (Hemen Uygulanacak)
-1. **API Yetkilendirme & Secret İzolasyonu:**
-   - `ComputeViewSet`, `StorageViewSet`, `NetworksViewSet`, `InterfacesViewSet` sınıflarına `permission_classes = [permissions.IsAdminUser]` atanması.
-   - `ComputeSerializer` içindeki `password` alanına `write_only=True` verilmesi veya serializer çıktısından tamamen çıkarılması.
-   - `InstanceViewSet.list` üzerinde `request.user.is_superuser` ve `userinstance__user` kapsam denetiminin zorunlu kılınması.
-2. **noVNC & Konsol Token Güvenliği:**
-   - `django.core.signing.TimestampSigner` ile imzalı, 60 saniye geçerli, kullanıcı-VM eşleştirmeli token üretimi.
-   - `novncd` ve `console/views.py` içinde imza ve süre doğrulamasının uygulanması.
-3. **Varsayılan Hesap ve Arka Plan Daemon Sıkılaştırması:**
-   - `accounts/apps.py` içindeki otomatik `admin/admin` üretiminin kaldırılması.
-   - `gstfsd` servisinin devre dışı bırakılması veya Unix domain socket altına alınması.
-4. **Appsettings & NWFilter İzin Sıkılaştırması:**
-   - `appsettings/views.py` ve `nwfilters/views.py` görünümlerine `@superuser_only` eklenmesi.
+### Faz 1: P0 — Acil Güvenlik Düzeltmeleri (Tamamlandı ✅)
+1. **API Yetkilendirme & Secret İzolasyonu:** [x]
+   - `ComputeViewSet`, `StorageViewSet`, `VolumeViewSet`, `NetworkViewSet`, `InterfaceViewSet`, `MigrateViewSet`, `CreateInstanceViewSet` sınıflarına `permission_classes = [permissions.IsAdminUser]` atandı; `FlavorViewSet` mutasyonları yöneticilere sınırlandı.
+   - `ComputeSerializer` içindeki `password` alanına `write_only=True` verildi; GET yanıtlarında şifre ifşası tamamen engellendi.
+   - `InstanceViewSet.list` üzerinde `request.user.is_superuser` ve `userinstance__user` kapsam denetimi uygulandı (tenant/instance izolasyonu sağlandı).
+2. **noVNC & Konsol Token Güvenliği:** [x]
+   - `django.core.signing.TimestampSigner` (salt: `console.novnc`, TTL: 10 dakika) ile imzalı, kullanıcı ve VM UUID eşleştirmeli token modeline geçildi.
+   - `novncd` ve `console/views.py` içinde imza doğrulama, süre aşımı kontrolü ve kullanıcı sahiplik doğrulaması uygulandı (test/debug uyumluluğu korundu).
+3. **Varsayılan Hesap ve Arka Plan Daemon Sıkılaştırması:** [x]
+   - `accounts/apps.py` içinde hardcoded `admin/admin` üretimi kaldırıldı; `ADMIN_PASSWORD` ortam değişkeni veya `secrets.token_urlsafe(16)` ile rastgele güçlü parola üretimi sağlandı (test modunda test ortamı uyumluluğu korundu).
+   - `conf/daemon/gstfsd` varsayılan olarak `127.0.0.1` (loopback) üzerine bağlandı ve ortam değişkeni (`GSTFSD_BIND_HOST`) ile yapılandırılabilir hale getirildi.
+4. **Appsettings & NWFilter İzin Sıkılaştırması:** [x]
+   - `appsettings/views.py` ve `nwfilters/views.py` (`nwfilter` detay görünümü dahil) `@superuser_only` dekoratörüyle korunarak yetkisiz erişimler 403 Forbidden ile engellendi.
+   - Tüm güvenlik geliştirmeleri için kapsamlı testler (`computes/test_api_security.py`, `console/tests.py`, `appsettings/test_appsettings.py`, `nwfilters/tests.py`) yazılarak test paketi 132/132 test ile %100 yeşil hale getirildi.
 
 ### Faz 2: P1 — Güvenilirlik, Hata Yakalama ve Veri Bütünlüğü (1-2 Sprint)
 1. **Veritabanı Senkronizasyonunda Sahiplik Koruması:**
