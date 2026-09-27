@@ -65,20 +65,23 @@ WebVirtCloud kod tabanı; temel sanallaştırma orkestrasyonu için işlevsel bi
 
 ## 3. Önceliklendirilmiş Uygulama Planı (Aksiyon Listesi)
 
-### Faz 1: P0 — Acil Güvenlik Düzeltmeleri (Tamamlandı ✅)
+### Faz 1: P0 — Acil Güvenlik Düzeltmeleri ve Codex İnceleme Sıkılaştırması (Tamamlandı ✅)
 1. **API Yetkilendirme & Secret İzolasyonu:** [x]
-   - `ComputeViewSet`, `StorageViewSet`, `VolumeViewSet`, `NetworkViewSet`, `InterfaceViewSet`, `MigrateViewSet`, `CreateInstanceViewSet` sınıflarına `permission_classes = [permissions.IsAdminUser]` atandı; `FlavorViewSet` mutasyonları yöneticilere sınırlandı.
+   - `ComputeViewSet`, `StorageViewSet`, `VolumeViewSet`, `NetworkViewSet`, `InterfaceViewSet`, `MigrateViewSet`, `CreateInstanceViewSet` sınıflarına `permission_classes = [IsSuperUser]` (`admin.permissions.IsSuperUser`) atanarak `is_staff` yetki aşımı tamamen önlendi; `FlavorViewSet` mutasyonları süper kullanıcılara sınırlandı.
+   - `@superuser_only` dekoratörüne `@wraps(function)` eklenerek fonksiyon meta verileri korundu.
    - `ComputeSerializer` içindeki `password` alanına `write_only=True` verildi; GET yanıtlarında şifre ifşası tamamen engellendi.
-   - `InstanceViewSet.list` üzerinde `request.user.is_superuser` ve `userinstance__user` kapsam denetimi uygulandı (tenant/instance izolasyonu sağlandı).
+   - `InstanceViewSet.list` üzerinde `is_admin` harici kullanıcılar için compute üzerinde atanmış instance olup olmadığını kontrol eden ön denetim (`tenant pre-check`) eklendi; yetkisiz compute sorgulamalarında libvirt senkronizasyonunun gereksiz çalışması (DoS ve bilgi ifşası) engellendi.
 2. **noVNC & Konsol Token Güvenliği:** [x]
-   - `django.core.signing.TimestampSigner` (salt: `console.novnc`, TTL: 10 dakika) ile imzalı, kullanıcı ve VM UUID eşleştirmeli token modeline geçildi.
-   - `novncd` ve `console/views.py` içinde imza doğrulama, süre aşımı kontrolü ve kullanıcı sahiplik doğrulaması uygulandı (test/debug uyumluluğu korundu).
+   - `django.core.signing.TimestampSigner` (salt: `console.novnc`, TTL: 120 saniye) ile imzalı, kullanıcı ve VM UUID eşleştirmeli token modeline geçildi.
+   - `novncd` ve `console/views.py` içinde imza doğrulama, 2 dakikalık süre aşımı kontrolü, `is_active` hesap denetimi ve kullanıcı sahiplik doğrulaması uygulandı.
+   - `novncd` içerisindeki `settings.DEBUG` imzasız fallback bypass'ı prodüksiyon ortamları için tamamen kaldırıldı; yalnızca birim test çalıştırmaları (`"test" in sys.argv`) ile sınırlandırıldı.
+   - Konsol hata loglarında token bilgisi maskelenerek log sızıntısı önlendi.
 3. **Varsayılan Hesap ve Arka Plan Daemon Sıkılaştırması:** [x]
    - `accounts/apps.py` içinde hardcoded `admin/admin` üretimi kaldırıldı; `ADMIN_PASSWORD` ortam değişkeni veya `secrets.token_urlsafe(16)` ile rastgele güçlü parola üretimi sağlandı (test modunda test ortamı uyumluluğu korundu).
    - `conf/daemon/gstfsd` varsayılan olarak `127.0.0.1` (loopback) üzerine bağlandı ve ortam değişkeni (`GSTFSD_BIND_HOST`) ile yapılandırılabilir hale getirildi.
 4. **Appsettings & NWFilter İzin Sıkılaştırması:** [x]
    - `appsettings/views.py` ve `nwfilters/views.py` (`nwfilter` detay görünümü dahil) `@superuser_only` dekoratörüyle korunarak yetkisiz erişimler 403 Forbidden ile engellendi.
-   - Tüm güvenlik geliştirmeleri için kapsamlı testler (`computes/test_api_security.py`, `console/tests.py`, `appsettings/test_appsettings.py`, `nwfilters/tests.py`) yazılarak test paketi 132/132 test ile %100 yeşil hale getirildi.
+   - Tüm güvenlik geliştirmeleri için kapsamlı testler (`computes/test_api_security.py`, `console/tests.py`, `appsettings/test_appsettings.py`, `nwfilters/tests.py`) yazılarak test paketi 135/135 test ile %100 yeşil hale getirildi.
 
 ### Faz 2: P1 — Güvenilirlik, Hata Yakalama ve Veri Bütünlüğü (1-2 Sprint)
 1. **Veritabanı Senkronizasyonunda Sahiplik Koruması:**
