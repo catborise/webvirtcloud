@@ -84,16 +84,27 @@ WebVirtCloud kod tabanı; temel sanallaştırma orkestrasyonu için işlevsel bi
    - Tüm güvenlik geliştirmeleri için kapsamlı testler (`computes/test_api_security.py`, `console/tests.py`, `appsettings/test_appsettings.py`, `nwfilters/tests.py`) yazılarak test paketi 135/135 test ile %100 yeşil hale getirildi.
 
 ### Faz 2: P1 — Güvenilirlik, Hata Yakalama ve Veri Bütünlüğü (1-2 Sprint)
-1. **Veritabanı Senkronizasyonunda Sahiplik Koruması:**
-   - `refresh_instance_database` içinde instance'ları anında silmek yerine `missing` olarak işaretleme ve grace period tanıma.
-   - Periyodik senkronizasyonu sayfa GET isteklerinden ayırıp arka plan görevine devretme.
-2. **Snapshot Güvenliği ve Rollback Garantisi:**
-   - `vrtManager/instance.py` snapshot fonksiyonlarına `try...finally` blokları eklenerek XML'in her koşulda orijinal haline getirilmesi.
-3. **Upload Güvenliği ve Path Traversal Engeli:**
-   - `storages/views.py` içinde `Path.resolve().relative_to()` ile kesin dizin sınır denetimi.
-   - Paramiko `AutoAddPolicy` yerine kontrollü `known_hosts` ve fingerprint doğrulama.
-4. **XML Injection Koruması:**
-   - `vrtManager/create.py` ve `network.py` içindeki string birleştirmelerinin `lxml.builder` / `xml.etree` ile güvenli eleman inşasına dönüştürülmesi.
+1. **Kanonik UUID Reconciliation ve Veri Bütünlüğü:** [x]
+   - `refresh_instance_database` (`computes/utils.py`) ve `instances/utils.py:refr` kanonik UUID-temelli senkronizasyona geçirildi.
+   - Libvirt'in Single Source of Truth (SSOT) ilkesi korundu; `virsh` veya `virt-manager` ile silinen VM'ler temizlenirken, VM isim değişikliklerinde `UserInstance` kullanıcı izinleri ve yetkileri kaybolmadan korunur hale getirildi.
+   - Libvirt bağlantı kopmalarında veya soket hatalarında veritabanındaki tüm instance'ların silinmesi (`try...except libvirtError` ve `transaction.atomic()`) engellendi.
+2. **Yetki ve CSRF Sıkılaştırması:** [x]
+   - `instances/views.py` içindeki tüm güç yönetimi aksiyonlarına (`poweron`, `powercycle`, `poweroff`, `force_off`, `suspend`, `resume`) `@require_POST` zorunluluğu getirildi ve inline CSRF tokenli form butonlarına dönüştürüldü (GET ile VM kapatma/açma açığı kapatıldı).
+   - Salt-okunur `view_instances` iznine sahip kullanıcıların VM kapatıp açması, disk ekleyip silmesi engellendi; `UserInstance.is_change` ve `UserInstance.is_delete` nesne bazlı yetki denetimi uygulandı.
+   - `set_root_pass` ve `add_public_key` içindeki IDOR (güvenlik zafiyeti) kapatılarak oturum açmış kullanıcı ile sınırlandı.
+   - API katmanında (`instances/api/viewsets.py`) `compute_pk` ve `instance` eşleşme doğrulaması eklendi.
+3. **Açık Yönlendirme (Open Redirect) Engeli:** [x]
+   - `instances/views.py` (`get_safe_redirect`) ve `accounts/views.py` üzerinde Django `url_has_allowed_host_and_scheme` ile güvenli yönlendirme sağlandı, harici sitelere yönlendirme engellendi.
+4. **SSH Anahtar Modeli ve Doğrulama İyileştirmesi:** [x]
+   - `UserSSHKey.keypublic` alanı `TextField(max_length=16384)` yapıldı (uzun RSA 4096 ve ED25519 anahtarlarının DB'de kesilmesi engellendi) ve `user` ilişkisine `CASCADE` tanımlandı.
+   - `validate_ssh_key` 2 parçalı (açıklamasız) ve 3 parçalı (açıklamalı) standart OpenSSH genel anahtarlarını destekleyecek şekilde güncellendi.
+5. **Depolama & Yükleme (Upload) Güvenliği:** [x]
+   - `storages/views.py` (`handle_uploaded_file` ve `iso_upload`) içinde `os.path.basename` sterilizasyonu, `os.path.commonpath` yerel dizin jailing, SFTP `posixpath` sınır denetimi, null-byte/dot engeli uygulandı.
+   - Paramiko `AutoAddPolicy` yerine `WarningPolicy()` ve `load_system_host_keys()` getirilerek MITM riski düşürüldü; SFTP bağlantı ve dosya kaynakları `try...finally` bloklarıyla sızıntısız temizlendi.
+6. **Snapshot & XML Güvenliği:** [x]
+   - `vrtManager/instance.py` içindeki `create_snapshot`, `create_external_snapshot` ve `snapshot_revert` fonksiyonları `try...finally` bloklarına alınarak libvirt domain loader XML'inin (`pflash`/`rom`) hata durumunda dahi bozulmadan eski haline getirilmesi (`recover_snapshot_xml`) garanti altına alındı.
+   - `vrtManager/network.py` ve `vrtManager/instance.py` içindeki `name`, `bridge`, `gateway`, `mac_duid` vb. dinamik parametreler `util.xml_escape` ile sterilize edildi; QoS parametreleri tamsayı (`int`) doğrulamasına alındı.
+   - 10 yeni test yazılarak proje genelinde test sayısı 159'a yükseltildi ve test paketi %100 yeşil hale getirildi.
 
 ### Faz 3: P2 — Mimari İyileştirme ve Django 5 Geçiş Hazırlığı (Orta Vade)
 1. **Django 5.x Uyumluluğu:**
