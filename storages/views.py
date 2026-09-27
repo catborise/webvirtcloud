@@ -1,5 +1,6 @@
 import json
 import os
+import posixpath
 
 from admin.decorators import superuser_only
 from appsettings.settings import app_settings
@@ -97,6 +98,74 @@ def storages(request, compute_id):
     return render(request, "storages.html", locals())
 
 
+def handle_uploaded_file(conn, path, file_name, file_chunk, is_last_chunk):
+    clean_name = os.path.basename(file_name).strip()
+    if not clean_name or clean_name in (".", "..") or "\x00" in clean_name:
+        raise ValueError(_("Invalid file name"))
+
+    if conn.conn == CONN_SSH:
+        remote_base = posixpath.normpath(path)
+        target_temp = posixpath.normpath(posixpath.join(remote_base, f"{clean_name}.part"))
+        target_final = posixpath.normpath(posixpath.join(remote_base, clean_name))
+
+        if not (target_temp.startswith(remote_base + "/") or target_temp == remote_base) or \
+           not (target_final.startswith(remote_base + "/") or target_final == remote_base):
+            raise PermissionError(_("Security issues with file uploading: path traversal detected"))
+
+        try:
+            hostname, port = conn.host, 22
+            if ":" in hostname:
+                hostname, port_str = hostname.split(":")
+                port = int(port_str)
+
+            ssh = paramiko.SSHClient()
+            ssh.load_system_host_keys()
+            ssh.set_missing_host_key_policy(paramiko.WarningPolicy())
+            ssh.connect(hostname=hostname, port=port, username=conn.login, password=conn.passwd)
+            try:
+                sftp = ssh.open_sftp()
+                try:
+                    remote_file = sftp.open(target_temp, "ab")
+                    try:
+                        remote_file.set_pipelined(True)
+                        for chunk_data in file_chunk.chunks():
+                            remote_file.write(chunk_data)
+                    finally:
+                        remote_file.close()
+
+                    if is_last_chunk:
+                        sftp.rename(target_temp, target_final)
+                finally:
+                    sftp.close()
+            finally:
+                ssh.close()
+        except Exception as e:
+            raise Exception(_("SSH upload failed: {}").format(e))
+    elif conn.conn == CONN_SOCKET:
+        base_dir = os.path.abspath(path)
+        target_temp = os.path.abspath(os.path.join(base_dir, f"{clean_name}.part"))
+        target_final = os.path.abspath(os.path.join(base_dir, clean_name))
+
+        if (
+            os.path.commonpath([base_dir, target_temp]) != base_dir
+            or os.path.commonpath([base_dir, target_final]) != base_dir
+        ):
+            raise PermissionError(_("Security issues with file uploading: path traversal detected"))
+
+        try:
+            with open(target_temp, "ab") as f:
+                for chunk_data in file_chunk.chunks():
+                    f.write(chunk_data)
+            if is_last_chunk:
+                if os.path.exists(target_final):
+                    os.remove(target_final)
+                os.rename(target_temp, target_final)
+        except FileNotFoundError:
+            raise Exception(_("File not found. Check the path variable and filename"))
+    else:
+        raise Exception(_("Unsupported connection type for file upload."))
+
+
 @superuser_only
 def storage(request, compute_id, pool):
     """
@@ -105,53 +174,6 @@ def storage(request, compute_id, pool):
     :param pool:
     :return:
     """
-    def handle_uploaded_file(conn, path, file_name, file_chunk, is_last_chunk):
-        temp_name = f"{file_name}.part"
-        target_temp = os.path.normpath(os.path.join(path, temp_name))
-        target_final = os.path.normpath(os.path.join(path, file_name))
-
-        if not target_temp.startswith(path) or not target_final.startswith(path):
-            raise Exception(_("Security Issues with file uploading"))
-
-        if conn.conn == CONN_SSH:
-            try:
-                hostname, port = conn.host, 22
-                if ":" in hostname:
-                    hostname, port_str = hostname.split(":")
-                    port = int(port_str)
-
-                ssh = paramiko.SSHClient()
-                ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                ssh.connect(hostname=hostname, port=port, username=conn.login, password=conn.passwd)
-                sftp = ssh.open_sftp()
-
-                remote_file = sftp.open(target_temp, 'ab')
-                remote_file.set_pipelined(True)
-                for chunk_data in file_chunk.chunks():
-                    remote_file.write(chunk_data)
-                remote_file.close()
-
-                if is_last_chunk:
-                    sftp.rename(target_temp, target_final)
-
-                sftp.close()
-                ssh.close()
-            except Exception as e:
-                raise Exception(_("SSH upload failed: {}").format(e))
-        elif conn.conn == CONN_SOCKET:
-            try:
-                with open(target_temp, "ab") as f:
-                    for chunk_data in file_chunk.chunks():
-                        f.write(chunk_data)
-                if is_last_chunk:
-                    if os.path.exists(target_final):
-                        os.remove(target_final)
-                    os.rename(target_temp, target_final)
-            except FileNotFoundError:
-                raise Exception(_("File not found. Check the path variable and filename"))
-        else:
-            raise Exception(_("Unsupported connection type for file upload."))
-
     compute = get_object_or_404(Compute, pk=compute_id)
     meta_prealloc = False
     form = CreateVolumeForm()
@@ -213,7 +235,12 @@ def storage(request, compute_id, pool):
             if not file_chunk:
                 return JsonResponse({"error": _("No file chunk was submitted.")}, status=400)
 
-            file_name = request.POST.get("file_name")
+            file_name = request.POST.get("file_name", "")
+            clean_file_name = os.path.basename(file_name).strip()
+            if not clean_file_name or clean_file_name in (".", "..") or "\x00" in clean_file_name:
+                return JsonResponse({"error": _("Invalid file name.")}, status=400)
+            file_name = clean_file_name
+
             chunk_index = int(request.POST.get("chunk_index", 0))
             total_chunks = int(request.POST.get("total_chunks", 1))
             is_last_chunk = chunk_index == total_chunks - 1
@@ -223,28 +250,37 @@ def storage(request, compute_id, pool):
                 if file_name in conn.get_volumes():
                     return JsonResponse({"error": _("ISO image already exists")}, status=400)
                 # Clean up any partial files from previous failed uploads
-                temp_part_file = os.path.normpath(os.path.join(path, f"{file_name}.part"))
-                if conn.conn == CONN_SOCKET and os.path.exists(temp_part_file):
-                    os.remove(temp_part_file)
+                if conn.conn == CONN_SOCKET:
+                    base_dir = os.path.abspath(path)
+                    temp_part_file = os.path.abspath(os.path.join(base_dir, f"{file_name}.part"))
+                    if os.path.commonpath([base_dir, temp_part_file]) == base_dir and os.path.exists(temp_part_file):
+                        os.remove(temp_part_file)
                 elif conn.conn == CONN_SSH:
-                    try:
-                        hostname, port = conn.host, 22
-                        if ":" in hostname:
-                            hostname, port_str = hostname.split(":")
-                            port = int(port_str)
-                        ssh = paramiko.SSHClient()
-                        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                        ssh.connect(hostname=hostname, port=port, username=conn.login, password=conn.passwd)
-                        sftp = ssh.open_sftp()
+                    remote_base = posixpath.normpath(path)
+                    temp_part_file = posixpath.normpath(posixpath.join(remote_base, f"{file_name}.part"))
+                    if temp_part_file.startswith(remote_base + "/") or temp_part_file == remote_base:
                         try:
-                            sftp.remove(temp_part_file)
-                        except FileNotFoundError:
-                            pass # File doesn't exist, which is fine
-                        sftp.close()
-                        ssh.close()
-                    except Exception:
-                        # Best effort to clean up, if it fails, let it be.
-                        pass
+                            hostname, port = conn.host, 22
+                            if ":" in hostname:
+                                hostname, port_str = hostname.split(":")
+                                port = int(port_str)
+                            ssh = paramiko.SSHClient()
+                            ssh.load_system_host_keys()
+                            ssh.set_missing_host_key_policy(paramiko.WarningPolicy())
+                            ssh.connect(hostname=hostname, port=port, username=conn.login, password=conn.passwd)
+                            try:
+                                sftp = ssh.open_sftp()
+                                try:
+                                    sftp.remove(temp_part_file)
+                                except FileNotFoundError:
+                                    pass  # File doesn't exist, which is fine
+                                finally:
+                                    sftp.close()
+                            finally:
+                                ssh.close()
+                        except Exception:
+                            # Best effort to clean up, if it fails, let it be.
+                            pass
 
             try:
                 handle_uploaded_file(conn, path, file_name, file_chunk, is_last_chunk)

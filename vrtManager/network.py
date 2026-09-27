@@ -69,42 +69,55 @@ class wvmNetworks(wvmConnect):
         openvswitch,
         fixed=False,
     ):
+        esc_name = util.xml_escape(str(name))
+        esc_forward = util.xml_escape(str(forward)) if forward else ""
+        esc_bridge = util.xml_escape(str(bridge)) if bridge else ""
+        esc_gateway = util.xml_escape(str(gateway)) if gateway else ""
+        esc_mask = util.xml_escape(str(mask)) if mask else ""
+        esc_gateway6 = util.xml_escape(str(gateway6)) if gateway6 else ""
+        esc_prefix6 = util.xml_escape(str(prefix6)) if prefix6 else ""
+
         xml = f"""
             <network>
-                <name>{name}</name>"""
+                <name>{esc_name}</name>"""
         if forward in ["nat", "route", "bridge"]:
-            xml += f"""<forward mode='{forward}'/>"""
+            xml += f"""<forward mode='{esc_forward}'/>"""
         if forward == "macvtap":
             xml += f"""<forward mode='bridge'>
-                          <interface dev='{bridge}'/>
+                          <interface dev='{esc_bridge}'/>
                        </forward>"""
         else:
             xml += """<bridge """
             if forward in ["nat", "route", "none"]:
                 xml += """stp='on' delay='0'"""
             if forward == "bridge":
-                xml += f"""name='{bridge}'"""
+                xml += f"""name='{esc_bridge}'"""
             xml += """/>"""
             if openvswitch is True:
                 xml += """<virtualport type='openvswitch'/>"""
         if forward not in ["bridge", "macvtap"]:
             if ipv4:
-                xml += f"""<ip address='{gateway}' netmask='{mask}'>"""
+                xml += f"""<ip address='{esc_gateway}' netmask='{esc_mask}'>"""
                 if dhcp4:
+                    dhcp4_0 = util.xml_escape(str(dhcp4[0]))
+                    dhcp4_1 = util.xml_escape(str(dhcp4[1]))
                     xml += f"""<dhcp>
-                                <range start='{dhcp4[0]}' end='{dhcp4[1]}' />"""
+                                <range start='{dhcp4_0}' end='{dhcp4_1}' />"""
                     if fixed:
                         fist_oct = int(dhcp4[0].strip().split(".")[3])
                         last_oct = int(dhcp4[1].strip().split(".")[3])
+                        gw_prefix = util.xml_escape(str(gateway)[:-2])
                         for ip in range(fist_oct, last_oct + 1):
-                            xml += f"""<host mac='{util.randomMAC()}' ip='{gateway[:-2]}.{ip}' />"""
+                            xml += f"""<host mac='{util.randomMAC()}' ip='{gw_prefix}.{ip}' />"""
                     xml += """</dhcp>"""
                 xml += """</ip>"""
             if ipv6:
-                xml += f"""<ip family='ipv6' address='{gateway6}' prefix='{prefix6}'>"""
+                xml += f"""<ip family='ipv6' address='{esc_gateway6}' prefix='{esc_prefix6}'>"""
                 if dhcp6:
+                    dhcp6_0 = util.xml_escape(str(dhcp6[0]))
+                    dhcp6_1 = util.xml_escape(str(dhcp6[1]))
                     xml += f"""<dhcp>
-                                 <range start='{dhcp6[0]}' end='{dhcp6[1]}' />"""
+                                 <range start='{dhcp6_0}' end='{dhcp6_1}' />"""
                     xml += """</dhcp>"""
                 xml += """</ip>"""
         xml += """</network>"""
@@ -259,10 +272,15 @@ class wvmNetwork(wvmConnect):
             parent_index = self.parent_count - 1
         for h in hosts:
             if h.get("ip") == ip:
+                h_name = util.xml_escape(h.get("name") or "")
+                name_attr = f' name="{h_name}"' if h.get("name") else ""
+                ip_esc = util.xml_escape(ip)
                 if family == "ipv4":
-                    new_xml = f'<host mac="{h.get("mac")}" name="{h.get("name")}" ip="{ip}"/>'
+                    h_mac = util.xml_escape(h.get("mac") or "")
+                    new_xml = f'<host mac="{h_mac}"{name_attr} ip="{ip_esc}"/>'
                 if family == "ipv6":
-                    new_xml = f'<host id="{h.get("id")}" name="{h.get("name")}" ip="{ip}"/>'
+                    h_id = util.xml_escape(h.get("id") or "")
+                    new_xml = f'<host id="{h_id}"{name_attr} ip="{ip_esc}"/>'
 
                 self.update(
                     VIR_NETWORK_UPDATE_COMMAND_DELETE,
@@ -275,13 +293,17 @@ class wvmNetwork(wvmConnect):
 
     def modify_fixed_address(self, name, address, mac_duid, family="ipv4"):
         tree = etree.fromstring(self._XMLDesc(0))
+        name_esc = util.xml_escape(name) if name else ""
+        name_attr = f' name="{name_esc}"' if name else ""
+        mac_esc = util.xml_escape(mac_duid)
+        ip_addr = ipaddress.ip_address(address)
         if family == "ipv4":
-            new_xml = '<host mac="{}" {} ip="{}"/>'.format(mac_duid, 'name="' + name + '"' if name else "", ipaddress.ip_address(address))
+            new_xml = f'<host mac="{mac_esc}"{name_attr} ip="{ip_addr}"/>'
             hosts = tree.xpath("./ip[not(@family='ipv6')]/dhcp/host")
             compare_var = "mac"
             parent_index = self.parent_count - 2
         if family == "ipv6":
-            new_xml = '<host id="{}" {} ip="{}"/>'.format(mac_duid, 'name="' + name + '"' if name else "", ipaddress.ip_address(address))
+            new_xml = f'<host id="{mac_esc}"{name_attr} ip="{ip_addr}"/>'
             hosts = tree.xpath("./ip[@family='ipv6']/dhcp/host")
             compare_var = "id"
             parent_index = self.parent_count - 1
@@ -331,8 +353,12 @@ class wvmNetwork(wvmConnect):
         return qos_values
 
     def set_qos(self, direction, average, peak, burst):
-        if direction not in ("inbound","outbound"):
-            raise Exception("Direction must be inbound or outbound")
+        if direction not in ("inbound", "outbound"):
+            raise ValueError("Direction must be inbound or outbound")
+
+        average = int(average)
+        peak = int(peak)
+        burst = int(burst)
 
         xml = f"<{direction} average='{average}' peak='{peak}' burst='{burst}'/>"
         tree = etree.fromstring(self._XMLDesc(0))

@@ -1265,22 +1265,26 @@ class wvmInstance(wvmConnect):
 
     def create_snapshot(self, name, desc=None):
         state = "shutoff" if self.get_status() == 5 else "running"
+        name_esc = util.xml_escape(name)
+        desc_esc = util.xml_escape(desc) if desc else ""
         xml = """<domainsnapshot>
                      <name>%s</name>
                      <description>%s</description>
                      <state>%s</state>
                      <creationTime>%d</creationTime>""" % (
-            name,
-            desc,
+            name_esc,
+            desc_esc,
             state,
             time.time(),
         )
         self.change_snapshot_xml()
-        xml += self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        xml += """<active>0</active>
-                  </domainsnapshot>"""
-        self._snapshotCreateXML(xml, 0)
-        self.recover_snapshot_xml()
+        try:
+            xml += self._XMLDesc(VIR_DOMAIN_XML_SECURE)
+            xml += """<active>0</active>
+                      </domainsnapshot>"""
+            self._snapshotCreateXML(xml, 0)
+        finally:
+            self.recover_snapshot_xml()
 
     def change_snapshot_xml(self):
         xml_temp = self._XMLDesc(VIR_DOMAIN_XML_SECURE).replace(
@@ -1299,6 +1303,8 @@ class wvmInstance(wvmConnect):
     def create_external_snapshot(self, name, date=None, desc=None):
         creation_time = time.time()
         state = "shutoff" if self.get_status() == 5 else "running"
+        name_esc = util.xml_escape(name)
+        desc_esc = util.xml_escape(desc) if desc else ""
         #<seclabel type='none' model='dac' relabel='no'/>
         xml = """<domainsnapshot>
                      <name>%s</name>
@@ -1306,18 +1312,21 @@ class wvmInstance(wvmConnect):
                      <state>%s</state>
                      <creationTime>%d</creationTime>
                      """ % (
-            name,
-            desc,
+            name_esc,
+            desc_esc,
             state,
             creation_time,
         )
 
         self.change_snapshot_xml()
-        xml += self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        xml += """<active>0</active>
-                  </domainsnapshot>"""
+        try:
+            xml += self._XMLDesc(VIR_DOMAIN_XML_SECURE)
+            xml += """<active>0</active>
+                      </domainsnapshot>"""
 
-        self._snapshotCreateXML(xml, VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY)
+            self._snapshotCreateXML(xml, VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY)
+        finally:
+            self.recover_snapshot_xml()
         self.refresh_instance_pools()
 
     def get_external_snapshots(self):
@@ -1394,9 +1403,11 @@ class wvmInstance(wvmConnect):
 
     def snapshot_revert(self, snapshot):
         self.change_snapshot_xml()
-        snap = self.instance.snapshotLookupByName(snapshot, 0)
-        self.instance.revertToSnapshot(snap, 0)
-        self.recover_snapshot_xml()
+        try:
+            snap = self.instance.snapshotLookupByName(snapshot, 0)
+            self.instance.revertToSnapshot(snap, 0)
+        finally:
+            self.recover_snapshot_xml()
 
     def get_managed_save_image(self):
         return self.instance.hasManagedSaveImage(0)
@@ -1784,12 +1795,17 @@ class wvmInstance(wvmConnect):
         return qos_values
 
     def set_qos(self, mac, direction, average, peak, burst):
+        if direction not in ("inbound", "outbound"):
+            raise ValueError("Direction must be inbound or outbound")
+
+        average = int(average)
+        peak = int(peak)
+        burst = int(burst)
+
         if direction == "inbound":
             xml = f"<inbound average='{average}' peak='{peak}' burst='{burst}'/>"
-        elif direction == "outbound":
-            xml = f"<outbound average='{average}' peak='{peak}' burst='{burst}'/>"
         else:
-            raise Exception("Direction must be inbound or outbound")
+            xml = f"<outbound average='{average}' peak='{peak}' burst='{burst}'/>"
 
         tree = etree.fromstring(self._XMLDesc(0))
 
