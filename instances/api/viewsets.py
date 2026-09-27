@@ -1,3 +1,4 @@
+from admin.permissions import IsSuperUser
 from appsettings.settings import app_settings
 from computes import utils
 from computes.models import Compute
@@ -70,11 +71,19 @@ class InstanceViewSet(viewsets.ViewSet):
     def list(self, request, compute_pk=None):
         compute = get_object_or_404(Compute, pk=compute_pk)
 
+        is_admin = request.user.is_superuser or request.user.has_perm(
+            "instances.view_instances"
+        )
+
+        if not is_admin:
+            if not Instance.objects.filter(
+                compute=compute, userinstance__user=request.user
+            ).exists():
+                return Response([])
+
         utils.refresh_instance_database(compute)
 
-        if request.user.is_superuser or request.user.has_perm(
-            "instances.view_instances"
-        ):
+        if is_admin:
             queryset = Instance.objects.filter(compute=compute).prefetch_related(
                 "userinstance_set"
             )
@@ -134,7 +143,7 @@ class MigrateViewSet(viewsets.ViewSet):
     A viewset for migrating instances.
     """
 
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsSuperUser]
     serializer_class = MigrateSerializer
     queryset = ""
 
@@ -180,7 +189,7 @@ class FlavorViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
             return [permissions.IsAuthenticated()]
-        return [permissions.IsAdminUser()]
+        return [IsSuperUser()]
 
 
 class CreateInstanceViewSet(viewsets.ViewSet):
@@ -188,7 +197,7 @@ class CreateInstanceViewSet(viewsets.ViewSet):
     A viewset for creating instances.
     """
 
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsSuperUser]
     serializer_class = CreateInstanceSerializer
     queryset = ""
 

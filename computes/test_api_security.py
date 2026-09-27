@@ -23,8 +23,22 @@ class APISecurityTestCase(TestCase):
             email="user@example.com",
             password="userpassword",
         )
+        self.staff_user = User.objects.create_user(
+            username="staff_api_user",
+            email="staff@example.com",
+            password="staffpassword",
+            is_staff=True,
+            is_superuser=False,
+        )
         self.compute = Compute.objects.create(
             name="api-test-compute",
+            hostname="127.0.0.1",
+            login="libvirt_user",
+            password="secret_hypervisor_password",
+            type=1,
+        )
+        self.empty_compute = Compute.objects.create(
+            name="empty-test-compute",
             hostname="127.0.0.1",
             login="libvirt_user",
             password="secret_hypervisor_password",
@@ -60,8 +74,13 @@ class APISecurityTestCase(TestCase):
         res = self.client.get("/api/v1/computes/")
         self.assertIn(res.status_code, [302, 401, 403])
 
-        # Regular user - forbidden by IsAdminUser
+        # Regular user - forbidden by IsSuperUser
         self.client.force_login(self.regular_user)
+        res = self.client.get("/api/v1/computes/")
+        self.assertEqual(res.status_code, 403)
+
+        # Staff user (not superuser) - forbidden by IsSuperUser
+        self.client.force_login(self.staff_user)
         res = self.client.get("/api/v1/computes/")
         self.assertEqual(res.status_code, 403)
 
@@ -72,13 +91,22 @@ class APISecurityTestCase(TestCase):
 
     @patch("computes.utils.refresh_instance_database")
     def test_compute_instance_list_isolation(self, mock_refresh):
-        # Regular user should only see instance1
+        # Regular user should only see instance1 on compute
         self.client.force_login(self.regular_user)
         res = self.client.get(f"/api/v1/computes/{self.compute.id}/instances/")
         self.assertEqual(res.status_code, 200)
         names = [item["name"] for item in res.data]
         self.assertIn("inst-user-owned", names)
         self.assertNotIn("inst-other-owned", names)
+        mock_refresh.assert_called_once_with(self.compute)
+
+        # Regular user accessing compute where they have NO instances:
+        # returns empty list without calling refresh_instance_database!
+        mock_refresh.reset_mock()
+        res_empty = self.client.get(f"/api/v1/computes/{self.empty_compute.id}/instances/")
+        self.assertEqual(res_empty.status_code, 200)
+        self.assertEqual(res_empty.data, [])
+        mock_refresh.assert_not_called()
 
         # Admin user should see both instances
         self.client.force_login(self.admin)
@@ -101,6 +129,14 @@ class APISecurityTestCase(TestCase):
         )
         self.assertEqual(res.status_code, 403)
 
+        # Staff user (not superuser) cannot mutate flavors
+        self.client.force_login(self.staff_user)
+        res = self.client.post(
+            "/api/v1/flavor/",
+            {"label": "staffmutate", "vcpu": 4, "memory": 4096, "disk": 40},
+        )
+        self.assertEqual(res.status_code, 403)
+
         res = self.client.delete(f"/api/v1/flavor/{self.flavor.id}/")
         self.assertEqual(res.status_code, 403)
 
@@ -109,8 +145,16 @@ class APISecurityTestCase(TestCase):
         res = self.client.post("/api/v1/migrate/", {})
         self.assertEqual(res.status_code, 403)
 
+        self.client.force_login(self.staff_user)
+        res = self.client.post("/api/v1/migrate/", {})
+        self.assertEqual(res.status_code, 403)
+
     def test_network_viewset_permissions(self):
         self.client.force_login(self.regular_user)
+        res = self.client.get(f"/api/v1/computes/{self.compute.id}/networks/")
+        self.assertEqual(res.status_code, 403)
+
+        self.client.force_login(self.staff_user)
         res = self.client.get(f"/api/v1/computes/{self.compute.id}/networks/")
         self.assertEqual(res.status_code, 403)
 
@@ -119,7 +163,15 @@ class APISecurityTestCase(TestCase):
         res = self.client.get(f"/api/v1/computes/{self.compute.id}/interfaces/")
         self.assertEqual(res.status_code, 403)
 
+        self.client.force_login(self.staff_user)
+        res = self.client.get(f"/api/v1/computes/{self.compute.id}/interfaces/")
+        self.assertEqual(res.status_code, 403)
+
     def test_storage_viewset_permissions(self):
         self.client.force_login(self.regular_user)
+        res = self.client.get(f"/api/v1/computes/{self.compute.id}/storages/")
+        self.assertEqual(res.status_code, 403)
+
+        self.client.force_login(self.staff_user)
         res = self.client.get(f"/api/v1/computes/{self.compute.id}/storages/")
         self.assertEqual(res.status_code, 403)

@@ -58,7 +58,7 @@ def console(request):
 
     if token:
         try:
-            unsigned = signer.unsign(token, max_age=600)
+            unsigned = signer.unsign(token, max_age=120)
             parts = unsigned.split(":")
             if len(parts) >= 2:
                 host = int(parts[0])

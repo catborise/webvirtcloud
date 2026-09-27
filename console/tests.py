@@ -83,7 +83,7 @@ class ConsoleViewsTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "console-vnc-lite.html")
         signer = TimestampSigner(salt="console.novnc")
-        unsigned = signer.unsign(response.cookies["token"].value, max_age=600)
+        unsigned = signer.unsign(response.cookies["token"].value, max_age=120)
         self.assertEqual(
             unsigned, f"{self.compute.id}:{self.instance.uuid}:{self.admin_user.id}"
         )
@@ -521,3 +521,63 @@ class NovncdDaemonLogicTestCase(TestCase):
 
         with self.assertRaises(PermissionError):
             novncd_mod.get_connection_infos(token)
+
+    def test_get_connection_infos_inactive_user(self):
+        User = get_user_model()
+        inactive_user = User.objects.create_user(
+            username="inactive_console_user",
+            password="password",
+            is_active=False,
+        )
+        compute = Compute.objects.create(
+            name="novnc-inactive-compute",
+            hostname="127.0.0.1",
+            login="root",
+            password="",
+            type=1,
+        )
+        instance = Instance.objects.create(
+            compute=compute,
+            name="novnc-inactive-vm",
+            uuid="44444444-4444-4444-4444-444444444444",
+        )
+        UserInstance.objects.create(instance=instance, user=inactive_user)
+
+        signer = TimestampSigner(salt="console.novnc")
+        token = signer.sign(f"{compute.id}:{instance.uuid}:{inactive_user.id}")
+
+        with self.assertRaises(PermissionError):
+            novncd_mod.get_connection_infos(token)
+
+    @patch("sys.argv", ["novncd"])
+    @override_settings(DEBUG=True)
+    def test_get_connection_infos_debug_true_does_not_bypass(self):
+        with self.assertRaises(PermissionError):
+            novncd_mod.get_connection_infos("invalid-token-in-debug")
+
+    @patch("sys.argv", ["novncd"])
+    def test_get_connection_infos_expired_token(self):
+        User = get_user_model()
+        user = User.objects.filter(is_superuser=True).first()
+        compute = Compute.objects.create(
+            name="novnc-expired-compute",
+            hostname="127.0.0.1",
+            login="root",
+            password="",
+            type=1,
+        )
+        instance = Instance.objects.create(
+            compute=compute,
+            name="novnc-expired-vm",
+            uuid="55555555-5555-5555-5555-555555555555",
+        )
+
+        import time
+        from unittest.mock import patch
+        # Sign token 300 seconds in the past (> 120s TTL)
+        with patch("time.time", return_value=time.time() - 300):
+            signer = TimestampSigner(salt="console.novnc")
+            expired_token = signer.sign(f"{compute.id}:{instance.uuid}:{user.id}")
+
+        with self.assertRaises(PermissionError):
+            novncd_mod.get_connection_infos(expired_token)

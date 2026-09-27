@@ -1,5 +1,6 @@
+from admin.permissions import IsSuperUser
 from computes.models import Compute
-from rest_framework import permissions, viewsets
+from rest_framework import viewsets
 from rest_framework.response import Response
 from vrtManager.create import wvmCreate
 
@@ -13,11 +14,11 @@ class ComputeViewSet(viewsets.ModelViewSet):
 
     queryset = Compute.objects.all().order_by("name")
     serializer_class = ComputeSerializer
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsSuperUser]
 
 
 class ComputeArchitecturesView(viewsets.ViewSet):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsSuperUser]
 
     def list(self, request, compute_pk=None):
         """
@@ -44,7 +45,7 @@ class ComputeArchitecturesView(viewsets.ViewSet):
 
 
 class ComputeMachinesView(viewsets.ViewSet):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsSuperUser]
 
     def list(self, request, compute_pk=None, archs_pk=None):
         """

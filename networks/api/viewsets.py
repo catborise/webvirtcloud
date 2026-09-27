@@ -1,6 +1,7 @@
+from admin.permissions import IsSuperUser
 from computes.models import Compute
 from django.shortcuts import get_object_or_404
-from rest_framework import permissions, viewsets
+from rest_framework import viewsets
 from rest_framework.response import Response
 from vrtManager.network import wvmNetworks
 
@@ -12,7 +13,7 @@ class NetworkViewSet(viewsets.ViewSet):
     A viewset for listing retrieving networks.
     """
 
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsSuperUser]
 
     def list(self, request, compute_pk=None):
 
