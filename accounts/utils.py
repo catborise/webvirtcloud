@@ -20,10 +20,9 @@ def get_user_totp_device(user):
 
 
 def validate_ssh_key(key):
-    array = key.encode().split()
-    # Each rsa-ssh key has 3 different strings in it, first one being
-    # typeofkey second one being keystring third one being username .
-    if len(array) != 3:
+    array = key.strip().encode().split()
+    # An OpenSSH public key has 2 parts (type, key) or 3 parts (type, key, comment).
+    if len(array) not in (2, 3):
         return False
     typeofkey = array[0]
     string = array[1]

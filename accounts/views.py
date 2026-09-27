@@ -7,6 +7,7 @@ from django.contrib.auth.forms import PasswordChangeForm
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.http import HttpResponseRedirect
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 from instances.models import Instance
 
@@ -161,11 +162,14 @@ def user_instance_delete(request, pk):
     if request.method == "POST":
         user = user_instance.user
         user_instance.delete()
-        next = request.GET.get("next", None)
-        if next:
-            return redirect(next)
-        else:
-            return redirect(reverse("accounts:account", args=[user.id]))
+        next_url = request.GET.get("next", None)
+        if next_url and url_has_allowed_host_and_scheme(
+            url=next_url,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        ):
+            return redirect(next_url)
+        return redirect(reverse("accounts:account", args=[user.id]))
 
     return render(
         request,

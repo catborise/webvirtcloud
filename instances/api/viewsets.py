@@ -2,6 +2,7 @@ from admin.permissions import IsSuperUser
 from appsettings.settings import app_settings
 from computes import utils
 from computes.models import Compute
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from instances.models import Flavor, Instance
 from instances.utils import migrate_instance
@@ -99,41 +100,64 @@ class InstanceViewSet(viewsets.ViewSet):
 
     def retrieve(self, request, pk=None, compute_pk=None):
         queryset = get_instance(request.user, pk)
+        if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
+            raise Http404()
         serializer = InstanceDetailsSerializer(queryset, context={"request": request})
 
         return Response(serializer.data)
 
     def destroy(self, request, pk=None, compute_pk=None):
+        queryset = get_instance(request.user, pk, perm_type="delete")
+        if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
+            raise Http404()
         instance_destroy(request, pk)
         return Response({"status": "Instance is destroyed"})
 
     @action(detail=True, methods=["post"])
-    def poweron(self, request, pk=None):
+    def poweron(self, request, pk=None, compute_pk=None):
+        queryset = get_instance(request.user, pk, perm_type="power")
+        if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
+            raise Http404()
         poweron(request, pk)
         return Response({"status": "poweron command send"})
 
     @action(detail=True, methods=["post"])
-    def poweroff(self, request, pk=None):
+    def poweroff(self, request, pk=None, compute_pk=None):
+        queryset = get_instance(request.user, pk, perm_type="power")
+        if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
+            raise Http404()
         poweroff(request, pk)
         return Response({"status": "poweroff command send"})
 
     @action(detail=True, methods=["post"])
-    def powercycle(self, request, pk=None):
+    def powercycle(self, request, pk=None, compute_pk=None):
+        queryset = get_instance(request.user, pk, perm_type="power")
+        if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
+            raise Http404()
         powercycle(request, pk)
         return Response({"status": "powercycle command send"})
 
     @action(detail=True, methods=["post"])
-    def forceoff(self, request, pk=None):
+    def forceoff(self, request, pk=None, compute_pk=None):
+        queryset = get_instance(request.user, pk, perm_type="power")
+        if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
+            raise Http404()
         force_off(request, pk)
         return Response({"status": "force off command send"})
 
     @action(detail=True, methods=["post"])
-    def suspend(self, request, pk=None):
+    def suspend(self, request, pk=None, compute_pk=None):
+        queryset = get_instance(request.user, pk)
+        if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
+            raise Http404()
         suspend(request, pk)
         return Response({"status": "suspend command send"})
 
     @action(detail=True, methods=["post"])
-    def resume(self, request, pk=None):
+    def resume(self, request, pk=None, compute_pk=None):
+        queryset = get_instance(request.user, pk)
+        if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
+            raise Http404()
         resume(request, pk)
         return Response({"status": "resume command send"})
 

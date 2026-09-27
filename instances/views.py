@@ -19,10 +19,13 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import permission_required
 from django.contrib.auth.models import User
+from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_noop as _
+from django.views.decorators.http import require_POST
 from libvirt import (VIR_DOMAIN_UNDEFINE_KEEP_NVRAM,
                      VIR_DOMAIN_UNDEFINE_NVRAM,
                      VIR_DOMAIN_START_PAUSED,
@@ -316,25 +319,59 @@ def sshkeys(request, pk):
     return HttpResponse(response)
 
 
-def get_instance(user, pk):
+def get_safe_redirect(request, default=None):
+    referer = request.META.get("HTTP_REFERER")
+    if referer and url_has_allowed_host_and_scheme(
+        url=referer,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return redirect(referer)
+    if default:
+        return redirect(default)
+    return redirect("instances:index")
+
+
+def get_instance(user, pk, perm_type="view"):
     """
-    Check that instance is available for user, if not raise 404
+    Check that instance is available for user, if not raise 404 or PermissionDenied.
+    perm_type:
+      - 'view': superuser, has_perm("instances.view_instances"), or UserInstance owner
+      - 'power': superuser or UserInstance owner
+      - 'change': superuser or (UserInstance owner and is_change)
+      - 'delete': superuser or (UserInstance owner and is_delete)
     """
     instance = get_object_or_404(Instance, pk=pk)
-    user_instances = user.userinstance_set.all().values_list("instance", flat=True)
+    user_instances = user.userinstance_set.filter(instance=instance)
+    has_owner_rel = user_instances.exists()
 
-    if (
+    if not (
         user.is_superuser
         or user.has_perm("instances.view_instances")
-        or instance.id in user_instances
+        or has_owner_rel
     ):
-        return instance
-    else:
         raise Http404()
 
+    if user.is_superuser or perm_type == "view":
+        return instance
 
+    user_inst = user_instances.first()
+    if perm_type == "power":
+        if not has_owner_rel:
+            raise PermissionDenied
+    elif perm_type == "change":
+        if not (user_inst and user_inst.is_change):
+            raise PermissionDenied
+    elif perm_type == "delete":
+        if not (user_inst and user_inst.is_delete):
+            raise PermissionDenied
+
+    return instance
+
+
+@require_POST
 def poweron(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="power")
     if instance.is_template:
         messages.warning(request, _("Templates cannot be started."))
     else:
@@ -343,52 +380,69 @@ def poweron(request, pk):
             request.user.username, instance.compute.name, instance.name, _("Power On")
         )
 
-    return redirect(request.META.get("HTTP_REFERER"))
+    return get_safe_redirect(
+        request, default=reverse("instances:instance", args=[instance.id])
+    )
 
 
+@require_POST
 def powercycle(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="power")
     instance.proxy.force_shutdown()
     instance.proxy.start()
     addlogmsg(
         request.user.username, instance.compute.name, instance.name, _("Power Cycle")
     )
-    return redirect(request.META.get("HTTP_REFERER"))
+    return get_safe_redirect(
+        request, default=reverse("instances:instance", args=[instance.id])
+    )
 
 
+@require_POST
 def poweroff(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="power")
     instance.proxy.shutdown()
     addlogmsg(
         request.user.username, instance.compute.name, instance.name, _("Power Off")
     )
 
-    return redirect(request.META.get("HTTP_REFERER"))
+    return get_safe_redirect(
+        request, default=reverse("instances:instance", args=[instance.id])
+    )
 
 
+@require_POST
 @superuser_only
 def suspend(request, pk):
     instance = get_instance(request.user, pk)
     instance.proxy.suspend()
     addlogmsg(request.user.username, instance.compute.name, instance.name, _("Suspend"))
-    return redirect(request.META.get("HTTP_REFERER"))
+    return get_safe_redirect(
+        request, default=reverse("instances:instance", args=[instance.id])
+    )
 
 
+@require_POST
 @superuser_only
 def resume(request, pk):
     instance = get_instance(request.user, pk)
     instance.proxy.resume()
     addlogmsg(request.user.username, instance.compute.name, instance.name, _("Resume"))
-    return redirect(request.META.get("HTTP_REFERER"))
+    return get_safe_redirect(
+        request, default=reverse("instances:instance", args=[instance.id])
+    )
 
 
+@require_POST
 def force_off(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="power")
     instance.proxy.force_shutdown()
     addlogmsg(
         request.user.username, instance.compute.name, instance.name, _("Force Off")
     )
-    return redirect(request.META.get("HTTP_REFERER"))
+    return get_safe_redirect(
+        request, default=reverse("instances:instance", args=[instance.id])
+    )
 
 
 def destroy(request, pk):
@@ -398,7 +452,9 @@ def destroy(request, pk):
     except Exception:
         userinstance = UserInstance(is_delete=request.user.is_superuser)
 
-    if request.method in ["POST", "DELETE"] and userinstance.is_delete:
+    if request.method in ["POST", "DELETE"]:
+        if not userinstance.is_delete:
+            raise PermissionDenied
         if instance.proxy.get_status() == 1:
             instance.proxy.force_shutdown()
 
@@ -470,11 +526,13 @@ def migrate(request, pk):
     }
     addlogmsg(request.user.username, current_host, instance.name, msg)
 
-    return redirect(request.META.get("HTTP_REFERER"))
+    return get_safe_redirect(
+        request, default=reverse("instances:instance", args=[instance.id])
+    )
 
 
 def set_root_pass(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
 
     if request.method == "POST":
         passwd = request.POST.get("passwd", None)
@@ -504,10 +562,10 @@ def set_root_pass(request, pk):
 
 
 def add_public_key(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     if request.method == "POST":
         sshkeyid = request.POST.get("sshkeyid", "")
-        publickey = UserSSHKey.objects.get(id=sshkeyid)
+        publickey = get_object_or_404(UserSSHKey, id=sshkeyid, user=request.user)
         data = {
             "action": "publickey",
             "key": publickey.keypublic,
@@ -1918,7 +1976,7 @@ def flavor_create(request):
     if form.is_valid():
         form.save()
         messages.success(request, _("Flavor Created"))
-        return redirect(request.META.get("HTTP_REFERER"))
+        return get_safe_redirect(request, default=reverse("instances:flavors"))
 
     return render(
         request,
@@ -1934,7 +1992,7 @@ def flavor_update(request, pk):
     if form.is_valid():
         form.save()
         messages.success(request, _("Flavor Updated"))
-        return redirect(request.META.get("HTTP_REFERER"))
+        return get_safe_redirect(request, default=reverse("instances:flavors"))
 
     return render(
         request,
@@ -1949,7 +2007,7 @@ def flavor_delete(request, pk):
     if request.method == "POST":
         flavor.delete()
         messages.success(request, _("Flavor Deleted"))
-        return redirect(request.META.get("HTTP_REFERER"))
+        return get_safe_redirect(request, default=reverse("instances:flavors"))
 
     return render(
         request,
