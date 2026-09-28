@@ -1,7 +1,10 @@
 import contextlib
 import json
+import logging
 import os.path
 import time
+
+logger = logging.getLogger(__name__)
 
 try:
     from libvirt import (
@@ -1277,28 +1280,43 @@ class wvmInstance(wvmConnect):
             state,
             time.time(),
         )
-        self.change_snapshot_xml()
+        changed = self.change_snapshot_xml()
         try:
             xml += self._XMLDesc(VIR_DOMAIN_XML_SECURE)
             xml += """<active>0</active>
                       </domainsnapshot>"""
             self._snapshotCreateXML(xml, 0)
         finally:
-            self.recover_snapshot_xml()
+            if changed:
+                self.recover_snapshot_xml()
 
     def change_snapshot_xml(self):
-        xml_temp = self._XMLDesc(VIR_DOMAIN_XML_SECURE).replace(
-            "<loader readonly='yes' type='pflash'>",
-            "<loader readonly='yes' type='rom'>",
-        )
-        self._defineXML(xml_temp)
+        try:
+            raw_xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
+            tree = ElementTree.fromstring(raw_xml)
+            loader = tree.find("./os/loader")
+            if loader is not None and loader.get("type") == "pflash":
+                loader.set("type", "rom")
+                self._defineXML(ElementTree.tostring(tree, encoding="unicode"))
+                return True
+            return False
+        except Exception as e:
+            logger.error("Failed to change snapshot XML loader: %s", e)
+            raise
 
     def recover_snapshot_xml(self):
-        xml_temp = self._XMLDesc(VIR_DOMAIN_XML_SECURE).replace(
-            "<loader readonly='yes' type='rom'>",
-            "<loader readonly='yes' type='pflash'>",
-        )
-        self._defineXML(xml_temp)
+        try:
+            raw_xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
+            tree = ElementTree.fromstring(raw_xml)
+            loader = tree.find("./os/loader")
+            if loader is not None and loader.get("type") == "rom":
+                loader.set("type", "pflash")
+                self._defineXML(ElementTree.tostring(tree, encoding="unicode"))
+                return True
+            return False
+        except Exception as e:
+            logger.error("Failed to recover snapshot XML loader: %s", e)
+            raise
 
     def create_external_snapshot(self, name, date=None, desc=None):
         creation_time = time.time()
@@ -1318,7 +1336,7 @@ class wvmInstance(wvmConnect):
             creation_time,
         )
 
-        self.change_snapshot_xml()
+        changed = self.change_snapshot_xml()
         try:
             xml += self._XMLDesc(VIR_DOMAIN_XML_SECURE)
             xml += """<active>0</active>
@@ -1326,7 +1344,8 @@ class wvmInstance(wvmConnect):
 
             self._snapshotCreateXML(xml, VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY)
         finally:
-            self.recover_snapshot_xml()
+            if changed:
+                self.recover_snapshot_xml()
         self.refresh_instance_pools()
 
     def get_external_snapshots(self):
@@ -1402,12 +1421,13 @@ class wvmInstance(wvmConnect):
         snap.delete(0)
 
     def snapshot_revert(self, snapshot):
-        self.change_snapshot_xml()
+        changed = self.change_snapshot_xml()
         try:
             snap = self.instance.snapshotLookupByName(snapshot, 0)
             self.instance.revertToSnapshot(snap, 0)
         finally:
-            self.recover_snapshot_xml()
+            if changed:
+                self.recover_snapshot_xml()
 
     def get_managed_save_image(self):
         return self.instance.hasManagedSaveImage(0)

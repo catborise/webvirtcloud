@@ -69,8 +69,27 @@ class TestXmlSafety(unittest.TestCase):
             inst.create_snapshot(bad_name, bad_desc)
 
         inst.change_snapshot_xml.assert_called_once()
-        # Verify recover_snapshot_xml was called in finally despite error
         inst.recover_snapshot_xml.assert_called_once()
+
+    def test_snapshot_xml_payload_is_escaped(self):
+        inst = wvmInstance.__new__(wvmInstance)
+        inst.get_status = MagicMock(return_value=5)  # shutoff
+        inst.change_snapshot_xml = MagicMock()
+        inst.recover_snapshot_xml = MagicMock()
+        inst._XMLDesc = MagicMock(return_value="<domain></domain>")
+        inst._snapshotCreateXML = MagicMock(return_value=None)
+
+        bad_name = "snap<inject>&quotes"
+        bad_desc = "desc<tag>&and"
+
+        inst.create_snapshot(bad_name, bad_desc)
+
+        inst._snapshotCreateXML.assert_called_once()
+        created_xml = inst._snapshotCreateXML.call_args[0][0]
+        self.assertNotIn("<inject>", created_xml)
+        self.assertNotIn("<tag>", created_xml)
+        self.assertIn("&lt;inject&gt;&amp;quotes", created_xml)
+        self.assertIn("&lt;tag&gt;&amp;and", created_xml)
 
     def test_external_snapshot_recovery(self):
         inst = wvmInstance.__new__(wvmInstance)
@@ -86,6 +105,75 @@ class TestXmlSafety(unittest.TestCase):
         inst.change_snapshot_xml.assert_called_once()
         inst.recover_snapshot_xml.assert_called_once()
         inst.refresh_instance_pools.assert_called_once()
+
+    def test_secure_boot_loader_change_and_recovery(self):
+        inst = wvmInstance.__new__(wvmInstance)
+        inst.wvm = MagicMock()
+        uefi_xml = "<domain><os><loader readonly='yes' secure='yes' type='pflash'>/usr/share/OVMF/OVMF.fd</loader></os></domain>"
+        inst._XMLDesc = MagicMock(return_value=uefi_xml)
+
+        inst.change_snapshot_xml()
+        inst.wvm.defineXML.assert_called_once()
+        changed_xml = inst.wvm.defineXML.call_args[0][0]
+        self.assertIn("type=\"rom\"", changed_xml)
+        self.assertIn("secure=\"yes\"", changed_xml)
+
+        # Test recovery from rom back to pflash
+        inst._XMLDesc = MagicMock(return_value=changed_xml)
+        inst.wvm.defineXML.reset_mock()
+        inst.recover_snapshot_xml()
+        inst.wvm.defineXML.assert_called_once()
+        recovered_xml = inst.wvm.defineXML.call_args[0][0]
+        self.assertIn("type=\"pflash\"", recovered_xml)
+        self.assertIn("secure=\"yes\"", recovered_xml)
+
+    def test_original_rom_loader_preserved(self):
+        inst = wvmInstance.__new__(wvmInstance)
+        inst._XMLDesc = MagicMock(return_value="<domain><os><loader type='rom'>/usr/share/rom.bin</loader></os></domain>")
+        inst._defineXML = MagicMock()
+        inst._snapshotCreateXML = MagicMock(return_value=None)
+        inst.get_status = MagicMock(return_value=5)
+
+        # change_snapshot_xml should return False and not define XML
+        self.assertFalse(inst.change_snapshot_xml())
+        inst._defineXML.assert_not_called()
+
+        # Create snapshot should not invoke recover_snapshot_xml if not changed
+        inst.change_snapshot_xml = MagicMock(return_value=False)
+        inst.recover_snapshot_xml = MagicMock()
+        inst.create_snapshot("snap_rom", "testing rom preservation")
+        inst.change_snapshot_xml.assert_called_once()
+        inst.recover_snapshot_xml.assert_not_called()
+
+    def test_malformed_xml_raises_in_change(self):
+        inst = wvmInstance.__new__(wvmInstance)
+        inst._XMLDesc = MagicMock(return_value="<malformed << xml")
+        with self.assertRaises(Exception):
+            inst.change_snapshot_xml()
+
+    def test_recovery_failure_raises(self):
+        inst = wvmInstance.__new__(wvmInstance)
+        inst._XMLDesc = MagicMock(return_value="<domain><os><loader type='rom'>/path</loader></os></domain>")
+        inst._defineXML = MagicMock(side_effect=RuntimeError("libvirt defineXML failed"))
+        with self.assertRaises(RuntimeError):
+            inst.recover_snapshot_xml()
+
+
+    def test_snapshot_revert_rom_loader_preserved(self):
+        inst = wvmInstance.__new__(wvmInstance)
+        inst.instance = MagicMock()
+        mock_snap = MagicMock()
+        inst.instance.snapshotLookupByName = MagicMock(return_value=mock_snap)
+        inst.instance.revertToSnapshot = MagicMock()
+        inst.change_snapshot_xml = MagicMock(return_value=False)
+        inst.recover_snapshot_xml = MagicMock()
+
+        inst.snapshot_revert("snap_rom")
+
+        inst.change_snapshot_xml.assert_called_once()
+        inst.instance.snapshotLookupByName.assert_called_once_with("snap_rom", 0)
+        inst.instance.revertToSnapshot.assert_called_once_with(mock_snap, 0)
+        inst.recover_snapshot_xml.assert_not_called()
 
 
 if __name__ == "__main__":
