@@ -46,10 +46,10 @@ class SetRootPassTestCase(TestCase):
         # SHA-512 crypt starts with $6$kgPoiREy$
         self.assertTrue(data["passwd"].startswith("$6$kgPoiREy$"))
 
-    def test_set_root_pass_get_redirects(self):
+    def test_set_root_pass_get_not_allowed(self):
         response = self.client.get(reverse("instances:rootpasswd", args=[self.instance.id]))
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 405)
 
     def test_set_root_pass_not_found(self):
-        response = self.client.get(reverse("instances:rootpasswd", args=[99999]))
+        response = self.client.post(reverse("instances:rootpasswd", args=[99999]), {"passwd": "secret"})
         self.assertEqual(response.status_code, 404)

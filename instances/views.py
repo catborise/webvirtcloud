@@ -2,6 +2,7 @@ try:
     import crypt_r as crypt
 except ImportError:
     import crypt
+import functools
 import json
 import os
 import re
@@ -15,12 +16,14 @@ from admin.decorators import superuser_only
 from appsettings.models import AppSettings
 from appsettings.settings import app_settings
 from computes.models import Compute
+from computes.utils import libvirt_compute_lock
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import permission_required
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpResponse, JsonResponse
+from django.db.models import prefetch_related_objects
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -48,14 +51,10 @@ from .models import Flavor
 def index(request):
     instances = None
 
-    computes = (
-        Compute.objects.all()
-        .order_by("name")
-        .prefetch_related("instance_set")
-        .prefetch_related("instance_set__userinstance_set")
-    )
+    computes = list(Compute.objects.all().order_by("name"))
     for compute in computes:
         utils.refr(compute)
+    prefetch_related_objects(computes, "instance_set__userinstance_set")
 
     if request.user.is_superuser or request.user.has_perm("instances.view_instances"):
         instances = Instance.objects.all().prefetch_related("userinstance_set")
@@ -341,6 +340,10 @@ def get_instance(user, pk, perm_type="view"):
       - 'change': superuser or (UserInstance owner and is_change)
       - 'delete': superuser or (UserInstance owner and is_delete)
     """
+    valid_perms = {"view", "power", "change", "delete"}
+    if perm_type not in valid_perms:
+        raise PermissionDenied
+
     instance = get_object_or_404(Instance, pk=pk)
     user_instances = user.userinstance_set.filter(instance=instance)
     has_owner_rel = user_instances.exists()
@@ -365,11 +368,32 @@ def get_instance(user, pk, perm_type="view"):
     elif perm_type == "delete":
         if not (user_inst and user_inst.is_delete):
             raise PermissionDenied
+    else:
+        raise PermissionDenied
 
     return instance
 
 
+def serialize_instance_mutation(func):
+    """
+    Decorator that ensures any view mutating an instance's libvirt state
+    acquires libvirt_compute_lock for the instance's compute.
+    Works re-entrantly with inner calls such as refresh_instance_database.
+    """
+    @functools.wraps(func)
+    def wrapper(request, pk, *args, **kwargs):
+        try:
+            inst = Instance.objects.only("compute_id").get(pk=pk)
+            with libvirt_compute_lock(inst.compute):
+                return func(request, pk, *args, **kwargs)
+        except Instance.DoesNotExist:
+            return func(request, pk, *args, **kwargs)
+
+    return wrapper
+
+
 @require_POST
+@serialize_instance_mutation
 def poweron(request, pk):
     instance = get_instance(request.user, pk, perm_type="power")
     if instance.is_template:
@@ -386,6 +410,7 @@ def poweron(request, pk):
 
 
 @require_POST
+@serialize_instance_mutation
 def powercycle(request, pk):
     instance = get_instance(request.user, pk, perm_type="power")
     instance.proxy.force_shutdown()
@@ -399,6 +424,7 @@ def powercycle(request, pk):
 
 
 @require_POST
+@serialize_instance_mutation
 def poweroff(request, pk):
     instance = get_instance(request.user, pk, perm_type="power")
     instance.proxy.shutdown()
@@ -413,6 +439,7 @@ def poweroff(request, pk):
 
 @require_POST
 @superuser_only
+@serialize_instance_mutation
 def suspend(request, pk):
     instance = get_instance(request.user, pk)
     instance.proxy.suspend()
@@ -424,6 +451,7 @@ def suspend(request, pk):
 
 @require_POST
 @superuser_only
+@serialize_instance_mutation
 def resume(request, pk):
     instance = get_instance(request.user, pk)
     instance.proxy.resume()
@@ -434,6 +462,7 @@ def resume(request, pk):
 
 
 @require_POST
+@serialize_instance_mutation
 def force_off(request, pk):
     instance = get_instance(request.user, pk, perm_type="power")
     instance.proxy.force_shutdown()
@@ -446,36 +475,38 @@ def force_off(request, pk):
 
 
 def destroy(request, pk):
-    instance = get_instance(request.user, pk)
-    try:
-        userinstance = instance.userinstance_set.get(user=request.user)
-    except Exception:
-        userinstance = UserInstance(is_delete=request.user.is_superuser)
-
     if request.method in ["POST", "DELETE"]:
-        if not userinstance.is_delete:
-            raise PermissionDenied
-        if instance.proxy.get_status() == 1:
-            instance.proxy.force_shutdown()
+        instance = get_instance(request.user, pk, perm_type="delete")
+        with libvirt_compute_lock(instance.compute):
+            if instance.proxy.get_status() == 1:
+                instance.proxy.force_shutdown()
 
-        if request.POST.get("delete_disk", ""):
-            snapshots = sorted(
-                instance.proxy.get_snapshot(), reverse=True, key=lambda k: k["date"]
-            )
-            for snapshot in snapshots:
-                instance.proxy.snapshot_delete(snapshot["name"])
-            instance.proxy.delete_all_disks()
+            if request.POST.get("delete_disk", ""):
+                snapshots = sorted(
+                    instance.proxy.get_snapshot(), reverse=True, key=lambda k: k["date"]
+                )
+                for snapshot in snapshots:
+                    instance.proxy.snapshot_delete(snapshot["name"])
+                instance.proxy.delete_all_disks()
 
-        if request.POST.get("delete_nvram", ""):
-            instance.proxy.delete(VIR_DOMAIN_UNDEFINE_NVRAM)
-        else:
-            instance.proxy.delete(VIR_DOMAIN_UNDEFINE_KEEP_NVRAM)
+            if request.POST.get("delete_nvram", ""):
+                instance.proxy.delete(VIR_DOMAIN_UNDEFINE_NVRAM)
+            else:
+                instance.proxy.delete(VIR_DOMAIN_UNDEFINE_KEEP_NVRAM)
 
-        instance.delete()
+            instance.delete()
         addlogmsg(
             request.user.username, instance.compute.name, instance.name, _("Destroy")
         )
         return redirect(reverse("instances:index"))
+
+    instance = get_instance(request.user, pk, perm_type="delete")
+    try:
+        userinstance = instance.userinstance_set.get(user=request.user)
+    except Exception:
+        userinstance = UserInstance(
+            is_delete=request.user.is_superuser
+        )
 
     return render(
         request,
@@ -487,6 +518,7 @@ def destroy(request, pk):
     )
 
 
+@require_POST
 @superuser_only
 def migrate(request, pk):
     instance = get_instance(request.user, pk)
@@ -531,6 +563,8 @@ def migrate(request, pk):
     )
 
 
+@require_POST
+@serialize_instance_mutation
 def set_root_pass(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
 
@@ -558,11 +592,16 @@ def set_root_pass(request, pk):
             else:
                 msg = _("Please shutdown down your instance and then try again")
                 messages.error(request, msg)
-    return redirect(reverse("instances:instance", args=[instance.id]) + "#access")
+    return get_safe_redirect(
+        request, default=reverse("instances:instance", args=[instance.id]) + "#access"
+    )
 
 
+@require_POST
+@serialize_instance_mutation
 def add_public_key(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
+
     if request.method == "POST":
         sshkeyid = request.POST.get("sshkeyid", "")
         publickey = get_object_or_404(UserSSHKey, id=sshkeyid, user=request.user)
@@ -593,142 +632,138 @@ def add_public_key(request, pk):
         else:
             msg = _("Please shutdown down your instance and then try again")
             messages.error(request, msg)
-    return redirect(reverse("instances:instance", args=[instance.id]) + "#access")
+    return get_safe_redirect(
+        request, default=reverse("instances:instance", args=[instance.id]) + "#access"
+    )
 
 
+@require_POST
+@serialize_instance_mutation
 def resizevm_cpu(request, pk):
-    instance = get_instance(request.user, pk)
-    try:
-        userinstance = instance.userinstance_set.get(user=request.user)
-    except Exception:
-        userinstance = UserInstance(is_change=False)
+    instance = get_instance(request.user, pk, perm_type="change")
     vcpu = instance.proxy.get_vcpu()
-    if request.method == "POST":
-        if request.user.is_superuser or request.user.is_staff or userinstance.is_change:
-            new_vcpu = request.POST.get("vcpu", "")
-            new_cur_vcpu = request.POST.get("cur_vcpu", "")
 
-            quota_msg = utils.check_user_quota(
-                request.user, 0, int(new_vcpu) - vcpu, 0, 0
-            )
-            if not request.user.is_superuser and quota_msg:
-                msg = _(
-                    "User %(quota_msg)s quota reached, cannot resize CPU of '%(instance_name)s'!"
-                ) % {
-                    "quota_msg": quota_msg,
-                    "instance_name": instance.name,
-                }
-                messages.error(request, msg)
-            else:
-                cur_vcpu = new_cur_vcpu
-                vcpu = new_vcpu
-                instance.proxy.resize_cpu(cur_vcpu, vcpu)
-                msg = _("CPU is resized:  %(old)s to %(new)s") % {
-                    "old": cur_vcpu,
-                    "new": vcpu,
-                }
-                addlogmsg(
-                    request.user.username, instance.compute.name, instance.name, msg
-                )
-                messages.success(request, msg)
+    new_vcpu = request.POST.get("vcpu", "")
+    new_cur_vcpu = request.POST.get("cur_vcpu", "")
+
+    quota_msg = utils.check_user_quota(
+        request.user, 0, int(new_vcpu) - vcpu, 0, 0
+    )
+    if not request.user.is_superuser and quota_msg:
+        msg = _(
+            "User %(quota_msg)s quota reached, cannot resize CPU of '%(instance_name)s'!"
+        ) % {
+            "quota_msg": quota_msg,
+            "instance_name": instance.name,
+        }
+        messages.error(request, msg)
+    else:
+        cur_vcpu = new_cur_vcpu
+        vcpu = new_vcpu
+        instance.proxy.resize_cpu(cur_vcpu, vcpu)
+        msg = _("CPU is resized:  %(old)s to %(new)s") % {
+            "old": cur_vcpu,
+            "new": vcpu,
+        }
+        addlogmsg(
+            request.user.username, instance.compute.name, instance.name, msg
+        )
+        messages.success(request, msg)
     return redirect(reverse("instances:instance", args=[instance.id]) + "#resize")
 
 
+@require_POST
+@serialize_instance_mutation
 def resize_memory(request, pk):
-    instance = get_instance(request.user, pk)
-    try:
-        userinstance = instance.userinstance_set.get(user=request.user)
-    except Exception:
-        userinstance = UserInstance(is_change=False)
-
+    instance = get_instance(request.user, pk, perm_type="change")
     memory = instance.proxy.get_memory()
     cur_memory = instance.proxy.get_cur_memory()
 
-    if request.method == "POST":
-        if request.user.is_superuser or request.user.is_staff or userinstance.is_change:
-            new_memory = request.POST.get("memory", "")
-            new_memory_custom = request.POST.get("memory_custom", "")
-            if new_memory_custom:
-                new_memory = new_memory_custom
-            new_cur_memory = request.POST.get("cur_memory", "")
-            new_cur_memory_custom = request.POST.get("cur_memory_custom", "")
-            if new_cur_memory_custom:
-                new_cur_memory = new_cur_memory_custom
-            quota_msg = utils.check_user_quota(
-                request.user, 0, 0, int(new_memory) - memory, 0
-            )
-            if not request.user.is_superuser and quota_msg:
-                msg = _(
-                    "User %(quota_msg)s quota reached, cannot resize memory of '%(instance_name)s'!"
-                ) % {
-                    "quota_msg": quota_msg,
-                    "instance_name": instance.name,
-                }
-                messages.error(request, msg)
-            else:
-                instance.proxy.resize_mem(new_cur_memory, new_memory)
-                msg = _(
-                    "Memory is resized: current/max: %(old_cur)s/%(old_max)s to %(new_cur)s/%(new_max)s"
-                ) % {
-                    "old_cur": cur_memory,
-                    "old_max": memory,
-                    "new_cur": new_cur_memory,
-                    "new_max": new_memory,
-                }
-                addlogmsg(
-                    request.user.username, instance.compute.name, instance.name, msg
-                )
-                messages.success(request, msg)
+    new_memory = request.POST.get("memory", "")
+    new_memory_custom = request.POST.get("memory_custom", "")
+    if new_memory_custom:
+        new_memory = new_memory_custom
+    new_cur_memory = request.POST.get("cur_memory", "")
+    new_cur_memory_custom = request.POST.get("cur_memory_custom", "")
+    if new_cur_memory_custom:
+        new_cur_memory = new_cur_memory_custom
+    quota_msg = utils.check_user_quota(
+        request.user, 0, 0, int(new_memory) - memory, 0
+    )
+    if not request.user.is_superuser and quota_msg:
+        msg = _(
+            "User %(quota_msg)s quota reached, cannot resize memory of '%(instance_name)s'!"
+        ) % {
+            "quota_msg": quota_msg,
+            "instance_name": instance.name,
+        }
+        messages.error(request, msg)
+    else:
+        instance.proxy.resize_mem(new_cur_memory, new_memory)
+        msg = _(
+            "Memory is resized: current/max: %(old_cur)s/%(old_max)s to %(new_cur)s/%(new_max)s"
+        ) % {
+            "old_cur": cur_memory,
+            "old_max": memory,
+            "new_cur": new_cur_memory,
+            "new_max": new_memory,
+        }
+        addlogmsg(
+            request.user.username, instance.compute.name, instance.name, msg
+        )
+        messages.success(request, msg)
 
     return redirect(reverse("instances:instance", args=[instance.id]) + "#resize")
 
 
+@require_POST
+@serialize_instance_mutation
 def resize_disk(request, pk):
-    instance = get_instance(request.user, pk)
-
-    try:
-        userinstance = instance.userinstance_set.get(user=request.user)
-    except Exception:
-        userinstance = UserInstance(is_change=False)
-
+    instance = get_instance(request.user, pk, perm_type="change")
     disks = instance.proxy.get_disk_devices()
 
-    if request.method == "POST":
-        if request.user.is_superuser or request.user.is_staff or userinstance.is_change:
-            disks_new = list()
-            for disk in disks:
-                input_disk_size = (
-                    int(request.POST.get("disk_size_" + disk["dev"], "0")) * 1073741824
-                )
-                if input_disk_size > disk["size"] + (64 << 20):
-                    disk["size_new"] = input_disk_size
-                    disks_new.append(disk)
-            disk_sum = sum([disk["size"] >> 30 for disk in disks_new])
-            disk_new_sum = sum([disk["size_new"] >> 30 for disk in disks_new])
-            quota_msg = utils.check_user_quota(
-                request.user, 0, 0, 0, disk_new_sum - disk_sum
-            )
-            if not request.user.is_superuser and quota_msg:
-                msg = _(
-                    "User %(quota_msg)s quota reached, cannot resize disks of '%(instance_name)s'!"
-                ) % {
-                    "quota_msg": quota_msg,
-                    "instance_name": instance.name,
-                }
-                messages.error(request, msg)
-            else:
-                instance.proxy.resize_disk(disks_new)
-                msg = _("Disk is resized: %(dev)s") % {"dev": disk["dev"]}
-                addlogmsg(
-                    request.user.username, instance.compute.name, instance.name, msg
-                )
-                messages.success(request, msg)
+    disks_new = list()
+    for disk in disks:
+        input_disk_size = (
+            int(request.POST.get("disk_size_" + disk["dev"], "0")) * 1073741824
+        )
+        if input_disk_size > disk["size"] + (64 << 20):
+            disk["size_new"] = input_disk_size
+            disks_new.append(disk)
+
+    if not disks_new:
+        messages.warning(request, _("No disks were selected or valid for resizing."))
+        return redirect(reverse("instances:instance", args=[instance.id]) + "#resize")
+
+    disk_sum = sum([disk["size"] >> 30 for disk in disks_new])
+    disk_new_sum = sum([disk["size_new"] >> 30 for disk in disks_new])
+    quota_msg = utils.check_user_quota(
+        request.user, 0, 0, 0, disk_new_sum - disk_sum
+    )
+    if not request.user.is_superuser and quota_msg:
+        msg = _(
+            "User %(quota_msg)s quota reached, cannot resize disks of '%(instance_name)s'!"
+        ) % {
+            "quota_msg": quota_msg,
+            "instance_name": instance.name,
+        }
+        messages.error(request, msg)
+    else:
+        instance.proxy.resize_disk(disks_new)
+        devs_str = ", ".join([d["dev"] for d in disks_new])
+        msg = _("Disk is resized: %(dev)s") % {"dev": devs_str}
+        addlogmsg(
+            request.user.username, instance.compute.name, instance.name, msg
+        )
+        messages.success(request, msg)
 
     return redirect(reverse("instances:instance", args=[instance.id]) + "#resize")
 
 
+@require_POST
+@serialize_instance_mutation
 def add_new_vol(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     allow_admin_or_not_template = (
         request.user.is_superuser or request.user.is_staff or not instance.is_template
     )
@@ -795,8 +830,10 @@ def add_new_vol(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
+@require_POST
+@serialize_instance_mutation
 def add_existing_vol(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     allow_admin_or_not_template = (
         request.user.is_superuser or request.user.is_staff or not instance.is_template
     )
@@ -845,8 +882,10 @@ def add_existing_vol(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
+@require_POST
+@serialize_instance_mutation
 def edit_volume(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     allow_admin_or_not_template = (
         request.user.is_superuser or request.user.is_staff or not instance.is_template
     )
@@ -919,8 +958,10 @@ def edit_volume(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
+@require_POST
+@serialize_instance_mutation
 def delete_vol(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     allow_admin_or_not_template = (
         request.user.is_superuser or request.user.is_staff or not instance.is_template
     )
@@ -945,8 +986,10 @@ def delete_vol(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
+@require_POST
+@serialize_instance_mutation
 def detach_vol(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     allow_admin_or_not_template = (
         request.user.is_superuser or request.user.is_staff or not instance.is_template
     )
@@ -961,8 +1004,10 @@ def detach_vol(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
+@require_POST
+@serialize_instance_mutation
 def add_cdrom(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     allow_admin_or_not_template = (
         request.user.is_superuser or request.user.is_staff or not instance.is_template
     )
@@ -983,8 +1028,10 @@ def add_cdrom(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
+@require_POST
+@serialize_instance_mutation
 def detach_cdrom(request, pk, dev):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     allow_admin_or_not_template = (
         request.user.is_superuser or request.user.is_staff or not instance.is_template
     )
@@ -998,8 +1045,10 @@ def detach_cdrom(request, pk, dev):
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
+@require_POST
+@serialize_instance_mutation
 def unmount_iso(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     allow_admin_or_not_template = (
         request.user.is_superuser or request.user.is_staff or not instance.is_template
     )
@@ -1013,8 +1062,10 @@ def unmount_iso(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
+@require_POST
+@serialize_instance_mutation
 def mount_iso(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     allow_admin_or_not_template = (
         request.user.is_superuser or request.user.is_staff or not instance.is_template
     )
@@ -1028,8 +1079,10 @@ def mount_iso(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
+@require_POST
+@serialize_instance_mutation
 def snapshot(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     allow_admin_or_not_template = (
         request.user.is_superuser or request.user.is_staff or not instance.is_template
     )
@@ -1045,8 +1098,10 @@ def snapshot(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#managesnapshot")
 
 
+@require_POST
+@serialize_instance_mutation
 def delete_snapshot(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     allow_admin_or_not_template = (
         request.user.is_superuser or request.user.is_staff or not instance.is_template
     )
@@ -1060,8 +1115,10 @@ def delete_snapshot(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#managesnapshot")
 
 
+@require_POST
+@serialize_instance_mutation
 def revert_snapshot(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     allow_admin_or_not_template = (
         request.user.is_superuser or request.user.is_staff or not instance.is_template
     )
@@ -1078,8 +1135,10 @@ def revert_snapshot(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#managesnapshot")
 
 
+@require_POST
+@serialize_instance_mutation
 def create_external_snapshot(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     allow_admin_or_not_template = (
         request.user.is_superuser or request.user.is_staff or not instance.is_template
     )
@@ -1108,8 +1167,10 @@ def get_external_snapshots(request, pk):
     return external_snapshots
 
 
+@require_POST
+@serialize_instance_mutation
 def revert_external_snapshot(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     allow_admin_or_not_template = (
         request.user.is_superuser or request.user.is_staff or not instance.is_template
     )
@@ -1129,8 +1190,10 @@ def revert_external_snapshot(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#managesnapshot")
 
 
+@require_POST
+@serialize_instance_mutation
 def delete_external_snapshot(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     instance_state = True if instance.proxy.get_status() == 5 else False
     allow_admin_or_not_template = (
         request.user.is_superuser or request.user.is_staff or not instance.is_template
@@ -1153,7 +1216,9 @@ def delete_external_snapshot(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#managesnapshot")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def set_vcpu(request, pk):
     instance = get_instance(request.user, pk)
     id = request.POST.get("id", "")
@@ -1167,7 +1232,9 @@ def set_vcpu(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#resize")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def set_vcpu_hotplug(request, pk):
     instance = get_instance(request.user, pk)
     status = True if request.POST.get("vcpu_hotplug", "False") == "True" else False
@@ -1177,7 +1244,9 @@ def set_vcpu_hotplug(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#resize")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def set_autostart(request, pk):
     instance = get_instance(request.user, pk)
     instance.proxy.set_autostart(1)
@@ -1186,7 +1255,9 @@ def set_autostart(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#boot_opt")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def unset_autostart(request, pk):
     instance = get_instance(request.user, pk)
     instance.proxy.set_autostart(0)
@@ -1195,7 +1266,9 @@ def unset_autostart(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#boot_opt")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def set_bootmenu(request, pk):
     instance = get_instance(request.user, pk)
     instance.proxy.set_bootmenu(1)
@@ -1204,7 +1277,9 @@ def set_bootmenu(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#boot_opt")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def unset_bootmenu(request, pk):
     instance = get_instance(request.user, pk)
     instance.proxy.set_bootmenu(0)
@@ -1213,7 +1288,9 @@ def unset_bootmenu(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#boot_opt")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def set_bootorder(request, pk):
     instance = get_instance(request.user, pk)
     bootorder = request.POST.get("bootorder", "")
@@ -1239,7 +1316,9 @@ def set_bootorder(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#boot_opt")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def change_xml(request, pk):
     instance = get_instance(request.user, pk)
     new_xml = request.POST.get("inst_xml", "")
@@ -1250,7 +1329,9 @@ def change_xml(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#xmledit")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def set_guest_agent(request, pk):
     instance = get_instance(request.user, pk)
     status = request.POST.get("guest_agent")
@@ -1264,7 +1345,9 @@ def set_guest_agent(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#options")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def set_video_model(request, pk):
     instance = get_instance(request.user, pk)
     video_model = request.POST.get("video_model", "vga")
@@ -1274,7 +1357,9 @@ def set_video_model(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#options")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def change_network(request, pk):
     instance = get_instance(request.user, pk)
 
@@ -1307,7 +1392,9 @@ def change_network(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#network")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def add_network(request, pk):
     instance = get_instance(request.user, pk)
 
@@ -1332,7 +1419,9 @@ def add_network(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#network")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def delete_network(request, pk):
     instance = get_instance(request.user, pk)
     mac_address = request.POST.get("delete_network", "")
@@ -1343,7 +1432,9 @@ def delete_network(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#network")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def set_link_state(request, pk):
     instance = get_instance(request.user, pk)
 
@@ -1356,7 +1447,9 @@ def set_link_state(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#network")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def set_qos(request, pk):
     instance = get_instance(request.user, pk)
 
@@ -1387,7 +1480,9 @@ def set_qos(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#network")
 
 
+@require_POST
 @superuser_only
+@serialize_instance_mutation
 def unset_qos(request, pk):
     instance = get_instance(request.user, pk)
     qos_dir = request.POST.get("qos_direction", "")
@@ -1410,6 +1505,7 @@ def unset_qos(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#network")
 
 
+@require_POST
 @superuser_only
 def add_owner(request, pk):
     instance = get_instance(request.user, pk)
@@ -1433,6 +1529,7 @@ def add_owner(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#users")
 
 
+@require_POST
 @superuser_only
 def del_owner(request, pk):
     instance = get_instance(request.user, pk)
@@ -1444,6 +1541,7 @@ def del_owner(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#users")
 
 
+@require_POST
 @permission_required("instances.clone_instances", raise_exception=True)
 def clone(request, pk):
     instance = get_instance(request.user, pk)
@@ -1500,15 +1598,22 @@ def clone(request, pk):
         }
         messages.error(request, msg)
     else:
-        new_instance = Instance(compute=instance.compute, name=clone_data["name"])
         try:
-            new_uuid = instance.proxy.clone_instance(clone_data)
-            new_instance.uuid = new_uuid
-            new_instance.save()
-            user_instance = UserInstance(
-                instance_id=new_instance.id, user_id=request.user.id, is_delete=True
-            )
-            user_instance.save()
+            with libvirt_compute_lock(instance.compute):
+                new_uuid = instance.proxy.clone_instance(clone_data)
+                new_instance = Instance.objects.get_or_create(
+                    compute=instance.compute,
+                    uuid=new_uuid,
+                    defaults={"name": clone_data["name"]},
+                )[0]
+                if new_instance.name != clone_data["name"]:
+                    new_instance.name = clone_data["name"]
+                    new_instance.save(update_fields=["name"])
+                UserInstance.objects.get_or_create(
+                    instance_id=new_instance.id,
+                    user_id=request.user.id,
+                    defaults={"is_delete": True, "is_change": True, "is_vnc": True},
+                )
             msg = _("Create a clone of '%(instance_name)s'") % {
                 "instance_name": instance.name
             }
@@ -1530,14 +1635,16 @@ def clone(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#clone")
 
 
+@require_POST
+@serialize_instance_mutation
 def update_console(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     try:
         userinstance = instance.userinstance_set.get(user=request.user)
     except Exception:
         userinstance = UserInstance(is_vnc=False)
 
-    if request.user.is_superuser or request.user.is_staff or userinstance.is_vnc:
+    if request.user.is_superuser or userinstance.is_vnc:
         form = ConsoleForm(request.POST or None)
         if form.is_valid():
             if (
@@ -1589,18 +1696,22 @@ def update_console(request, pk):
                     request.user.username, instance.compute.name, instance.name, msg
                 )
 
-    return redirect(request.META.get("HTTP_REFERER") + "#vncsettings")
+    return get_safe_redirect(
+        request, default=reverse("instances:instance", args=[instance.id]) + "#vncsettings"
+    )
 
 
+@require_POST
+@serialize_instance_mutation
 def change_options(request, pk):
-    instance = get_instance(request.user, pk)
+    instance = get_instance(request.user, pk, perm_type="change")
     try:
         userinstance = instance.userinstance_set.get(user=request.user)
     except Exception:
         userinstance = UserInstance(is_change=False)
 
-    if request.user.is_superuser or request.user.is_staff or userinstance.is_change:
-        instance.is_template = request.POST.get("is_template", False)
+    if request.user.is_superuser or userinstance.is_change:
+        instance.is_template = bool(request.POST.get("is_template", False))
         instance.save()
 
         options = {}
@@ -1611,7 +1722,9 @@ def change_options(request, pk):
 
         msg = _("Edit options")
         addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#options")
+    return get_safe_redirect(
+        request, default=reverse("instances:instance", args=[instance.id]) + "#options"
+    )
 
 
 def getvvfile(request, pk):
@@ -1695,9 +1808,10 @@ def create_instance_select_type(request, compute_id):
                 error_msg = _("A virtual machine with this name already exists")
                 messages.error(request, error_msg)
             else:
-                conn._defineXML(xml)
-                utils.refr(compute)
-                instance = compute.instance_set.get(name=name)
+                with libvirt_compute_lock(compute):
+                    conn._defineXML(xml)
+                    utils.refresh_instance_database(compute)
+                    instance = compute.instance_set.get(name=name)
                 return redirect(reverse("instances:instance", args=[instance.id]))
 
     return render(request, "create_instance_w1.html", locals())
@@ -1919,33 +2033,36 @@ def create_instance(request, compute_id, arch, machine):
 
                         uuid = util.randomUUID()
                         try:
-                            conn.create_instance(
-                                name=data["name"],
-                                memory=data["memory"],
-                                vcpu=data["vcpu"],
-                                vcpu_mode=data["vcpu_mode"],
-                                uuid=uuid,
-                                arch=arch,
-                                machine=machine,
-                                firmware=firmware,
-                                volumes=volume_list,
-                                networks=data["networks"],
-                                virtio=data["virtio"],
-                                listener_addr=data["listener_addr"],
-                                nwfilter=data["nwfilter"],
-                                net_model=data["net_model"],
-                                graphics=data["graphics"],
-                                video=data["video"],
-                                console_pass=data["console_pass"],
-                                mac=data["mac"],
-                                qemu_ga=data["qemu_ga"],
-                                add_cdrom=data["add_cdrom"],
-                                add_input=data["add_input"],
-                            )
-                            create_instance = Instance(
-                                compute_id=compute_id, name=data["name"], uuid=uuid
-                            )
-                            create_instance.save()
+                            with libvirt_compute_lock(compute):
+                                conn.create_instance(
+                                    name=data["name"],
+                                    memory=data["memory"],
+                                    vcpu=data["vcpu"],
+                                    vcpu_mode=data["vcpu_mode"],
+                                    uuid=uuid,
+                                    arch=arch,
+                                    machine=machine,
+                                    firmware=firmware,
+                                    volumes=volume_list,
+                                    networks=data["networks"],
+                                    virtio=data["virtio"],
+                                    listener_addr=data["listener_addr"],
+                                    nwfilter=data["nwfilter"],
+                                    net_model=data["net_model"],
+                                    graphics=data["graphics"],
+                                    video=data["video"],
+                                    console_pass=data["console_pass"],
+                                    mac=data["mac"],
+                                    qemu_ga=data["qemu_ga"],
+                                    add_cdrom=data["add_cdrom"],
+                                    add_input=data["add_input"],
+                                )
+                                create_instance = Instance.objects.get_or_create(
+                                    compute_id=compute_id, uuid=uuid, defaults={"name": data["name"]}
+                                )[0]
+                                if create_instance.name != data["name"]:
+                                    create_instance.name = data["name"]
+                                    create_instance.save(update_fields=["name"])
                             msg = _("Instance is created")
                             messages.success(request, msg)
                             addlogmsg(

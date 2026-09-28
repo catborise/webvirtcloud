@@ -81,6 +81,15 @@ class InstancesTestCase(TestCase):
             cls.instance: Instance = Instance.objects.filter(compute=cls.compute).first()
         except Exception as e:
             cls.instance = None
+            if getattr(cls, "compute", None):
+                try:
+                    cls.compute.delete()
+                except Exception:
+                    pass
+            try:
+                super().tearDownClass()
+            except Exception:
+                pass
             raise unittest.SkipTest(f"Live libvirt host not available for instances tests: {e}")
 
     @classmethod

@@ -81,9 +81,13 @@
                     <div class="col-sm-12 text-center">
                     <p>{% trans "Autostart your instance when host server is power on " %}
                         {% if instance.autostart == 0 %}
-                            <a class="btn btn-success" href="{% url 'instances:set_autostart' instance.id %}">{% trans "Enable" %}</a>
+                            <form action="{% url 'instances:set_autostart' instance.id %}" method="post" class="d-inline">{% csrf_token %}
+                                <button type="submit" class="btn btn-success">{% trans "Enable" %}</button>
+                            </form>
                         {% else %}
-                            <a class="btn btn-danger" href="{% url 'instances:unset_autostart' instance.id %}">{% trans "Disable" %}</a>
+                            <form action="{% url 'instances:unset_autostart' instance.id %}" method="post" class="d-inline">{% csrf_token %}
+                                <button type="submit" class="btn btn-danger">{% trans "Disable" %}</button>
+                            </form>
                         {% endif %}
                     </p>
                     </div>
@@ -198,9 +202,9 @@
                                         <button class="btn btn-sm btn-success disabled">{% trans "Mount" %}</button>
                                     {% endif %}
                                     {% if instance.status == 5 and allow_admin_or_not_template %}
-                                        <a  href="{% url 'instances:detach_cdrom' instance.id cd.dev %}" class="btn btn-sm btn-danger float-end" title="{% trans "Detach CD-ROM (remove device)" %}">
+                                        <button type="submit" class="btn btn-sm btn-danger float-end" formaction="{% url 'instances:detach_cdrom' instance.id cd.dev %}" formmethod="post" title="{% trans "Detach CD-ROM (remove device)" %}">
                                             {% bs_icon 'dash-circle' %}
-                                        </a>
+                                        </button>
                                     {% endif %}
                                     
                                 </div>
