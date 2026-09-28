@@ -285,26 +285,28 @@ class CreateInstanceViewSet(viewsets.ViewSet):
                     machine = "q35"
                     firmware["secure"] = "yes"
 
-            ret = conn.create_instance(
-                name=serializer.validated_data["name"],
-                memory=serializer.validated_data["memory"],
-                vcpu=serializer.validated_data["vcpu"],
-                vcpu_mode=serializer.validated_data["vcpu_mode"],
-                uuid=util.randomUUID(),
-                arch=arch,
-                machine=machine,
-                firmware=firmware,
-                volumes=volume_list,
-                networks=serializer.validated_data["networks"],
-                nwfilter=serializer.validated_data["nwfilter"],
-                graphics=serializer.validated_data["graphics"],
-                virtio=serializer.validated_data["virtio"],
-                listener_addr=serializer.validated_data["listener_addr"],
-                video=serializer.validated_data["video"],
-                console_pass=serializer.validated_data["console_pass"],
-                mac=serializer.validated_data["mac"],
-                qemu_ga=serializer.validated_data["qemu_ga"],
-            )
+            with utils.libvirt_compute_lock(compute):
+                ret = conn.create_instance(
+                    name=serializer.validated_data["name"],
+                    memory=serializer.validated_data["memory"],
+                    vcpu=serializer.validated_data["vcpu"],
+                    vcpu_mode=serializer.validated_data["vcpu_mode"],
+                    uuid=util.randomUUID(),
+                    arch=arch,
+                    machine=machine,
+                    firmware=firmware,
+                    volumes=volume_list,
+                    networks=serializer.validated_data["networks"],
+                    nwfilter=serializer.validated_data["nwfilter"],
+                    graphics=serializer.validated_data["graphics"],
+                    virtio=serializer.validated_data["virtio"],
+                    listener_addr=serializer.validated_data["listener_addr"],
+                    video=serializer.validated_data["video"],
+                    console_pass=serializer.validated_data["console_pass"],
+                    mac=serializer.validated_data["mac"],
+                    qemu_ga=serializer.validated_data["qemu_ga"],
+                )
+                utils.refresh_instance_database(compute)
             msg = f"Instance {serializer.validated_data['name']} is created"
             return Response({"status": msg})
         else:

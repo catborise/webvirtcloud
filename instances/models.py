@@ -32,6 +32,11 @@ class Instance(models.Model):
 
     objects = InstanceManager()
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["compute", "uuid"], name="unique_compute_uuid")
+        ]
+
     def __str__(self):
         return f"{self.compute}/{self.name}"
 

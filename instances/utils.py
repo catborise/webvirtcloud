@@ -4,7 +4,9 @@ import string
 
 from accounts.models import UserInstance, UserAttributes
 from appsettings.settings import app_settings
+from computes.utils import libvirt_compute_lock
 from django.conf import settings
+from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from vrtManager.connection import connection_manager
 from vrtManager.instance import wvmInstance, wvmInstances
@@ -124,45 +126,86 @@ def migrate_instance(
         return
     if new_compute == instance.compute:
         return
-    try:
-        conn_migrate = wvmInstances(
-            new_compute.hostname,
-            new_compute.login,
-            new_compute.password,
-            new_compute.type,
-        )
+    c1, c2 = (
+        (instance.compute, new_compute)
+        if instance.compute.id < new_compute.id
+        else (new_compute, instance.compute)
+    )
+    with libvirt_compute_lock(c1):
+        with libvirt_compute_lock(c2):
+            conn_migrate = None
+            try:
+                conn_migrate = wvmInstances(
+                    new_compute.hostname,
+                    new_compute.login,
+                    new_compute.password,
+                    new_compute.type,
+                )
 
-        autostart = instance.autostart
-        conn_migrate.moveto(
-            instance.proxy,
-            instance.name,
-            live,
-            unsafe,
-            xml_del,
-            offline,
-            autoconverge,
-            compress,
-            postcopy,
-        )
-    finally:
-        conn_migrate.close()
+                autostart = instance.autostart
+                conn_migrate.moveto(
+                    instance.proxy,
+                    instance.name,
+                    live,
+                    unsafe,
+                    xml_del,
+                    offline,
+                    autoconverge,
+                    compress,
+                    postcopy,
+                )
+            finally:
+                if conn_migrate is not None:
+                    conn_migrate.close()
 
-    try:
-        conn_new = wvmInstance(
-            new_compute.hostname,
-            new_compute.login,
-            new_compute.password,
-            new_compute.type,
-            instance.name,
-        )
+            conn_new = None
+            try:
+                conn_new = wvmInstance(
+                    new_compute.hostname,
+                    new_compute.login,
+                    new_compute.password,
+                    new_compute.type,
+                    instance.name,
+                )
 
-        if autostart:
-            conn_new.set_autostart(1)
-    finally:
-        conn_new.close()
+                if autostart:
+                    conn_new.set_autostart(1)
+            finally:
+                if conn_new is not None:
+                    conn_new.close()
 
-    instance.compute = new_compute
-    instance.save()
+            with transaction.atomic():
+                target_inst = Instance.objects.filter(
+                    compute=new_compute, uuid=instance.uuid
+                ).first()
+                if target_inst and target_inst.id != instance.id:
+                    for ui in UserInstance.objects.filter(instance=instance):
+                        existing_ui = UserInstance.objects.filter(
+                            instance=target_inst, user=ui.user
+                        ).first()
+                        if not existing_ui:
+                            ui.instance = target_inst
+                            ui.save()
+                        else:
+                            updated = False
+                            if ui.is_change and not existing_ui.is_change:
+                                existing_ui.is_change = True
+                                updated = True
+                            if ui.is_delete and not existing_ui.is_delete:
+                                existing_ui.is_delete = True
+                                updated = True
+                            if ui.is_vnc and not existing_ui.is_vnc:
+                                existing_ui.is_vnc = True
+                                updated = True
+                            if updated:
+                                existing_ui.save()
+                            ui.delete()
+                    instance.delete()
+                    instance.id = target_inst.id
+                    instance.compute = new_compute
+                else:
+                    instance.compute = new_compute
+                    instance.save()
 
 
 def refr(compute):

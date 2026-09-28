@@ -1,7 +1,7 @@
 import os
 from django.core.exceptions import ObjectDoesNotExist
 from django.shortcuts import reverse
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 
 from vrtManager.connection import CONN_SOCKET, connection_manager
 from .models import Compute
@@ -185,3 +185,133 @@ class ComputesTestCase(TestCase):
             )
         )
         self.assertEqual(response.status_code, 200)
+
+
+class ComputeConcurrencyTestCase(TransactionTestCase):
+    def test_concurrent_refresh_instance_database(self):
+        import threading
+        from django.db import connection
+        from unittest.mock import MagicMock
+        from computes.utils import refresh_instance_database
+        from instances.models import Instance
+
+        compute = Compute.objects.create(
+            name="concurrent-test",
+            hostname="127.0.0.1",
+            login="test",
+            password="pwd",
+            type=CONN_SOCKET,
+        )
+
+        mock_dom1 = MagicMock()
+        mock_dom1.UUIDString.return_value = "11111111-2222-3333-4444-555555555555"
+        mock_dom1.name.return_value = "vm-concurrent-1"
+
+        mock_dom2 = MagicMock()
+        mock_dom2.UUIDString.return_value = "22222222-3333-4444-5555-666666666666"
+        mock_dom2.name.return_value = "vm-concurrent-2"
+
+        mock_proxy = MagicMock()
+        mock_proxy.wvm.listAllDomains.return_value = [mock_dom1, mock_dom2]
+        compute.proxy = mock_proxy
+
+        exceptions = []
+
+        def worker():
+            try:
+                refresh_instance_database(compute)
+            except Exception as e:
+                exceptions.append(e)
+            finally:
+                connection.close()
+
+        connection.close()
+        threads = [threading.Thread(target=worker) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(exceptions, [])
+        self.assertEqual(Instance.objects.filter(compute=compute).count(), 2)
+
+    def test_refresh_fails_closed_on_lock_error(self):
+        from unittest.mock import patch, MagicMock
+        from computes.utils import refresh_instance_database
+        from instances.models import Instance
+
+        compute = Compute.objects.create(
+            name="lock-fail-test",
+            hostname="127.0.0.1",
+            login="test",
+            password="pwd",
+            type=CONN_SOCKET,
+        )
+        Instance.objects.create(compute=compute, name="existing-vm", uuid="existing-uuid-1234")
+
+        # Libvirt returns empty list - if it did not fail closed, existing-vm would be deleted!
+        mock_proxy = MagicMock()
+        mock_proxy.wvm.listAllDomains.return_value = []
+        compute.proxy = mock_proxy
+
+        # 1. When lock directory cannot be acquired
+        with patch("computes.utils._get_lock_directory", return_value=None):
+            refresh_instance_database(compute)
+            self.assertEqual(Instance.objects.filter(compute=compute).count(), 1)
+
+        # 2. When lock file is a symlink
+        with patch("os.path.islink", return_value=True):
+            refresh_instance_database(compute)
+            self.assertEqual(Instance.objects.filter(compute=compute).count(), 1)
+
+        # 3. When lock file cannot be opened
+        with patch("os.open", side_effect=OSError("Permission denied")):
+            refresh_instance_database(compute)
+            self.assertEqual(Instance.objects.filter(compute=compute).count(), 1)
+
+        # 4. When flock times out
+        curr_time = [0.0]
+        def advance_time():
+            curr_time[0] += 20.0
+            return curr_time[0]
+
+        with patch("fcntl.flock", side_effect=BlockingIOError("Resource temporarily unavailable")):
+            with patch("time.time", side_effect=advance_time):
+                refresh_instance_database(compute)
+                self.assertEqual(Instance.objects.filter(compute=compute).count(), 1)
+
+    def test_libvirt_compute_lock_thread_timeout(self):
+        from computes.utils import libvirt_compute_lock, _get_compute_thread_lock
+        compute = Compute.objects.create(
+            name="thread-lock-test",
+            hostname="127.0.0.1",
+            login="test",
+            password="pwd",
+            type=CONN_SOCKET,
+        )
+        tlock = _get_compute_thread_lock(compute.id)
+        tlock.acquire()
+        try:
+            with self.assertRaises(TimeoutError):
+                with libvirt_compute_lock(compute, timeout=0.05):
+                    pass
+        finally:
+            tlock.release()
+
+    def test_libvirt_compute_lock_reentrant(self):
+        from computes.utils import libvirt_compute_lock
+        compute = Compute.objects.create(
+            name="reentrant-lock-test",
+            hostname="127.0.0.1",
+            login="test",
+            password="pwd",
+            type=CONN_SOCKET,
+        )
+        executed = []
+        with libvirt_compute_lock(compute, timeout=1.0):
+            executed.append("outer")
+            with libvirt_compute_lock(compute, timeout=1.0):
+                executed.append("inner")
+                with libvirt_compute_lock(compute, timeout=1.0):
+                    executed.append("deep")
+        self.assertEqual(executed, ["outer", "inner", "deep"])
