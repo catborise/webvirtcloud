@@ -223,8 +223,11 @@
                 }
             });
 
+            var pendingUpload = null;
+            var uploadInProgress = false;
             $('#isoUploadForm').on('submit', function(e) {
                 e.preventDefault();
+                if (uploadInProgress) return;
 
                 var fileInput = $('#id_file')[0];
                 if (fileInput.files.length === 0) {
@@ -234,17 +237,42 @@
 
                 var file = fileInput.files[0];
                 var fileName = file.name;
-                var chunkSize = 10 * 1024 * 1024; // 10MB
+                var errorMessage = $('#upload-error-message');
+                if (!/\.iso$/i.test(fileName) || fileName.length <= 4) {
+                    errorMessage.text("{% trans 'Only .iso files can be uploaded.'|escapejs %}").show();
+                    return;
+                }
+                if (file.size === 0) {
+                    alert("{% trans 'The selected file is empty.'|escapejs %}");
+                    return;
+                }
+                var chunkSize = 32 * 1024 * 1024; // Fewer SSH connections per upload
                 var totalChunks = Math.ceil(file.size / chunkSize);
-                var chunkIndex = 0;
+                var fileSignature = [fileName, file.size, file.lastModified].join(':');
+                if (!pendingUpload || pendingUpload.signature !== fileSignature) {
+                    pendingUpload = {
+                        signature: fileSignature,
+                        chunkIndex: 0,
+                        uploadId: (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).substring(2, 10))
+                    };
+                }
+                var chunkIndex = pendingUpload.chunkIndex;
+                var uploadId = pendingUpload.uploadId;
+                var retryCount = 0;
+                uploadInProgress = true;
 
                 var progressBar = $('#upload-progress-bar');
                 var progressContainer = $('#upload-progress-container');
-                var errorMessage = $('#upload-error-message');
+                var uploadStatus = $('#upload-status');
+                var uploadStatusText = $('#upload-status-text');
+                var uploadButton = $('#isoUploadForm button[type="submit"]');
 
                 progressContainer.show();
                 progressBar.width('0%').attr('aria-valuenow', 0).text('0%');
                 errorMessage.hide();
+                uploadStatusText.text("{% trans 'Starting upload...'|escapejs %}");
+                uploadStatus.removeClass('d-none').addClass('d-flex');
+                uploadButton.prop('disabled', true);
 
                 function uploadChunk() {
                     if (chunkIndex >= totalChunks) {
@@ -260,6 +288,8 @@
                     formData.append('file_name', fileName);
                     formData.append('chunk_index', chunkIndex);
                     formData.append('total_chunks', totalChunks);
+                    formData.append('file_size', file.size);
+                    formData.append('upload_id', uploadId);
                     formData.append('iso_upload', 'true');
                     formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
 
@@ -270,17 +300,39 @@
                         processData: false,
                         contentType: false,
                         success: function(data) {
+                            retryCount = 0;
                             chunkIndex++;
+                            pendingUpload.chunkIndex = chunkIndex;
                             var percentComplete = Math.round((chunkIndex / totalChunks) * 100);
                             progressBar.width(percentComplete + '%').attr('aria-valuenow', percentComplete).text(percentComplete + '%');
+                            uploadStatusText.text("{% trans 'Uploading...'|escapejs %} " + percentComplete + '%');
 
                             if (data.reload) {
+                                pendingUpload = null;
+                                uploadInProgress = false;
                                 location.reload();
                             } else if (chunkIndex < totalChunks) {
                                 uploadChunk();
+                            } else {
+                                pendingUpload = null;
+                                uploadInProgress = false;
+                                uploadStatus.removeClass('d-flex').addClass('d-none');
+                                uploadButton.prop('disabled', false);
                             }
                         },
                         error: function(jqXHR, textStatus, errorThrown) {
+                            if ((jqXHR.status === 0 || jqXHR.status === 429 || jqXHR.status >= 500) && retryCount < 3) {
+                                retryCount++;
+                                uploadStatusText.text("{% trans 'Retrying upload...'|escapejs %}");
+                                setTimeout(uploadChunk, 1000 * Math.pow(2, retryCount - 1));
+                                return;
+                            }
+                            uploadInProgress = false;
+                            uploadStatus.removeClass('d-flex').addClass('d-none');
+                            uploadButton.prop('disabled', false);
+                            if (jqXHR.status >= 400 && jqXHR.status < 500 && jqXHR.status !== 429) {
+                                pendingUpload = null;
+                            }
                             var errorText = jqXHR.responseJSON && jqXHR.responseJSON.error ? jqXHR.responseJSON.error : "{% trans 'An error occurred during upload.'|escapejs %}";
                             errorMessage.text(errorText).show();
                             progressContainer.hide();

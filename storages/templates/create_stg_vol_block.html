@@ -21,8 +21,12 @@
                                 <div class="row mb-3">
                                     <label for="id_file" class="col-sm-3 col-form-label">{% trans "Name" %}</label>
                                     <div class="col-sm-9">
-                                        <input type="file" name="file" id="id_file" class="form-control" required>
+                                        <input type="file" name="file" id="id_file" class="form-control" accept=".iso" required>
                                     </div>
+                                </div>
+                                <div id="upload-status" class="d-none align-items-center gap-2 text-primary mt-3" role="status" aria-live="polite">
+                                    <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                                    <span id="upload-status-text">{% trans "Starting upload..." %}</span>
                                 </div>
                                 <div id="upload-progress-container" class="mt-3" style="display: none;">
                                     <div class="progress">
