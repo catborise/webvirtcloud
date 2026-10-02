@@ -805,13 +805,6 @@ class InstancesTestCase(TestCase):
         )
         self.assertEqual(response.status_code, 200)
 
-    def test_check_instance(self):
-        response = self.client.get(
-            reverse("instances:check_instance", args=["test-vm"])
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertJSONEqual(response.content, {"vname": "test-vm", "exists": True})
-
     def test_start_template(self):
         # starting templates must fail
         self.assertEqual(self.instance.status, 5)

@@ -89,8 +89,8 @@ def get_connection_infos(token):
     from django.conf import settings
     from django.contrib.auth import get_user_model
     from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-    from accounts.models import UserInstance
     from instances.models import Instance
+    from instances.utils import can_open_console
     from vrtManager.instance import wvmInstance
 
     host = None
@@ -126,13 +126,12 @@ def get_connection_infos(token):
             User = get_user_model()
             try:
                 user = User.objects.get(id=user_id)
-                if not user.is_active:
-                    raise PermissionError("User account is inactive or disabled")
-                if not user.is_superuser and not user.has_perm("instances.view_instances"):
-                    if not UserInstance.objects.filter(instance=instance, user=user).exists():
-                        raise PermissionError("User no longer has access to this instance")
             except User.DoesNotExist:
                 raise PermissionError("User not found")
+            if not user.is_active:
+                raise PermissionError("User account is inactive or disabled")
+            if not can_open_console(user, instance):
+                raise PermissionError("User no longer has access to this instance")
 
         conn = wvmInstance(
             instance.compute.hostname,

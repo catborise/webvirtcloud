@@ -1,12 +1,29 @@
 from virtsecrets.views import secrets
 
-from django.urls import include, path
+from admin.decorators import superuser_only
+from django.urls import URLPattern, URLResolver, include, path
 from interfaces.views import interface, interfaces
 from networks.views import network, networks
 from nwfilters.views import nwfilter, nwfilters
 from storages.views import create_volume, get_volumes, storage, storages
 
 from . import forms, views
+
+
+def superuser_only_patterns(patterns):
+    """
+    Wrap every view below these patterns with superuser_only. Everything under
+    /computes/ is host administration (ROADMAP S-10), so the check is applied
+    to the whole namespace instead of per view, and a view added here later
+    cannot be exposed by forgetting a decorator.
+    """
+    for pattern in patterns:
+        if isinstance(pattern, URLResolver):
+            superuser_only_patterns(pattern.url_patterns)
+        elif isinstance(pattern, URLPattern):
+            pattern.callback = superuser_only(pattern.callback)
+    return patterns
+
 
 urlpatterns = [
     path("", views.computes, name="computes"),
@@ -77,3 +94,5 @@ urlpatterns = [
         ),
     ),
 ]
+
+superuser_only_patterns(urlpatterns)

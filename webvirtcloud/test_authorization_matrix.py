@@ -1,0 +1,151 @@
+"""
+Authorization matrix (ROADMAP Wave 0 item 5, S-09/S-10).
+
+Walks every named URL pattern and checks that an authenticated user without
+any relation to a VM or compute cannot reach it, unless the URL is in the
+explicit allowlist below. A new endpoint added without an authorization check
+makes this test fail, so the allowlist must be extended deliberately.
+
+Limitation: the compute points at a closed port, so a view that turns a
+libvirt connection error into 404 looks "denied" here even without an
+authorization check. Endpoints where that matters (consoles) get dedicated
+tests with libvirt mocked.
+"""
+from unittest.mock import MagicMock, patch
+
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.test import Client, TestCase
+from django.urls import NoReverseMatch, URLPattern, URLResolver, get_resolver, reverse
+
+from computes.models import Compute
+from instances.models import Instance
+
+# URL name -> why any authenticated user may reach it.
+ALLOWED_FOR_ANY_USER = {
+    "index": "landing page",
+    "instances:index": "lists only the user's own instances",
+    "accounts:login": "login page",
+    "accounts:email_otp": "part of the login flow (S-12 tracks its own issues)",
+    "accounts:logout": "logout",
+    "accounts:profile": "the user's own profile",
+    "accounts:ssh_key_create": "the user's own SSH keys",
+    "set_language": "UI language switch",
+    "rest_framework:login": "DRF browsable API login",
+    "rest_framework:logout": "DRF browsable API logout",
+    "console": "renders an error without a valid token; access is checked per VM",
+    "ds_openstack_index": "static cloud-init datasource index (F-14)",
+    "instance-list": "API: filtered to the user's own instances",
+    "compute-instance-list": "API: filtered to the user's own instances",
+    "instance-flavor-list": "API: flavor catalogue",
+    "instance-flavor-detail": "API: flavor catalogue",
+    "schema": "OpenAPI schema (SERVE_PERMISSIONS is S-21, Wave 3)",
+    "schema-json": "OpenAPI schema (SERVE_PERMISSIONS is S-21, Wave 3)",
+    "schema-redoc": "API docs (SERVE_PERMISSIONS is S-21, Wave 3)",
+    "schema-swagger-ui": "API docs (SERVE_PERMISSIONS is S-21, Wave 3)",
+}
+
+# Endpoints that expose a VM's console (or its VNC password) and therefore
+# must follow the console rule: superuser or VM owner, not global view_instances.
+CONSOLE_ENDPOINTS = ["instances:getvvfile", "vdi_url"]
+
+DENIED = (403, 404)
+
+
+def iter_patterns(patterns, prefix="", params=None):
+    params = params or {}
+    for p in patterns:
+        own = {**{g: None for g in p.pattern.regex.groupindex}, **p.pattern.converters}
+        if isinstance(p, URLResolver):
+            ns = f"{prefix}{p.namespace}:" if p.namespace else prefix
+            yield from iter_patterns(p.url_patterns, ns, {**params, **own})
+        elif isinstance(p, URLPattern) and p.name:
+            yield prefix + p.name, {**params, **own}
+
+
+class AuthorizationMatrixTestCase(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(username="matrix_plain", password="x")
+        self.viewer = User.objects.create_user(username="matrix_viewer", password="x")
+        self.viewer.user_permissions.add(Permission.objects.get(codename="view_instances"))
+        # Port 1 is closed, so any view that reaches libvirt fails fast.
+        self.compute = Compute.objects.create(
+            name="matrix-compute", hostname="127.0.0.1:1", login="root", password="", type=1
+        )
+        self.instance = Instance.objects.create(
+            compute=self.compute,
+            name="matrix-vm",
+            uuid="22222222-3333-4444-5555-666666666666",
+        )
+        self.client = Client(raise_request_exception=False)
+
+    def _kwargs(self, params):
+        kwargs = {}
+        for name, converter in params.items():
+            if name in ("compute_id", "compute_pk"):
+                kwargs[name] = self.compute.pk
+            elif name in ("pk", "instance_id"):
+                kwargs[name] = self.instance.pk if converter else str(self.instance.pk)
+            elif name == "vname":
+                kwargs[name] = self.instance.name
+            elif name == "format":
+                kwargs[name] = "json"
+            elif converter is not None and type(converter).__name__ == "IntConverter":
+                kwargs[name] = 1
+            else:
+                kwargs[name] = "x"
+        return kwargs
+
+    def _request(self, user, url):
+        self.client.force_login(user)
+        response = self.client.get(url)
+        if response.status_code == 405:
+            self.client.force_login(user)
+            response = self.client.post(url, {})
+        return response
+
+    def _url(self, name, params):
+        return reverse(name, kwargs=self._kwargs(params))
+
+    def test_plain_user_cannot_reach_anything_outside_the_allowlist(self):
+        reachable = []
+        for name, params in iter_patterns(get_resolver().url_patterns):
+            if name in ALLOWED_FOR_ANY_USER:
+                continue
+            try:
+                url = self._url(name, params)
+            except NoReverseMatch:
+                reachable.append(f"{name}: cannot build URL, extend _kwargs()")
+                continue
+            response = self._request(self.user, url)
+            if response.status_code not in DENIED:
+                reachable.append(f"{name} ({url}) -> {response.status_code}")
+        self.assertEqual(
+            reachable,
+            [],
+            "Reachable by a user without any VM/compute relation:\n" + "\n".join(reachable),
+        )
+
+    def test_allowlist_only_names_existing_urls(self):
+        names = {name for name, _ in iter_patterns(get_resolver().url_patterns)}
+        self.assertEqual(sorted(set(ALLOWED_FOR_ANY_USER) - names), [])
+
+    def test_global_view_permission_does_not_open_consoles(self):
+        params = dict(iter_patterns(get_resolver().url_patterns))
+        reachable = []
+        # Mock libvirt so the views would succeed if authorization let them through.
+        with patch("datasource.views.wvmInstance", MagicMock()), patch(
+            "datasource.views.get_hostname_by_ip", return_value="host"
+        ), patch("instances.views.wvmInstances", MagicMock()):
+            for name in CONSOLE_ENDPOINTS:
+                url = self._url(name, params[name])
+                response = self._request(self.viewer, url)
+                if response.status_code not in DENIED:
+                    reachable.append(f"{name} ({url}) -> {response.status_code}")
+        self.assertEqual(
+            reachable,
+            [],
+            "Console endpoints reachable with only global view_instances:\n"
+            + "\n".join(reachable),
+        )

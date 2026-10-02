@@ -255,6 +255,7 @@ def osinfo(request, pk):
     return JsonResponse(results)
 
 
+@superuser_only
 def guess_mac_address(request, vname):
     data = {"vname": vname}
     mac = utils.get_dhcp_mac_address(vname)
@@ -264,12 +265,14 @@ def guess_mac_address(request, vname):
     return HttpResponse(json.dumps(data))
 
 
+@superuser_only
 def random_mac_address(request):
     data = dict()
     data["mac"] = utils.get_random_mac_address()
     return HttpResponse(json.dumps(data))
 
 
+@superuser_only
 def guess_clone_name(request):
     dhcp_file = "/srv/webvirtcloud/dhcpd.conf"
     prefix = app_settings.CLONE_INSTANCE_DEFAULT_PREFIX
@@ -286,14 +289,6 @@ def guess_clone_name(request):
                     if hostname.startswith(prefix) and hostname not in instance_names:
                         return HttpResponse(json.dumps({"name": hostname}))
     return HttpResponse(json.dumps({}))
-
-
-def check_instance(request, vname):
-    instance = Instance.objects.filter(name=vname)
-    data = {"vname": vname, "exists": False}
-    if instance:
-        data["exists"] = True
-    return JsonResponse(data)
 
 
 def sshkeys(request, pk):
@@ -1729,6 +1724,9 @@ def change_options(request, pk):
 
 def getvvfile(request, pk):
     instance = get_instance(request.user, pk)
+    # The .vv file contains the VNC password: same rule as the console.
+    if not utils.can_open_console(request.user, instance):
+        raise PermissionDenied
     conn = wvmInstances(
         instance.compute.hostname,
         instance.compute.login,
