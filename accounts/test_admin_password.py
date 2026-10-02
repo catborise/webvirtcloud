@@ -38,3 +38,17 @@ class GeneratedAdminPasswordTestCase(TestCase):
             self.assertNotIn(password, output)
             self.assertIn(str(password_file), output)
             self.assertIsNotNone(authenticate(username="admin", password=password))
+
+    def test_does_not_follow_a_planted_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "data").mkdir()
+            victim = Path(tmp) / "victim"
+            victim.write_text("original\n")
+            (Path(tmp) / "data" / "admin_password").symlink_to(victim)
+
+            self._run_create_admin(tmp)
+
+            password_file = Path(tmp) / "data" / "admin_password"
+            self.assertEqual(victim.read_text(), "original\n")
+            self.assertFalse(password_file.is_symlink())
+            self.assertEqual(stat.S_IMODE(password_file.stat().st_mode), 0o600)

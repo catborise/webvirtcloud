@@ -40,10 +40,14 @@ def _store_generated_password(password):
     path = os.path.join(str(settings.BASE_DIR), "data", "admin_password")
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        # Never write through a pre-existing file or symlink (this runs as
+        # root in Docker, while data/ belongs to www-data).
+        if os.path.lexists(path):
+            os.unlink(path)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w") as f:
             f.write(password + "\n")
-        os.chmod(path, 0o600)
         print(f"\033[1m* \033[93mGenerated admin password written to {path}\033[0m")
     except OSError:
         print(f"\033[1m* \033[93mGenerated random admin password: {password}\033[0m")

@@ -83,8 +83,7 @@ chmod 744 "$INSTALLER"
 LOG_FILE="/var/log/webvirtcloud-install.log"
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
 if ! touch "$LOG_FILE" 2>/dev/null; then
-    LOG_FILE="/tmp/webvirtcloud-install.log"
-    touch "$LOG_FILE"
+    LOG_FILE="$(mktemp /tmp/webvirtcloud-install.XXXXXX)"
 fi
 chmod 600 "$LOG_FILE" 2>/dev/null || true
 
