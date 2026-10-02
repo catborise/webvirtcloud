@@ -12,7 +12,6 @@ console/cert.pem*
 tags
 dhcpd.*
 webvirtcloud/settings.py
-*migrations/*
 .coverage
 htmlcov
 *.log
