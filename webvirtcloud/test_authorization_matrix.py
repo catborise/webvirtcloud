@@ -3,7 +3,9 @@ Authorization matrix (ROADMAP Wave 0 item 5, S-09/S-10).
 
 Walks every named URL pattern and checks that an authenticated user without
 any relation to a VM or compute cannot reach it, unless the URL is in the
-explicit allowlist below. A new endpoint added without an authorization check
+explicit allowlist below. It then checks, per role (global view_instances,
+staff, owners with no flags / is_change / is_delete / is_vnc), that exactly
+the expected set of VM URLs is reachable. A new endpoint added without an authorization check
 makes this test fail, so the allowlist must be extended deliberately.
 
 Limitation: the compute points at a closed port, so a view that turns a
@@ -15,9 +17,11 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
+from django.db import transaction
 from django.test import Client, TestCase
 from django.urls import NoReverseMatch, URLPattern, URLResolver, get_resolver, reverse
 
+from accounts.models import UserInstance
 from computes.models import Compute
 from instances.models import Instance
 
@@ -50,6 +54,65 @@ ALLOWED_FOR_ANY_USER = {
 CONSOLE_ENDPOINTS = ["instances:getvvfile", "vdi_url"]
 
 DENIED = (403, 404)
+
+# Per-role reachability on the test VM, outside ALLOWED_FOR_ANY_USER. Compared
+# in both directions: an extra URL is a privilege leak, a missing one is a
+# regression. Must match the roles table in README.md.
+VIEW_VM = {
+    "instances:instance",
+    "instances:status",
+    "instances:stats",
+    "instances:osinfo",
+    "instances:sshkeys",
+    "instance-detail",
+    "compute-instance-detail",
+}
+POWER_AND_CONSOLE = {
+    "instances:poweron",
+    "instances:poweroff",
+    "instances:powercycle",
+    "instances:force_off",
+    "compute-instance-poweron",
+    "compute-instance-poweroff",
+    "compute-instance-powercycle",
+    "compute-instance-forceoff",
+    "instances:getvvfile",
+    # vdi_url is also allowed for owners, but answers 404 here because the
+    # test compute is unreachable; see the console rule tests.
+}
+CHANGE_VM = {
+    "instances:resizevm_cpu",
+    "instances:resize_memory",
+    "instances:resize_disk",
+    "instances:rootpasswd",
+    "instances:add_public_key",
+    "instances:change_options",
+    # Reached, but a no-op without is_vnc (can_manage_console).
+    "instances:update_console",
+    # Reached, but a no-op without instances.snapshot_instances.
+    "instances:snapshot",
+    "instances:delete_snapshot",
+    "instances:revert_snapshot",
+    "instances:create_external_snapshot",
+    "instances:delete_external_snapshot",
+    "instances:revert_external_snapshot",
+}
+DELETE_VM = {"instances:destroy"}
+
+ROLE_EXPECTATIONS = {
+    # role: (is_staff, global view_instances, owner flags or None, expected URLs)
+    "view_instances": (False, True, None, VIEW_VM),
+    "staff_with_view_instances": (True, True, None, VIEW_VM),
+    "owner": (False, False, {}, VIEW_VM | POWER_AND_CONSOLE),
+    "owner_is_change": (False, False, {"is_change": True}, VIEW_VM | POWER_AND_CONSOLE | CHANGE_VM),
+    "owner_is_delete": (False, False, {"is_delete": True}, VIEW_VM | POWER_AND_CONSOLE | DELETE_VM),
+    "staff_owner_is_change_is_vnc": (
+        True,
+        False,
+        {"is_change": True, "is_vnc": True},
+        VIEW_VM | POWER_AND_CONSOLE | CHANGE_VM,
+    ),
+}
 
 
 def iter_patterns(patterns, prefix="", params=None):
@@ -149,3 +212,39 @@ class AuthorizationMatrixTestCase(TestCase):
             "Console endpoints reachable with only global view_instances:\n"
             + "\n".join(reachable),
         )
+
+    def _make_role_user(self, role, is_staff, view_instances, owner_flags):
+        user = get_user_model().objects.create_user(
+            username=f"matrix_{role}", password="x", is_staff=is_staff
+        )
+        if view_instances:
+            user.user_permissions.add(Permission.objects.get(codename="view_instances"))
+        if owner_flags is not None:
+            UserInstance.objects.create(instance=self.instance, user=user, **owner_flags)
+        return user
+
+    def _reachable(self, user):
+        reachable = set()
+        for name, params in iter_patterns(get_resolver().url_patterns):
+            if name in ALLOWED_FOR_ANY_USER:
+                continue
+            url = self._url(name, params)
+            # Roll back every request, so e.g. destroy does not remove the VM
+            # for the requests that follow.
+            with transaction.atomic():
+                response = self._request(user, url)
+                transaction.set_rollback(True)
+            if response.status_code not in DENIED:
+                reachable.add(name)
+        return reachable
+
+    def test_role_reachability_matches_the_roles_table(self):
+        for role, (is_staff, view_instances, owner_flags, expected) in ROLE_EXPECTATIONS.items():
+            with self.subTest(role=role):
+                user = self._make_role_user(role, is_staff, view_instances, owner_flags)
+                reachable = self._reachable(user)
+                self.assertEqual(
+                    (sorted(reachable - expected), sorted(expected - reachable)),
+                    ([], []),
+                    f"{role}: (unexpectedly reachable, unexpectedly denied)",
+                )
