@@ -20,3 +20,6 @@ templates/webvirtcloud.code-workspace
 DEPENDENCY_UPGRADE_PLAN.md
 ROADMAP.md
 .agents
+
+# Runtime data (secret key, etc.)
+data/
