@@ -1602,25 +1602,39 @@ def del_owner(request, pk):
     return redirect(request.META.get("HTTP_REFERER") + "#users")
 
 
+MAC_ADDRESS_RE = re.compile(r"^([0-9A-F]{2})(:?[0-9A-F]{2}){5}$", re.IGNORECASE)
+CLONE_DISK_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]*$")
+CLONE_POST_KEY_RE = re.compile(r"^(clone-net-mac-\d+|disk-[a-z0-9]+|meta-[a-z0-9]+)$")
+
+
 @require_POST
 @permission_required("instances.clone_instances", raise_exception=True)
 def clone(request, pk):
+    # Cloning copies the source disks, so it needs change permission on the
+    # source VM. Templates are meant to be deployed from, so viewing is enough.
     instance = get_instance(request.user, pk)
+    if not instance.is_template:
+        instance = get_instance(request.user, pk, perm_type="change")
 
     clone_data = dict()
-    clone_data["name"] = request.POST.get("name", "")
+    clone_data["name"] = request.POST.get("name", "").strip()
+    clone_data["clone-title"] = request.POST.get("clone-title", "").strip()
+    clone_data["clone-description"] = request.POST.get("clone-description", "").strip()
 
     disk_sum = sum([disk["size"] >> 30 for disk in instance.disks])
     quota_msg = utils.check_user_quota(
         request.user, 1, instance.vcpu, instance.memory, disk_sum
     )
-    check_instance = Instance.objects.filter(name=clone_data["name"])
 
     clone_data["disk_owner_uid"] = int(app_settings.INSTANCE_VOLUME_DEFAULT_OWNER_UID)
     clone_data["disk_owner_gid"] = int(app_settings.INSTANCE_VOLUME_DEFAULT_OWNER_GID)
 
-    for post in request.POST:
-        clone_data[post] = request.POST.get(post, "").strip()
+    # Only superusers may choose disk names and MAC addresses; the form only
+    # shows those fields to them.
+    if request.user.is_superuser:
+        for key, value in request.POST.items():
+            if CLONE_POST_KEY_RE.match(key):
+                clone_data[key] = value.strip()
 
     if app_settings.CLONE_INSTANCE_AUTO_NAME == "True" and not clone_data["name"]:
         auto_vname = utils.get_clone_free_names()[0]
@@ -1630,6 +1644,30 @@ def clone(request, pk):
             disk_dev = f"disk-{disk['dev']}"
             disk_name = utils.get_clone_disk_name(disk, instance.name, auto_vname)
             clone_data[disk_dev] = disk_name
+
+    if not request.user.is_superuser:
+        for disk in instance.disks:
+            clone_data[f"disk-{disk['dev']}"] = utils.get_clone_disk_name(
+                disk, instance.name, clone_data["name"]
+            )
+        for num in range(max(1, len(instance.networks))):
+            key = f"clone-net-mac-{num}"
+            if not clone_data.get(key):
+                clone_data[key] = (
+                    utils.get_dhcp_mac_address(clone_data["name"]) if num == 0 else ""
+                ) or utils.get_random_mac_address()
+
+    check_instance = Instance.objects.filter(name=clone_data["name"])
+    invalid_macs = [
+        value
+        for key, value in clone_data.items()
+        if key.startswith("clone-net-mac-") and not MAC_ADDRESS_RE.match(value)
+    ]
+    invalid_disks = [
+        value
+        for key, value in clone_data.items()
+        if key.startswith("disk-") and not CLONE_DISK_NAME_RE.match(value or "")
+    ]
 
     if not request.user.is_superuser and quota_msg:
         msg = _(
@@ -1649,13 +1687,14 @@ def clone(request, pk):
             "clone_name": clone_data["name"]
         }
         messages.error(request, msg)
-    elif not re.match(
-        r"^([0-9A-F]{2})(:?[0-9A-F]{2}){5}$",
-        clone_data["clone-net-mac-0"],
-        re.IGNORECASE,
-    ):
+    elif "clone-net-mac-0" not in clone_data or invalid_macs:
         msg = _("Instance MAC '%(clone_mac)s' invalid format!") % {
-            "clone_mac": clone_data["clone-net-mac-0"]
+            "clone_mac": ", ".join(invalid_macs)
+        }
+        messages.error(request, msg)
+    elif invalid_disks:
+        msg = _("Disk name '%(disk_name)s' contains invalid characters!") % {
+            "disk_name": ", ".join(str(v) for v in invalid_disks)
         }
         messages.error(request, msg)
     else:
