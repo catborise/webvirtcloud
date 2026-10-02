@@ -278,7 +278,7 @@ python manage.py runserver 0.0.0.0:8000 --settings=webvirtcloud.settings-dev --n
 
 Open `http://127.0.0.1:8000`. `settings-dev` enables `DEBUG` and the Django Debug Toolbar. `--nostatic` is required: the CSS/JS live in `static/` (`STATIC_ROOT`), which WhiteNoise serves but runserver's own static handler does not.
 
-For the browser console, start the websocket proxy in a separate terminal: `python console/novncd` (VNC, port 6080). The serial console (`python console/socketiod`, port 6081) is disabled by default; see [Serial Console](#serial-console-disabled-by-default).
+For the browser console, run `python console/novncd` (VNC, port 6080) in a separate terminal.
 
 ## Compute Node (Hypervisor) Setup
 
@@ -381,16 +381,17 @@ datasource:
 
 ### Serial Console (disabled by default)
 
-The xterm.js serial console is served by `console/socketiod`, which does **not authenticate connections yet**: anyone who can reach its port (6081) can read and write a serial console that someone has opened. Until this is fixed, the serial console is disabled:
+`console/socketiod` does not authenticate connections yet, so the serial (xterm.js) console is disabled. To enable it on a trusted network:
 
-- the console page shows "Serial console is disabled" for VMs with a `pty` console, and
-- `socketiod` refuses to start, and is not started by the bundled supervisor/systemd configs.
+1. In `webvirtcloud/settings.py`: `SERIAL_CONSOLE_ENABLED = True` and `SOCKETIO_PUBLIC_PORT = 80` (or `443`).
+2. Uncomment `location /socket.io/` in the nginx config.
+3. Set `autostart=true` for `[program:socketiod]` in the supervisor config, or `systemctl enable --now webvirt-socketiod`.
 
-To enable it anyway on a trusted network, set `SERIAL_CONSOLE_ENABLED = True` in `webvirtcloud/settings.py`, set `autostart=true` for `[program:socketiod]` in the supervisor config (or `systemctl enable --now webvirt-socketiod`), and restrict access to port 6081 with a firewall. Existing installs whose `settings.py` predates this setting are treated as disabled.
+Existing installs: set `autostart=false` for `[program:socketiod]`, comment out `location /socket.io/` in nginx, and set `SOCKETIO_HOST = "127.0.0.1"` in `settings.py`.
 
 ### Reverse-Proxy & Port Forwarding
 
-If WebVirtCloud runs behind a reverse proxy terminating SSL or forwarding port 80/443, set the public console ports in `webvirtcloud/settings.py` (defaults: 6080 for noVNC, 6081 for Socket.IO). The bundled nginx config already proxies `/novncd/` and `/socket.io/`:
+If WebVirtCloud runs behind a reverse proxy terminating SSL or forwarding port 80/443, set the public console ports in `webvirtcloud/settings.py` (defaults: 6080 for noVNC, 6081 for Socket.IO). The bundled nginx config already proxies `/novncd/`:
 
 ```python
 WS_PUBLIC_PORT = 80        # or 443
