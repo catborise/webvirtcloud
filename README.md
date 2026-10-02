@@ -347,7 +347,7 @@ sudo zypper install -y dmidecode && sudo systemctl restart libvirtd
 
 ### Default Credentials
 
-The first `python3 manage.py migrate` on an empty database creates a superuser named `admin` with a random password, written to `data/admin_password` (mode 0600). In Docker: `docker compose exec webvirtcloud cat data/admin_password`.
+The first `python3 manage.py migrate` on an empty database creates a superuser named `admin` with a random password, written to `data/admin_password` (mode 0600). In Docker: `docker compose exec webvirtcloud cat data/admin_password`. At the first login with it you must set a new password; the file is then deleted.
 
 Set `ADMIN_USERNAME` and/or `ADMIN_PASSWORD` in the environment before that first migrate to choose them yourself. Then sign in at `http://<server-ip>`.
 

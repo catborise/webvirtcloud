@@ -1,3 +1,6 @@
+import contextlib
+import os
+
 from admin.decorators import superuser_only
 from django.conf import settings
 from django.contrib import messages
@@ -10,6 +13,8 @@ from django.http import HttpResponseRedirect
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.http import require_POST
+
+from accounts.apps import admin_password_path
 from instances.models import Instance
 
 from accounts.forms import EmailOTPForm, ProfileForm, UserSSHKeyForm
@@ -114,6 +119,10 @@ def change_password(request):
     if form.is_valid():
         user = form.save()
         update_session_auth_hash(request, user)  # Important!
+        if request.session.pop("must_change_password", False):
+            # The generated first-install password is no longer valid.
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(admin_password_path())
         messages.success(request, _("Password Changed"))
         return redirect("accounts:profile")
 

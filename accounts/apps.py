@@ -1,5 +1,28 @@
+import os
+
 from django.apps import AppConfig
+from django.contrib.auth.signals import user_logged_in
 from django.db.models.signals import post_migrate
+
+
+def admin_password_path():
+    from django.conf import settings
+
+    return os.path.join(str(settings.BASE_DIR), "data", "admin_password")
+
+
+def flag_generated_password(sender, request, user, **kwargs):
+    """
+    While a user still has the generated admin password, make them set a new
+    one before using the panel (ROADMAP O-17; see ForcePasswordChangeMiddleware).
+    """
+    try:
+        with open(admin_password_path()) as f:
+            generated = f.read().strip()
+    except OSError:
+        return
+    if generated and user.check_password(generated):
+        request.session["must_change_password"] = True
 
 
 def apply_change_password(sender, **kwargs):
@@ -33,11 +56,7 @@ def _store_generated_password(password):
     `docker logs` (ROADMAP O-02). Falls back to printing if the file cannot
     be written, so the admin is never locked out.
     """
-    import os
-
-    from django.conf import settings
-
-    path = os.path.join(str(settings.BASE_DIR), "data", "admin_password")
+    path = admin_password_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         # Never write through a pre-existing file or symlink (this runs as
@@ -102,3 +121,4 @@ class AccountsConfig(AppConfig):
     def ready(self):
         post_migrate.connect(create_admin, sender=self)
         post_migrate.connect(apply_change_password, sender=self)
+        user_logged_in.connect(flag_generated_password)
