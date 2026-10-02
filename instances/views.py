@@ -1665,7 +1665,10 @@ def clone(request, pk):
     invalid_disks = [
         value
         for key, value in clone_data.items()
-        if key.startswith("disk-") and not VOLUME_NAME_RE.fullmatch(value or "")
+        # None: a disk without a volume, which clone_instance does not copy.
+        if key.startswith("disk-")
+        and value is not None
+        and not VOLUME_NAME_RE.fullmatch(value)
     ]
 
     if not request.user.is_superuser and quota_msg:

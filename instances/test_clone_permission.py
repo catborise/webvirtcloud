@@ -167,3 +167,24 @@ class ClonePermissionTestCase(TestCase):
         self.assertEqual(clone_data["disk-vda"], "custom-name.qcow2")
         self.assertEqual(clone_data["meta-vda"], "true")
         self.assertEqual(clone_data["clone-net-mac-0"], "52:54:00:12:34:56")
+
+    def test_non_superuser_clone_skips_disks_without_a_volume(self):
+        empty_disk = {"dev": "vdb", "image": None, "storage": None, "path": None,
+                      "size": 0, "format": None}
+        with self.mocked_libvirt() as proxy:
+            proxy.get_disk_devices.return_value = [SRC_DISK, empty_disk]
+            self._clone(self.owner_change, self._valid_post())
+        proxy.clone_instance.assert_called_once()
+        clone_data = proxy.clone_instance.call_args[0][0]
+        self.assertEqual(clone_data["disk-vda"], "clone-vm.qcow2")
+        self.assertIsNone(clone_data["disk-vdb"])
+
+    def test_derived_disk_names_are_sanitized_instead_of_rejected(self):
+        odd_disk = dict(SRC_DISK, image="my disk@2.qcow2")
+        with self.mocked_libvirt() as proxy:
+            proxy.get_disk_devices.return_value = [odd_disk]
+            self._clone(self.owner_change, self._valid_post())
+        proxy.clone_instance.assert_called_once()
+        self.assertEqual(
+            proxy.clone_instance.call_args[0][0]["disk-vda"], "my-disk-2-clone.qcow2"
+        )

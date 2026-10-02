@@ -1,5 +1,6 @@
 import os
 import random
+import re
 import string
 
 from accounts.models import UserInstance, UserAttributes
@@ -263,7 +264,9 @@ def get_clone_disk_name(disk, prefix, clone_name=""):
         image = f"{name}-clone.{suffix}"
     else:
         image = f"{disk['image']}-clone"
-    return image
+    # Derived names go into volume XML and paths: keep them to a safe charset.
+    image = re.sub(r"[^A-Za-z0-9_.+-]+", "-", image).lstrip("_.+-")
+    return image or None
 
 
 def can_manage_console(user, instance):
