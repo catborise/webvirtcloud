@@ -3,31 +3,31 @@
 # WebVirtCloud
 ###### Python >=3.10 & Django 4.2 LTS (tested on Python 3.10 – 3.12)
 
-## Uygulama Amacı ve Kapsamı
+## Purpose and Scope
 
-WebVirtCloud, **libvirt** tabanlı sanallaştırma altyapısı için bir **web görselleştirme ve yönetim katmanı**dır.
+WebVirtCloud is a **web visualization and management layer** for **libvirt**-based virtualization infrastructure.
 
-### Temel Tasarım İlkesi
+### Core Design Principle
 
-> **libvirt tek gerçek kaynaktır (Single Source of Truth).** WebVirtCloud, libvirt üzerindeki durumu okur, görüntüler ve işlem tetikler; ancak hiçbir zaman birincil orkestratör değildir.
+> **libvirt is the single source of truth.** WebVirtCloud reads, displays and triggers actions on libvirt state, but it is never the primary orchestrator.
 
-Bu, şu anlama gelir:
+This means:
 
-- Bir yönetici **`virt-manager`** veya **`virsh`** ile doğrudan libvirt'e bağlanıp sanal makine oluşturabilir, silebilir, yeniden adlandırabilir veya konfigürasyonunu değiştirebilir. WebVirtCloud bu değişiklikleri otomatik olarak algılar ve veritabanını günceller.
-- WebVirtCloud'u **kapatıp açsanız dahi** sanal makineler çalışmaya devam eder; uygulama yalnızca libvirt'in mevcut durumunu yansıtır.
-- WebVirtCloud, Proxmox gibi tam bir otomasyon platformu değildir. Amacı; libvirt'in sunduğu işlevselliği tarayıcı üzerinden erişilebilir, rol tabanlı ve güvenli biçimde sunmaktır.
+- An administrator can connect to libvirt directly with **`virt-manager`** or **`virsh`** and create, delete, rename or reconfigure virtual machines. WebVirtCloud detects these changes and updates its database accordingly.
+- Virtual machines keep running **even when WebVirtCloud is stopped**; the application only reflects the current state of libvirt.
+- WebVirtCloud is not a full automation platform like Proxmox. Its goal is to expose libvirt's functionality through the browser in an accessible, role-based and secure way.
 
-### Mimari Yerleşim
+### Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│              Yönetici / Kullanıcı                   │
+│               Administrator / User                  │
 └────────────┬───────────────────┬────────────────────┘
-             │ Web tarayıcı       │ virt-manager / virsh
+             │ Web browser        │ virt-manager / virsh
              ▼                   ▼
 ┌────────────────────┐  ┌─────────────────────────────┐
-│   WebVirtCloud     │  │   libvirt API (doğrudan)    │
-│  (web UI katmanı)  │◄─┤   — ayrı, bağımsız erişim   │
+│   WebVirtCloud     │  │   libvirt API (direct)      │
+│   (web UI layer)   │◄─┤   — separate, independent   │
 └────────┬───────────┘  └──────────────┬──────────────┘
          │ libvirt API                  │
          ▼                             ▼
@@ -37,25 +37,25 @@ Bu, şu anlama gelir:
 └──────────────────────────────────────────────────────┘
 ```
 
-WebVirtCloud ile `virt-manager`/`virsh` **aynı anda ve bağımsız olarak** aynı libvirt sunucusunu yönetebilir. WebVirtCloud bir sonraki sayfa yüklemesinde veya periyodik senkronizasyonda dışarıdan yapılan değişiklikleri algılar.
+WebVirtCloud and `virt-manager`/`virsh` can manage the same libvirt host **concurrently and independently**. WebVirtCloud picks up external changes the next time the instance list page is loaded.
 
 ---
 
-## Özellikler
+## Features
 
-* QEMU/KVM Hypervisor yönetimi (birden fazla compute node)
-* Sanal makine yaşam döngüsü: oluşturma, silme, güç yönetimi, klonlama
-* **Dışarıdan yapılan değişiklikleri algılama:** `virt-manager` veya `virsh` üzerinden yapılan VM oluşturma, silme ve yeniden adlandırma işlemleri otomatik olarak veritabanına yansıtılır
-* Hypervisor ve VM gerçek zamanlı istatistikleri (CPU, RAM, disk, ağ)
-* Depolama havuzu ve volume yönetimi
-* Ağ ve arayüz yönetimi
-* Tarayıcı tabanlı konsol: noVNC (VNC) ve xterm.js (seri/PTY)
-* Rol tabanlı yetkilendirme: kullanıcılar yalnızca kendilerine atanmış VM'leri görebilir
-* 2FA (OTP / TOTP) desteği
-* SSH public key ve root parola yönetimi (guestfs üzerinden)
-* Cloud-init datasource arayüzü (OpenStack metadata uyumlu)
+* QEMU/KVM hypervisor management (multiple compute nodes)
+* Virtual machine lifecycle: create, delete, power management, clone
+* **External change detection:** VMs created, deleted or renamed via `virt-manager` or `virsh` are reconciled into the database automatically
+* Real-time hypervisor and VM statistics (CPU, RAM, disk, network)
+* Storage pool and volume management
+* Network and interface management
+* Browser-based consoles: noVNC (VNC) and xterm.js (serial/PTY)
+* Role-based access control: users only see the VMs assigned to them
+* 2FA (OTP / TOTP) support
+* SSH public key and root password management (via guestfs)
+* Cloud-init datasource interface (OpenStack metadata compatible)
 * REST API — OpenAPI 3.0 (Swagger & ReDoc)
-* LDAP / Active Directory entegrasyonu (opsiyonel)
+* LDAP / Active Directory integration (optional)
 
 
 
