@@ -304,3 +304,22 @@ class TestChangeDiskBus(unittest.TestCase):
         self.assertEqual(disk.find("source").get("name"), "pool/vm-disk")
         self.assertEqual(disk.find("source/host").get("name"), "mon1")
         self.assertEqual(disk.find("auth/secret").get("uuid"), "aaaa")
+
+    def test_edit_disk_without_format_omits_the_driver_type(self):
+        from lxml import etree
+
+        inst = wvmInstance.__new__(wvmInstance)
+        inst.instance = MagicMock()
+        inst._XMLDesc = MagicMock(
+            return_value=(
+                "<domain><devices><disk type='file' device='disk'>"
+                "<driver name='qemu'/><source file='/images/vm.img'/>"
+                "<target dev='vda' bus='virtio'/></disk></devices></domain>"
+            )
+        )
+        inst.edit_disk(
+            "vda", "/images/vm.img", False, False, "virtio", "", "",
+            "default", "default", "default", "default",
+        )
+        disk = etree.fromstring(inst.instance.updateDeviceFlags.call_args[0][0])
+        self.assertIsNone(disk.find("driver").get("type"))

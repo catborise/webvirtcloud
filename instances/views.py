@@ -985,7 +985,8 @@ def edit_volume(request, pk):
             io=io,
             discard=discard,
             zeroes=zeroes,
-            format=format,
+            # "": the disk has no driver type and keeps having none.
+            format=format or None,
             serial=serial,
         )
         if target_dev not in [disk["dev"] for disk in instance.disks]:

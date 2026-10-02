@@ -913,12 +913,12 @@ class wvmInstance(wvmConnect):
             additionals += f"detect_zeroes='{detect_zeroes_mode}' "
 
         xml_disk = f"<disk type='{old_disk_type}' device='{old_disk_device}'>"
+        # A disk without a driver type keeps having none.
+        type_attr = f"type='{format}' " if format else ""
         if old_disk_device == "cdrom":
-            xml_disk += f"<driver name='{old_driver_name}' type='{format}'/>"
+            xml_disk += f"<driver name='{old_driver_name}' {type_attr}/>"
         elif old_disk_device == "disk":
-            xml_disk += (
-                f"<driver name='{old_driver_name}' type='{format}' {additionals}/>"
-            )
+            xml_disk += f"<driver name='{old_driver_name}' {type_attr}{additionals}/>"
 
         if disk_el.get("type") == "file":
             xml_disk += f"<source file='{source}'/>"

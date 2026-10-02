@@ -304,3 +304,14 @@ class DiskViewsTenantIsolationTestCase(TestCase):
                  "bus": "virtio", "cache": "default"},
             )
         mock_create.return_value.create_volume.assert_not_called()
+
+    def test_edit_volume_accepts_a_disk_without_any_driver_format(self):
+        self.client.force_login(self.superuser)
+        no_format_disk = dict(VM_DISK, format=None)
+        with patch("instances.models.wvmInstance") as mock_wvm:
+            proxy = mock_wvm.return_value
+            self._mock_disk_options(proxy)
+            proxy.get_disk_devices.return_value = [no_format_disk]
+            self._edit_volume_post(vol_format="None")
+        proxy.edit_disk.assert_called_once()
+        self.assertEqual(proxy.edit_disk.call_args[0][6], "")
