@@ -242,3 +242,65 @@ class TestDiskXmlEscaping(unittest.TestCase):
         with self.assertRaises(IndexError):
             inst.detach_disk("x' or '1'='1")
         inst.instance.detachDeviceFlags.assert_not_called()
+
+
+class TestChangeDiskBus(unittest.TestCase):
+    RBD_DOMAIN = (
+        "<domain><devices>"
+        "<disk type='network' device='disk'>"
+        "<driver name='qemu' type='raw'/>"
+        "<auth username='libvirt'><secret type='ceph' uuid='aaaa'/></auth>"
+        "<source protocol='rbd' name='pool/vm-disk'><host name='mon1' port='6789'/></source>"
+        "<target dev='vda' bus='virtio'/>"
+        "<address type='pci' domain='0x0000' bus='0x00' slot='0x05' function='0x0'/>"
+        "</disk></devices></domain>"
+    )
+
+    def _instance(self):
+        inst = wvmInstance.__new__(wvmInstance)
+        inst.instance = MagicMock()
+        inst._XMLDesc = MagicMock(return_value=self.RBD_DOMAIN)
+        return inst
+
+    def test_keeps_disk_source_and_auth_and_only_changes_target(self):
+        from lxml import etree
+
+        inst = self._instance()
+        inst.change_disk_bus("vda", "sda", "sata")
+
+        new_xml = inst.instance.attachDeviceFlags.call_args[0][0]
+        disk = etree.fromstring(new_xml)
+        self.assertEqual(disk.get("type"), "network")
+        self.assertEqual(disk.find("source").get("name"), "pool/vm-disk")
+        self.assertEqual(disk.find("auth/secret").get("uuid"), "aaaa")
+        self.assertEqual(disk.find("target").get("dev"), "sda")
+        self.assertEqual(disk.find("target").get("bus"), "sata")
+        self.assertIsNone(disk.find("address"))
+
+    def test_reattaches_the_old_disk_when_attach_fails(self):
+        from libvirt import libvirtError
+
+        inst = self._instance()
+        inst.instance.attachDeviceFlags.side_effect = [libvirtError("boom"), None]
+
+        with self.assertRaises(libvirtError):
+            inst.change_disk_bus("vda", "sda", "sata")
+
+        detached_xml = inst.instance.detachDeviceFlags.call_args[0][0]
+        restored_xml = inst.instance.attachDeviceFlags.call_args_list[1][0][0]
+        self.assertEqual(restored_xml, detached_xml)
+
+    def test_edit_disk_keeps_source_and_auth_of_a_network_disk(self):
+        from lxml import etree
+
+        inst = self._instance()
+        inst.edit_disk(
+            "vda", "ignored-path", False, False, "virtio", "", "raw",
+            "default", "default", "default", "default",
+        )
+
+        disk = etree.fromstring(inst.instance.updateDeviceFlags.call_args[0][0])
+        self.assertEqual(disk.get("type"), "network")
+        self.assertEqual(disk.find("source").get("name"), "pool/vm-disk")
+        self.assertEqual(disk.find("source/host").get("name"), "mon1")
+        self.assertEqual(disk.find("auth/secret").get("uuid"), "aaaa")

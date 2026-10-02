@@ -844,6 +844,32 @@ class wvmInstance(wvmConnect):
         if self.get_status() == 5:
             self.instance.detachDeviceFlags(xml_disk, VIR_DOMAIN_AFFECT_CONFIG)
 
+    def change_disk_bus(self, target_dev, new_target_dev, new_bus):
+        """
+        Move a disk to another bus in the persistent config. The disk element
+        is reused as is (type, source, auth, driver), only <target> changes
+        and the old bus address is dropped. If attaching fails, the original
+        disk is attached again.
+        """
+        tree = etree.fromstring(self._XMLDesc(0))
+        disk_el = tree.xpath("./devices/disk/target[@dev=$dev]", dev=target_dev)[
+            0
+        ].getparent()
+        old_xml = etree.tostring(disk_el).decode()
+
+        disk_el.find("target").set("dev", new_target_dev)
+        disk_el.find("target").set("bus", new_bus)
+        for address in disk_el.findall("address"):
+            disk_el.remove(address)
+        new_xml = etree.tostring(disk_el).decode()
+
+        self.instance.detachDeviceFlags(old_xml, VIR_DOMAIN_AFFECT_CONFIG)
+        try:
+            self.instance.attachDeviceFlags(new_xml, VIR_DOMAIN_AFFECT_CONFIG)
+        except libvirtError:
+            self.instance.attachDeviceFlags(old_xml, VIR_DOMAIN_AFFECT_CONFIG)
+            raise
+
     def edit_disk(
         self,
         target_dev,
@@ -894,8 +920,16 @@ class wvmInstance(wvmConnect):
                 f"<driver name='{old_driver_name}' type='{format}' {additionals}/>"
             )
 
-        xml_disk += f"""<source file='{source}'/>
-          <target dev='{target_dev}' bus='{target_bus}'/>"""
+        if disk_el.get("type") == "file":
+            xml_disk += f"<source file='{source}'/>"
+        else:
+            # Block/network disks: keep their source (and auth) untouched;
+            # the form only edits the path of file disks.
+            for name in ("auth", "source"):
+                el = disk_el.find(name)
+                if el is not None:
+                    xml_disk += etree.tostring(el).decode()
+        xml_disk += f"<target dev='{target_dev}' bus='{target_bus}'/>"
         if readonly:
             xml_disk += """<readonly/>"""
         if shareable:

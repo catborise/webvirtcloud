@@ -996,34 +996,21 @@ def edit_volume(request, pk):
         new_target_dev = utils.get_new_disk_dev(instance.media, instance.disks, new_bus)
 
         if new_bus != bus:
-            instance.proxy.detach_disk(target_dev)
-            instance.proxy.attach_disk(
-                new_target_dev,
-                new_path,
-                target_bus=new_bus,
-                format_type=format,
-                cache_mode=cache,
-                readonly=readonly,
-                shareable=shareable,
-                serial=serial,
-                io_mode=io,
-                discard_mode=discard,
-                detect_zeroes_mode=zeroes,
-            )
-        else:
-            instance.proxy.edit_disk(
-                target_dev,
-                new_path,
-                readonly,
-                shareable,
-                new_bus,
-                serial,
-                format,
-                cache,
-                io,
-                discard,
-                zeroes,
-            )
+            instance.proxy.change_disk_bus(target_dev, new_target_dev, new_bus)
+            target_dev = new_target_dev
+        instance.proxy.edit_disk(
+            target_dev,
+            new_path,
+            readonly,
+            shareable,
+            new_bus,
+            serial,
+            format,
+            cache,
+            io,
+            discard,
+            zeroes,
+        )
 
         if not instance.proxy.get_status() == 5:
             messages.success(

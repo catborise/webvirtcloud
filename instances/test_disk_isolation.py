@@ -261,7 +261,7 @@ class DiskViewsTenantIsolationTestCase(TestCase):
         data.update(extra)
         return self._post("edit_volume", data)
 
-    def test_edit_volume_bus_change_passes_valid_arguments_to_attach_disk(self):
+    def test_edit_volume_bus_change_keeps_the_disk_and_applies_options(self):
         # autospec enforces the real attach_disk signature; a plain MagicMock
         # would accept the invalid driver_type argument.
         from vrtManager.instance import wvmInstance
@@ -273,8 +273,14 @@ class DiskViewsTenantIsolationTestCase(TestCase):
             proxy.get_status.return_value = 5
             res = self._edit_volume_post(vol_bus="sata")
         self.assertEqual(res.status_code, 302)
-        proxy.attach_disk.assert_called_once()
-        self.assertEqual(proxy.attach_disk.call_args.kwargs["format_type"], "qcow2")
+        # The disk keeps its type and source; only target dev/bus change, then
+        # the other options are applied to the disk on its new device.
+        proxy.change_disk_bus.assert_called_once_with("vda", proxy.change_disk_bus.call_args[0][1], "sata")
+        new_dev = proxy.change_disk_bus.call_args[0][1]
+        proxy.attach_disk.assert_not_called()
+        proxy.edit_disk.assert_called_once()
+        self.assertEqual(proxy.edit_disk.call_args[0][0], new_dev)
+        self.assertEqual(proxy.edit_disk.call_args[0][4], "sata")
 
     def test_edit_volume_keeps_current_format_when_field_is_none_or_empty(self):
         self.client.force_login(self.superuser)
