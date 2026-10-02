@@ -8,6 +8,7 @@ import os
 import socketserver
 import json
 import re
+import socket
 import sys
 
 PORT = int(os.environ.get("GSTFSD_PORT", 16510))
@@ -36,9 +37,12 @@ import guestfs  # noqa: E402
 
 class MyTCPServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
+    address_family = socket.AF_INET6 if ":" in ADDRESS else socket.AF_INET
 
 
-class MyTCPServerHandler(socketserver.BaseRequestHandler):
+class MyTCPServerHandler(socketserver.StreamRequestHandler):
+    timeout = 30  # seconds; an idle client must not hold a thread forever
+
     def handle(self):
         # recive data
         d = self.request.recv(1024).strip()
@@ -65,7 +69,14 @@ class MyTCPServerHandler(socketserver.BaseRequestHandler):
                             if not gfs.is_dir('/root/.ssh'):
                                 gfs.mkdir('/root/.ssh')
                                 gfs.chmod(0o700, "/root/.ssh")
-                            gfs.write('/root/.ssh/authorized_keys', data['key'])
+                            # Add the key; keep the ones already there.
+                            keys_path = '/root/.ssh/authorized_keys'
+                            keys = gfs.cat(keys_path) if gfs.is_file(keys_path) else ''
+                            new_key = data['key'].strip()
+                            if new_key not in keys.splitlines():
+                                if keys and not keys.endswith('\n'):
+                                    keys += '\n'
+                                gfs.write(keys_path, keys + new_key + '\n')
                             gfs.chmod(0o600, '/root/.ssh/authorized_keys')
                             self.request.sendall(json.dumps({'return': 'success'}).encode())
                     gfs.umount(part)
