@@ -23,7 +23,7 @@
                 </button>
             </li>
         {% endif %}
-        {% if request.user.is_superuser or request.user.is_staff or userinstance.is_vnc %}
+        {% if can_manage_console %}
             <li class="nav-item" role="presentation">
                 <button class="nav-link" data-bs-toggle="tab" data-bs-target="#vncsettings" type="button" role="tab" aria-controls="vncsettings" aria-selected="false">
                     {% trans "Console" %}
@@ -711,7 +711,7 @@
             <div class="clearfix"></div>
         </div>
         {% endif %}
-        {% if request.user.is_superuser or request.user.is_staff or userinstance.is_vnc %}
+        {% if can_manage_console %}
         <div role="tabpanel" class="tab-pane tab-pane-bordered" id="vncsettings">
             <form method="post" action="{% url 'instances:update_console' instance.id %}">
                 {% csrf_token %}
