@@ -1,14 +1,14 @@
 # pylint: disable=no-name-in-module,no-member
 import re
 
-from accounts.models import UserInstance
 from appsettings.settings import app_settings
 from django.conf import settings
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-from django.http.response import HttpResponseServerError
+from django.http.response import HttpResponseForbidden
 from django.shortcuts import render
 from django.utils.translation import gettext_lazy as _
 from instances.models import Instance
+from instances.utils import can_open_console
 from libvirt import libvirtError
 from vrtManager.instance import wvmInstance
 
@@ -79,24 +79,16 @@ def console(request):
         if host is None or uuid is None:
             raise ValueError("Invalid token")
 
-        if not request.user.is_superuser and not request.user.has_perm(
-            "instances.view_instances"
-        ):
-            try:
-                userInstance = UserInstance.objects.get(
-                    instance__compute_id=host,
-                    instance__uuid=uuid,
-                    user__id=request.user.id,
-                )
-                instance = Instance.objects.get(compute_id=host, uuid=uuid)
-            except UserInstance.DoesNotExist:
-                instance = None
-                console_error = _(
-                    "User does not have permission to access console or host/instance not exist"
-                )
-                return HttpResponseServerError(console_error)
-        else:
-            instance = Instance.objects.get(compute_id=host, uuid=uuid)
+        instance = Instance.objects.filter(compute_id=host, uuid=uuid).first()
+        if instance is None and request.user.is_superuser:
+            raise Instance.DoesNotExist
+        # Same answer for "no such VM" and "not allowed", so the response
+        # does not reveal whether a VM exists.
+        if instance is None or not can_open_console(request.user, instance):
+            console_error = _(
+                "User does not have permission to access console or host/instance not exist"
+            )
+            return HttpResponseForbidden(console_error)
 
         # Generate secure signed token for noVNC daemon
         token = signer.sign(f"{host}:{uuid}:{request.user.id}")

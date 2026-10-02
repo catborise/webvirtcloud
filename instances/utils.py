@@ -14,6 +14,20 @@ from vrtManager.instance import wvmInstance, wvmInstances
 from .models import Instance
 
 
+def can_open_console(user, instance):
+    """
+    The single rule for console access (noVNC page, novncd, the virt-viewer
+    .vv file and the VDI URL): an active superuser or an active owner of the
+    VM. The global view_instances permission is read-only and does not grant
+    an interactive console (ROADMAP S-09).
+    """
+    if not user.is_active:
+        return False
+    if user.is_superuser:
+        return True
+    return UserInstance.objects.filter(instance=instance, user=user).exists()
+
+
 def get_clone_free_names(size=10):
     prefix = app_settings.CLONE_INSTANCE_DEFAULT_PREFIX
     free_names = []

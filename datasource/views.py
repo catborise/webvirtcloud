@@ -2,8 +2,11 @@ import socket
 
 from accounts.models import UserInstance, UserSSHKey
 from computes.models import Compute
+from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
+from instances.models import Instance
+from instances.utils import can_open_console
 from libvirt import libvirtError
 from vrtManager.instance import wvmInstance
 
@@ -94,6 +97,10 @@ def get_vdi_url(request, compute_id, vname):
     :return:
     """
     compute = get_object_or_404(Compute, pk=compute_id)
+    # The VDI URL points straight at the VM's console: same rule as the console.
+    instance = Instance.objects.filter(compute=compute, name=vname).first()
+    if instance is None or not can_open_console(request.user, instance):
+        raise PermissionDenied
 
     try:
         conn = wvmInstance(

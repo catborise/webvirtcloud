@@ -172,11 +172,13 @@ class ConsoleViewsTestCase(TestCase):
         response = self.client.get(url)
 
         # Non-permitted user attempting to view other user's instance
-        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.status_code, 403)
         self.assertIn("permission", response.content.decode("utf-8").lower())
 
     @patch("console.views.wvmInstance")
-    def test_console_user_with_view_instances_perm(self, mock_wvm):
+    def test_console_view_instances_perm_does_not_open_console(self, mock_wvm):
+        # ROADMAP S-09: global view_instances is a read-only role; the console
+        # is for superusers and VM owners only.
         mock_conn = MagicMock()
         mock_conn.get_console_type.return_value = "vnc"
         mock_conn.get_console_websocket_port.return_value = None
@@ -189,7 +191,8 @@ class ConsoleViewsTestCase(TestCase):
         url = reverse("console") + f"?token={self.token}"
         response = self.client.get(url)
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 403)
+        self.assertTemplateNotUsed(response, "console-vnc-lite.html")
 
     @patch("console.views.wvmInstance")
     @override_settings(WS_PUBLIC_PATH="/novncd/")
@@ -536,6 +539,57 @@ class NovncdDaemonLogicTestCase(TestCase):
 
         signer = TimestampSigner(salt="console.novnc")
         token = signer.sign(f"{compute.id}:{instance.uuid}:{unauthorized_user.id}")
+
+        with self.assertRaises(PermissionError):
+            novncd_mod.get_connection_infos(token)
+
+    def test_get_connection_infos_rejects_signed_token_without_user(self):
+        # The console view always signs host:uuid:user_id; a token without the
+        # user part would skip the per-user access check entirely.
+        compute = Compute.objects.create(
+            name="novnc-2part-compute", hostname="127.0.0.1", login="root", password="", type=1
+        )
+        instance = Instance.objects.create(
+            compute=compute,
+            name="novnc-2part-vm",
+            uuid="66666666-6666-6666-6666-666666666666",
+        )
+        signer = TimestampSigner(salt="console.novnc")
+        token = signer.sign(f"{compute.id}:{instance.uuid}")
+
+        with self.assertRaises(PermissionError):
+            novncd_mod.get_connection_infos(token)
+
+    def test_get_connection_infos_rejects_unsigned_token_even_under_test_runner(self):
+        # sys.argv contains "test" while this suite runs; production code must
+        # not change behaviour based on that.
+        compute = Compute.objects.create(
+            name="novnc-unsigned-compute", hostname="127.0.0.1", login="root", password="", type=1
+        )
+        instance = Instance.objects.create(
+            compute=compute,
+            name="novnc-unsigned-vm",
+            uuid="88888888-8888-8888-8888-888888888888",
+        )
+
+        with self.assertRaises(PermissionError):
+            novncd_mod.get_connection_infos(f"{compute.id}-{instance.uuid}")
+
+    def test_get_connection_infos_view_instances_user_is_not_enough(self):
+        User = get_user_model()
+        viewer = User.objects.create_user(username="novnc_viewer", password="password")
+        viewer.user_permissions.add(Permission.objects.get(codename="view_instances"))
+        compute = Compute.objects.create(
+            name="novnc-viewer-compute", hostname="127.0.0.1", login="root", password="", type=1
+        )
+        instance = Instance.objects.create(
+            compute=compute,
+            name="novnc-viewer-vm",
+            uuid="55555555-5555-5555-5555-555555555555",
+        )
+
+        signer = TimestampSigner(salt="console.novnc")
+        token = signer.sign(f"{compute.id}:{instance.uuid}:{viewer.id}")
 
         with self.assertRaises(PermissionError):
             novncd_mod.get_connection_infos(token)
