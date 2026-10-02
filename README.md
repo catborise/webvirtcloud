@@ -374,23 +374,16 @@ datasource:
     metadata_urls: [ "http://webvirtcloud.domain.com/datasource" ]
 ```
 
-### Serial Console (disabled by default)
+### Serial Console (disabled)
 
-`console/socketiod` does not authenticate connections yet, so the serial (xterm.js) console is disabled. To enable it on a trusted network:
-
-1. In `webvirtcloud/settings.py`: `SERIAL_CONSOLE_ENABLED = True` and `SOCKETIO_PUBLIC_PORT = 80` (or `443`).
-2. Uncomment `location /socket.io/` in the nginx config.
-3. Set `autostart=true` for `[program:socketiod]` in the supervisor config, or `systemctl enable --now webvirt-socketiod`.
-
-Existing installs: set `autostart=false` for `[program:socketiod]`, comment out `location /socket.io/` in nginx, and set `SOCKETIO_HOST = "127.0.0.1"` in `settings.py`.
+The serial (xterm.js) console is unavailable until `console/socketiod` is rewritten with authentication. Existing installs: set `autostart=false` for `[program:socketiod]`, comment out `location /socket.io/` in nginx, and set `SOCKETIO_HOST = "127.0.0.1"` in `settings.py`.
 
 ### Reverse-Proxy & Port Forwarding
 
-If WebVirtCloud runs behind a reverse proxy terminating SSL or forwarding port 80/443, set the public console ports in `webvirtcloud/settings.py` (defaults: 6080 for noVNC, 6081 for Socket.IO). The bundled nginx config already proxies `/novncd/`:
+If WebVirtCloud runs behind a reverse proxy terminating SSL or forwarding port 80/443, set the public noVNC port in `webvirtcloud/settings.py` (default 6080). The bundled nginx config already proxies `/novncd/`:
 
 ```python
-WS_PUBLIC_PORT = 80        # or 443
-SOCKETIO_PUBLIC_PORT = 80  # or 443
+WS_PUBLIC_PORT = 80  # or 443
 ```
 
 When the panel is served over HTTPS on a hostname other than localhost, add it to the trusted CSRF origins (comma-separated) through the environment, e.g. in the `[program:webvirtcloud]` block of the supervisor config:
@@ -445,35 +438,7 @@ python -m unittest discover -s vrtManager -p "test_*.py"
 
 ## Users, Roles and Permissions
 
-WebVirtCloud combines three kinds of access rights:
-
-- **Superuser** (`is_superuser`): full administration — computes, storage pools, networks, interfaces, nwfilters, secrets, app settings, users, and every VM.
-- **Global permissions** (Django permissions, set per user or group in the admin pages):
-  - `instances.view_instances` — **read-only auditor role**: sees every VM in lists and detail pages, but cannot change them and cannot open their consoles.
-  - `instances.clone_instances` — may clone VMs (see the table for which ones).
-  - `instances.snapshot_instances` — may create, revert and delete snapshots of VMs they may change.
-  - `instances.passwordless_console` — the console page fills in the VNC password automatically (granted to all users by default).
-  - `accounts.change_password` — may change their own password.
-- **Per-VM ownership** (an owner entry for a user on a VM, managed by a superuser on the VM's page) with three flags: `is_change`, `is_delete`, `is_vnc`. An owner without flags may see, start and stop the VM and open its console.
-
-| Action on a VM | Superuser | Owner | Owner flag / permission needed | `view_instances` only |
-|---|---|---|---|---|
-| See the VM (list, detail) | ✅ | ✅ | — | ✅ |
-| Start, shut down, power cycle, force off | ✅ | ✅ | — | ❌ |
-| Open the console (noVNC, `.vv` file for virt-viewer, VDI URL) | ✅ | ✅ | — | ❌ |
-| Resize CPU/memory/disk, set root password, add SSH key, change title/description | ✅ | ✅ | `is_change` | ❌ |
-| Change console settings (type, VNC password, keymap) | ✅ | ✅ | `is_change` and `is_vnc` | ❌ |
-| Snapshots | ✅ | ✅ | `is_change` and `instances.snapshot_instances` | ❌ |
-| Clone | ✅ | ✅ | `is_change` and `instances.clone_instances` (templates: viewing the template is enough) | templates only, with `instances.clone_instances` |
-| Delete the VM | ✅ | ✅ | `is_delete` | ❌ |
-| Disks and media (add, attach, edit, detach, delete volumes; CD-ROM/ISO) | ✅ | ❌ | — | ❌ |
-| Network interfaces, boot options, vCPU hotplug, autostart, guest agent, suspend/resume, migrate, raw XML, owners | ✅ | ❌ | — | ❌ |
-
-Notes:
-
-- Only superusers choose disk names and MAC addresses when cloning; for other users the server derives them.
-- `is_staff` gives no access to VMs and does not reveal console settings or VNC passwords by itself. On VMs where a staff user already has `is_change`, staff may also change VMs that are marked as templates; other owners cannot.
-- On VM pages, users without ownership or `view_instances` get **404** (the VM's existence is not revealed), and users who can see a VM but lack the right for an action get **403**. Superuser-only pages answer **403** to everyone else; the console page answers **403** both for a missing VM and for a VM the user may not open.
+See [doc/permissions.md](doc/permissions.md).
 
 ## LDAP Configuration
 
