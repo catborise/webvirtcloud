@@ -3,6 +3,7 @@ Regression tests for ROADMAP Wave 0 item 3 (S-06, S-07): JSON endpoints must
 not be served as text/html (reflected XSS), and templates must not build HTML
 by concatenating server data that contains user-controlled names (stored XSS).
 """
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -127,3 +128,40 @@ class TemplateHtmlConcatenationTestCase(TestCase):
     def test_create_wizard_volume_lists_do_not_concatenate_volume_names_into_html(self):
         src = self._read("instances/templates/create_instance_w2.html")
         self.assertNotIn("'<option value=' + item", src)
+
+
+# Every template line that builds HTML from JavaScript must be listed here with
+# a reason; a new one fails the test and has to be reviewed (use .text() /
+# .val() / DOM APIs for server data instead).
+HTML_SINK = re.compile(r"""\.html\(|innerHTML\s*=|append\(\s*['"]<""")
+ALLOWED_HTML_SINKS = {
+    ("accounts/templates/login.html", "$btn.html("): "static spinner markup",
+    ("accounts/templates/accounts/otp_login.html", "$btn.html("): "static spinner markup",
+    ("console/templates/console-xterm.html", "status.innerHTML = '<span style=\"background-color: lightgreen;\">connected</span>'"): "static text",
+    ("console/templates/console-xterm.html", "button.innerHTML = 'Disconnect'"): "static text",
+    ("console/templates/console-xterm.html", "status.innerHTML =  '<span style=\"background-color: #ff8383;\">disconnected</span>'"): "static text",
+    ("console/templates/console-xterm.html", "button.innerHTML = 'Connect'"): "static text",
+    ("console/templates/console-xterm.html", "if (button.innerHTML =='Connect'){"): "comparison, not a write",
+    ("console/templates/console-xterm.html", 'else if (button.innerHTML == "Disconnect"){'): "comparison, not a write",
+    ("instances/templates/create_instance_w2.html", "$('#img-list').html(selected_list_html);"): "superuser-only; tracked as U-04",
+    ("instances/templates/create_instance_w2.html", "$('#net-list').html(selected_list_html);"): "superuser-only; tracked as U-04",
+    ("instances/templates/instance.html", "//sto_input.innerHTML = pool;"): "comment",
+}
+
+
+class TemplateHtmlSinkInventoryTestCase(TestCase):
+    def test_every_html_sink_in_templates_is_reviewed(self):
+        found = set()
+        for path in ROOT.glob("*/templates/**/*.html"):
+            rel = str(path.relative_to(ROOT))
+            for line in path.read_text().splitlines():
+                if HTML_SINK.search(line):
+                    found.add((rel, line.strip()))
+        templates_root = ROOT / "templates"
+        for path in templates_root.glob("**/*.html"):
+            rel = str(path.relative_to(ROOT))
+            for line in path.read_text().splitlines():
+                if HTML_SINK.search(line):
+                    found.add((rel, line.strip()))
+        self.assertEqual(sorted(found - set(ALLOWED_HTML_SINKS)), [], "unreviewed HTML sinks")
+        self.assertEqual(sorted(set(ALLOWED_HTML_SINKS) - found), [], "stale allowlist entries")

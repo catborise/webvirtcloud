@@ -39,6 +39,10 @@ ALLOWED_FOR_ANY_USER = {
     "rest_framework:logout": "DRF browsable API logout",
     "console": "renders an error without a valid token; access is checked per VM",
     "ds_openstack_index": "static cloud-init datasource index (F-14)",
+    # Meant for VMs: answers for the VM whose name matches the reverse DNS of
+    # the client IP. The design is broken and tracked as F-14.
+    "ds_openstack_metadata": "cloud-init datasource keyed by client IP (F-14)",
+    "ds_openstack_userdata": "cloud-init datasource keyed by client IP (F-14)",
     "instance-list": "API: filtered to the user's own instances",
     "compute-instance-list": "API: filtered to the user's own instances",
     "instance-flavor-list": "API: flavor catalogue",
@@ -154,6 +158,9 @@ class AuthorizationMatrixTestCase(TestCase):
                 kwargs[name] = self.instance.name
             elif name == "format":
                 kwargs[name] = "json"
+            elif name == "version":
+                # A real value, so datasource views do not 404 on the parameter.
+                kwargs[name] = "latest"
             elif converter is not None and type(converter).__name__ == "IntConverter":
                 kwargs[name] = 1
             else:
