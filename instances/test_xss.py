@@ -1,0 +1,111 @@
+"""
+Regression tests for ROADMAP Wave 0 item 3 (S-06, S-07): JSON endpoints must
+not be served as text/html (reflected XSS), and templates must not build HTML
+by concatenating server data that contains user-controlled names (stored XSS).
+"""
+from pathlib import Path
+from unittest.mock import patch
+
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+from django.urls import reverse
+
+from accounts.models import UserInstance, UserSSHKey
+from computes.models import Compute
+from instances.models import Instance
+
+ROOT = Path(__file__).resolve().parent.parent
+PAYLOAD = "<script>alert(1)</script>"
+
+
+class JsonEndpointContentTypeTestCase(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.superuser = User.objects.create_superuser(
+            username="xss_super", email="xss_super@example.com", password="password"
+        )
+        self.compute = Compute.objects.create(
+            name="xss-compute", hostname="127.0.0.1", login="root", password="", type=1
+        )
+        self.instance = Instance.objects.create(
+            compute=self.compute,
+            name="xss-vm",
+            uuid="99999999-8888-7777-6666-555555555555",
+        )
+        UserInstance.objects.create(instance=self.instance, user=self.superuser)
+        UserSSHKey.objects.create(
+            user=self.superuser,
+            keyname="k",
+            keypublic=f"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI {PAYLOAD}",
+        )
+        self.client.force_login(self.superuser)
+
+    def assertJson(self, response):
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/json")
+
+    def test_guess_mac_address_reflects_vname_as_json(self):
+        res = self.client.get(
+            reverse("instances:guess_mac_address", args=["<img src=x onerror=alert(1)>"])
+        )
+        self.assertJson(res)
+
+    def test_random_mac_address_is_json(self):
+        self.assertJson(self.client.get(reverse("instances:random_mac_address")))
+
+    def test_guess_clone_name_is_json(self):
+        self.assertJson(self.client.get(reverse("instances:guess_clone_name")))
+
+    def test_sshkeys_is_json(self):
+        self.assertJson(
+            self.client.get(reverse("instances:sshkeys", args=[self.instance.id]))
+        )
+
+    def test_sshkeys_plain_is_text_plain(self):
+        res = self.client.get(
+            reverse("instances:sshkeys", args=[self.instance.id]) + "?plain=true"
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res["Content-Type"].startswith("text/plain"))
+
+    def test_storage_volumes_is_json(self):
+        with patch("storages.views.wvmStorage") as mock_storage:
+            mock_storage.return_value.get_volumes.return_value = [PAYLOAD]
+            res = self.client.get(
+                reverse("volumes", args=[self.compute.id, "default"])
+            )
+        self.assertJson(res)
+
+    def test_datasource_metadata_is_json(self):
+        self.assertJson(
+            self.client.get(reverse("ds_openstack_metadata", args=["latest"]))
+        )
+
+    def test_vm_logs_is_json(self):
+        self.assertJson(self.client.get(reverse("vm_logs", args=[self.instance.name])))
+
+
+class TemplateHtmlConcatenationTestCase(TestCase):
+    """
+    The log table and the volume dropdown are filled by JavaScript from JSON
+    that contains user-entered names. They must use DOM APIs (.text()/.val())
+    instead of concatenating the values into an HTML string.
+    """
+
+    def _read(self, relative):
+        return (ROOT / relative).read_text()
+
+    def test_logs_table_does_not_concatenate_log_fields_into_html(self):
+        src = self._read("instances/templates/instances/stats_tab.html")
+        for field in ("date", "user", "message"):
+            self.assertNotIn(f"+row['{field}']+", src)
+        self.assertNotIn('$("#logs_table > tbody").html(', src)
+
+    def test_volume_dropdown_does_not_concatenate_volume_names_into_html(self):
+        src = self._read("instances/templates/instance.html")
+        self.assertNotIn("'<option value=' + item", src)
+        self.assertNotIn('pool + "<span', src)
+
+    def test_create_wizard_volume_lists_do_not_concatenate_volume_names_into_html(self):
+        src = self._read("instances/templates/create_instance_w2.html")
+        self.assertNotIn("'<option value=' + item", src)
