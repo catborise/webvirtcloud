@@ -121,6 +121,7 @@ class ConsoleViewsTestCase(TestCase):
         self.assertTemplateUsed(response, "console-vnc-lite.html")
         self.assertIn("SPICE", str(response.context["console_error"]))
 
+    @override_settings(SERIAL_CONSOLE_ENABLED=True)
     @patch("console.views.wvmInstance")
     def test_console_superuser_pty(self, mock_wvm):
         mock_conn = MagicMock()
@@ -133,6 +134,23 @@ class ConsoleViewsTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "console-xterm.html")
+
+    @override_settings(SERIAL_CONSOLE_ENABLED=False)
+    @patch("console.views.wvmInstance")
+    def test_console_pty_refused_when_serial_console_disabled(self, mock_wvm):
+        # ROADMAP S-01: socketiod is unauthenticated, so the serial console is
+        # disabled unless an admin explicitly enables it.
+        mock_conn = MagicMock()
+        mock_conn.get_console_type.return_value = "pty"
+        mock_wvm.return_value = mock_conn
+
+        self.client.force_login(self.admin_user)
+        url = reverse("console") + f"?token={self.token}"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateNotUsed(response, "console-xterm.html")
+        self.assertIn("Serial console is disabled", str(response.context["console_error"]))
 
     @patch("console.views.wvmInstance")
     def test_console_user_assigned_instance_access(self, mock_wvm):

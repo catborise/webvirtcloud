@@ -165,7 +165,7 @@ pip install -r conf/requirements.txt
 python3 manage.py migrate
 python3 manage.py collectstatic --noinput
 
-# 6. Configure Supervisor (gunicorn, novncd and socketiod, running as nginx)
+# 6. Configure Supervisor (gunicorn and novncd, running as nginx; socketiod is disabled by default)
 sed 's/^user=.*/user=nginx/' conf/supervisor/webvirtcloud.conf | sudo tee /etc/supervisord.d/webvirtcloud.ini > /dev/null
 
 # 7. Configure Nginx
@@ -180,7 +180,6 @@ sudo setsebool -P httpd_can_network_connect on 2>/dev/null || true
 
 sudo firewall-cmd --add-service=http --permanent 2>/dev/null || true
 sudo firewall-cmd --add-port=6080/tcp --permanent 2>/dev/null || true
-sudo firewall-cmd --add-port=6081/tcp --permanent 2>/dev/null || true
 sudo firewall-cmd --reload 2>/dev/null || true
 
 # 9. Start and enable services
@@ -217,7 +216,7 @@ python3 manage.py collectstatic --noinput
 # 6. Configure Nginx
 sudo cp conf/nginx/suse_nginx.conf /etc/nginx/vhosts.d/webvirtcloud.conf 2>/dev/null || sudo cp conf/nginx/webvirtcloud.conf /etc/nginx/conf.d/
 
-# 7. Configure Supervisor (gunicorn, novncd and socketiod, running as nginx)
+# 7. Configure Supervisor (gunicorn and novncd, running as nginx; socketiod is disabled by default)
 sudo zypper --non-interactive install -y python3-supervisor || sudo zypper --non-interactive install -y supervisor
 sudo mkdir -p /etc/supervisord.d
 sed 's/^user=.*/user=nginx/' conf/supervisor/webvirtcloud.conf | sudo tee /etc/supervisord.d/webvirtcloud.ini > /dev/null
@@ -279,7 +278,7 @@ python manage.py runserver 0.0.0.0:8000 --settings=webvirtcloud.settings-dev --n
 
 Open `http://127.0.0.1:8000`. `settings-dev` enables `DEBUG` and the Django Debug Toolbar. `--nostatic` is required: the CSS/JS live in `static/` (`STATIC_ROOT`), which WhiteNoise serves but runserver's own static handler does not.
 
-For the browser consoles, start the websocket proxies in separate terminals: `python console/novncd` (VNC, port 6080) and `python console/socketiod` (serial/xterm.js, port 6081).
+For the browser console, start the websocket proxy in a separate terminal: `python console/novncd` (VNC, port 6080). The serial console (`python console/socketiod`, port 6081) is disabled by default; see [Serial Console](#serial-console-disabled-by-default).
 
 ## Compute Node (Hypervisor) Setup
 
@@ -379,6 +378,15 @@ datasource:
   OpenStack:
     metadata_urls: [ "http://webvirtcloud.domain.com/datasource" ]
 ```
+
+### Serial Console (disabled by default)
+
+The xterm.js serial console is served by `console/socketiod`, which does **not authenticate connections yet**: anyone who can reach its port (6081) can read and write a serial console that someone has opened. Until this is fixed, the serial console is disabled:
+
+- the console page shows "Serial console is disabled" for VMs with a `pty` console, and
+- `socketiod` refuses to start, and is not started by the bundled supervisor/systemd configs.
+
+To enable it anyway on a trusted network, set `SERIAL_CONSOLE_ENABLED = True` in `webvirtcloud/settings.py`, set `autostart=true` for `[program:socketiod]` in the supervisor config (or `systemctl enable --now webvirt-socketiod`), and restrict access to port 6081 with a firewall. Existing installs whose `settings.py` predates this setting are treated as disabled.
 
 ### Reverse-Proxy & Port Forwarding
 
