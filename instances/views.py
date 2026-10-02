@@ -1807,8 +1807,12 @@ def change_options(request, pk):
         userinstance = UserInstance(is_change=False)
 
     if request.user.is_superuser or userinstance.is_change:
-        instance.is_template = bool(request.POST.get("is_template", False))
-        instance.save()
+        # Only superusers and staff may (un)mark templates (ROADMAP S-22). The
+        # checkbox is disabled for everyone else, and a disabled checkbox is
+        # not submitted, so for them the flag must be left alone.
+        if request.user.is_superuser or request.user.is_staff:
+            instance.is_template = bool(request.POST.get("is_template", False))
+            instance.save(update_fields=["is_template"])
 
         options = {}
         for post in request.POST:
