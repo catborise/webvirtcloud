@@ -225,7 +225,9 @@ WS_CERT = None
 SERIAL_CONSOLE_ENABLED = False
 
 SOCKETIO_PORT = 6081
-SOCKETIO_HOST = "0.0.0.0"
+# Listen on localhost only and reach socketiod through the nginx /socket.io/
+# location (set SOCKETIO_PUBLIC_PORT to 80 or 443 then).
+SOCKETIO_HOST = "127.0.0.1"
 
 # Socketio public host
 SOCKETIO_PUBLIC_HOST = None
