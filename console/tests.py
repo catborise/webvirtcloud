@@ -525,6 +525,38 @@ class NovncdDaemonLogicTestCase(TestCase):
         with self.assertRaises(PermissionError):
             novncd_mod.get_connection_infos(token)
 
+    def test_get_connection_infos_rejects_signed_token_without_user(self):
+        # The console view always signs host:uuid:user_id; a token without the
+        # user part would skip the per-user access check entirely.
+        compute = Compute.objects.create(
+            name="novnc-2part-compute", hostname="127.0.0.1", login="root", password="", type=1
+        )
+        instance = Instance.objects.create(
+            compute=compute,
+            name="novnc-2part-vm",
+            uuid="66666666-6666-6666-6666-666666666666",
+        )
+        signer = TimestampSigner(salt="console.novnc")
+        token = signer.sign(f"{compute.id}:{instance.uuid}")
+
+        with self.assertRaises(PermissionError):
+            novncd_mod.get_connection_infos(token)
+
+    def test_get_connection_infos_rejects_unsigned_token_even_under_test_runner(self):
+        # sys.argv contains "test" while this suite runs; production code must
+        # not change behaviour based on that.
+        compute = Compute.objects.create(
+            name="novnc-unsigned-compute", hostname="127.0.0.1", login="root", password="", type=1
+        )
+        instance = Instance.objects.create(
+            compute=compute,
+            name="novnc-unsigned-vm",
+            uuid="88888888-8888-8888-8888-888888888888",
+        )
+
+        with self.assertRaises(PermissionError):
+            novncd_mod.get_connection_infos(f"{compute.id}-{instance.uuid}")
+
     def test_get_connection_infos_view_instances_user_is_not_enough(self):
         User = get_user_model()
         viewer = User.objects.create_user(username="novnc_viewer", password="password")
