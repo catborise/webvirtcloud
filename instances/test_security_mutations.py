@@ -297,17 +297,18 @@ class InstanceSecurityMutationsTestCase(TestCase):
             self.assertEqual(res.status_code, 302)
             self.assertIn(f"/instances/{self.instance.id}/#resize", res.url)
 
-    def test_subresource_mutation_allowed_with_is_change(self):
-        # change_user has is_change=True, is_delete=False
+    def test_disk_mutation_denied_with_is_change(self):
+        # change_user has is_change=True, is_delete=False. Disk views are
+        # superuser-only (S-02/S-03/S-04), so is_change alone is not enough.
         self.client.force_login(self.change_user)
-        with patch("instances.models.wvmInstance"), patch("instances.views.wvmStorage"):
-            # delete_vol uses perm_type="change", so it passes get_instance without 403
+        with patch("instances.models.wvmInstance"), patch("instances.views.wvmStorage") as mock_storage:
             res = self.client.post(
                 reverse("instances:delete_vol", args=[self.instance.id]),
                 {"storage": "default", "dev": "vda", "path": "/path"},
                 HTTP_REFERER=f"/instances/{self.instance.id}/",
             )
-            self.assertEqual(res.status_code, 302)
+            self.assertEqual(res.status_code, 403)
+            mock_storage.return_value.del_volume.assert_not_called()
 
     def test_destroy_vm_authorization(self):
         # 1. User with is_change=True but is_delete=False gets 403 when trying to destroy VM

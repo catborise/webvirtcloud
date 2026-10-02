@@ -760,6 +760,15 @@ class wvmInstance(wvmConnect):
         discard_mode=None,
         detect_zeroes_mode=None,
     ):
+        # Every value below is interpolated into disk XML; escape them all so
+        # a quote in a path, serial or option cannot inject XML.
+        esc = util.xml_escape
+        target_dev, source, target_bus = esc(target_dev), esc(source), esc(target_bus)
+        disk_type, disk_device = esc(disk_type), esc(disk_device)
+        driver_name, format_type = esc(driver_name), esc(format_type)
+        serial = esc(serial)
+        cache_mode, io_mode = esc(cache_mode), esc(io_mode)
+        discard_mode, detect_zeroes_mode = esc(discard_mode), esc(detect_zeroes_mode)
 
         additionals = ""
         if (
@@ -822,7 +831,7 @@ class wvmInstance(wvmConnect):
     def detach_disk(self, target_dev):
         tree = etree.fromstring(self._XMLDesc(0))
 
-        disk_el = tree.xpath("./devices/disk/target[@dev='{}']".format(target_dev))[
+        disk_el = tree.xpath("./devices/disk/target[@dev=$dev]", dev=target_dev)[
             0
         ].getparent()
         xml_disk = etree.tostring(disk_el).decode()
@@ -850,13 +859,22 @@ class wvmInstance(wvmConnect):
         detect_zeroes_mode,
     ):
         tree = etree.fromstring(self._XMLDesc(0))
-        disk_el = tree.xpath("./devices/disk/target[@dev='{}']".format(target_dev))[
+        disk_el = tree.xpath("./devices/disk/target[@dev=$dev]", dev=target_dev)[
             0
         ].getparent()
         old_disk_type = disk_el.get("type")
         old_disk_device = disk_el.get("device")
         old_driver_name = disk_el.xpath("driver/@name")[0]
         old_target_bus = disk_el.xpath("target/@bus")[0]
+
+        # Values below are interpolated into disk XML; escape them all.
+        esc = util.xml_escape
+        target_dev, source, target_bus = esc(target_dev), esc(source), esc(target_bus)
+        serial, format = esc(serial), esc(format)
+        cache_mode, io_mode = esc(cache_mode), esc(io_mode)
+        discard_mode, detect_zeroes_mode = esc(discard_mode), esc(detect_zeroes_mode)
+        old_disk_type, old_disk_device = esc(old_disk_type), esc(old_disk_device)
+        old_driver_name = esc(old_driver_name)
 
         additionals = ""
         if cache_mode is not None and cache_mode != "default":
