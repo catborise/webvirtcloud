@@ -421,8 +421,8 @@ def invalid_disk_options(
         "io": (io, lambda v: v in proxy.get_io_modes()),
         "discard": (discard, lambda v: v in proxy.get_discard_modes()),
         "detect_zeroes": (zeroes, lambda v: v in proxy.get_detect_zeroes_modes()),
-        "format": (format, lambda v: bool(DISK_FORMAT_RE.match(v))),
-        "serial": (serial, lambda v: bool(DISK_SERIAL_RE.match(v))),
+        "format": (format, lambda v: bool(DISK_FORMAT_RE.fullmatch(v))),
+        "serial": (serial, lambda v: bool(DISK_SERIAL_RE.fullmatch(v))),
     }
     return [
         name
@@ -823,7 +823,7 @@ def add_new_vol(request, pk):
     cache = request.POST.get("cache", app_settings.INSTANCE_VOLUME_DEFAULT_CACHE)
 
     invalid = invalid_disk_options(instance, bus=bus, cache=cache, format=format)
-    if not VOLUME_NAME_RE.match(name):
+    if not VOLUME_NAME_RE.fullmatch(name):
         invalid.append("name")
     if invalid:
         return reject_disk_options(request, invalid)
@@ -964,6 +964,10 @@ def edit_volume(request, pk):
         zeroes = request.POST.get(
             "vol_detect_zeroes", app_settings.INSTANCE_VOLUME_DEFAULT_DETECT_ZEROES
         )
+        # The form shows "None" (or nothing) for a disk without driver type.
+        if format in ("", "None"):
+            current = next((d for d in instance.disks if d["dev"] == target_dev), {})
+            format = current.get("format") or ""
 
         invalid = invalid_disk_options(
             instance,
@@ -988,7 +992,7 @@ def edit_volume(request, pk):
                 new_target_dev,
                 new_path,
                 target_bus=new_bus,
-                driver_type=format,
+                format_type=format,
                 cache_mode=cache,
                 readonly=readonly,
                 shareable=shareable,
@@ -1603,7 +1607,6 @@ def del_owner(request, pk):
 
 
 MAC_ADDRESS_RE = re.compile(r"^([0-9A-F]{2})(:?[0-9A-F]{2}){5}$", re.IGNORECASE)
-CLONE_DISK_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]*$")
 CLONE_POST_KEY_RE = re.compile(r"^(clone-net-mac-\d+|disk-[a-z0-9]+|meta-[a-z0-9]+)$")
 
 
@@ -1633,7 +1636,7 @@ def clone(request, pk):
     # shows those fields to them.
     if request.user.is_superuser:
         for key, value in request.POST.items():
-            if CLONE_POST_KEY_RE.match(key):
+            if CLONE_POST_KEY_RE.fullmatch(key):
                 clone_data[key] = value.strip()
 
     if app_settings.CLONE_INSTANCE_AUTO_NAME == "True" and not clone_data["name"]:
@@ -1661,12 +1664,12 @@ def clone(request, pk):
     invalid_macs = [
         value
         for key, value in clone_data.items()
-        if key.startswith("clone-net-mac-") and not MAC_ADDRESS_RE.match(value)
+        if key.startswith("clone-net-mac-") and not MAC_ADDRESS_RE.fullmatch(value)
     ]
     invalid_disks = [
         value
         for key, value in clone_data.items()
-        if key.startswith("disk-") and not CLONE_DISK_NAME_RE.match(value or "")
+        if key.startswith("disk-") and not VOLUME_NAME_RE.fullmatch(value or "")
     ]
 
     if not request.user.is_superuser and quota_msg:

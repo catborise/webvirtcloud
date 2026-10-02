@@ -247,3 +247,54 @@ class DiskViewsTenantIsolationTestCase(TestCase):
             "vda", VM_DISK["path"], False, False, "virtio", "SER-01", "qcow2",
             "none", "native", "unmap", "on",
         )
+
+    def _edit_volume_post(self, **extra):
+        data = {
+            "edit_volume": "1",
+            "dev": "vda",
+            "vol_path": VM_DISK["path"],
+            "vol_bus_old": "virtio",
+            "vol_bus": "virtio",
+            "vol_format": "qcow2",
+            "vol_cache": "none",
+        }
+        data.update(extra)
+        return self._post("edit_volume", data)
+
+    def test_edit_volume_bus_change_passes_valid_arguments_to_attach_disk(self):
+        # autospec enforces the real attach_disk signature; a plain MagicMock
+        # would accept the invalid driver_type argument.
+        from vrtManager.instance import wvmInstance
+
+        self.client.force_login(self.superuser)
+        with patch("instances.models.wvmInstance", autospec=wvmInstance) as mock_wvm:
+            proxy = mock_wvm.return_value
+            self._mock_disk_options(proxy)
+            proxy.get_status.return_value = 5
+            res = self._edit_volume_post(vol_bus="sata")
+        self.assertEqual(res.status_code, 302)
+        proxy.attach_disk.assert_called_once()
+        self.assertEqual(proxy.attach_disk.call_args.kwargs["format_type"], "qcow2")
+
+    def test_edit_volume_keeps_current_format_when_field_is_none_or_empty(self):
+        self.client.force_login(self.superuser)
+        for value in ("None", ""):
+            with self.subTest(vol_format=value), patch("instances.models.wvmInstance") as mock_wvm:
+                proxy = mock_wvm.return_value
+                self._mock_disk_options(proxy)
+                self._edit_volume_post(vol_format=value)
+                proxy.edit_disk.assert_called_once()
+                self.assertEqual(proxy.edit_disk.call_args[0][6], VM_DISK["format"])
+
+    def test_disk_names_with_trailing_newline_are_rejected(self):
+        self.client.force_login(self.superuser)
+        with patch("instances.models.wvmInstance") as mock_wvm, patch(
+            "instances.views.wvmCreate"
+        ) as mock_create, patch("instances.views.wvmStorage"):
+            self._mock_disk_options(mock_wvm.return_value)
+            self._post(
+                "add_new_vol",
+                {"storage": "default", "name": "disk\n", "format": "qcow2", "size": "1",
+                 "bus": "virtio", "cache": "default"},
+            )
+        mock_create.return_value.create_volume.assert_not_called()
