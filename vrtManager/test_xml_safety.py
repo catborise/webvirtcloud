@@ -178,3 +178,67 @@ class TestXmlSafety(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDiskXmlEscaping(unittest.TestCase):
+    def _instance(self):
+        inst = wvmInstance.__new__(wvmInstance)
+        inst.get_status = MagicMock(return_value=5)  # shutoff
+        inst.instance = MagicMock()
+        return inst
+
+    def test_attach_disk_escapes_source_and_serial(self):
+        inst = self._instance()
+        inst.attach_disk(
+            "vdb",
+            "/images/a'/><disk type='file",
+            target_bus="virtio",
+            disk_type="file",
+            serial="S1</serial><evil/>",
+        )
+        xml = inst.instance.attachDeviceFlags.call_args[0][0]
+        self.assertIn("file='/images/a&apos;/&gt;&lt;disk type=&apos;file'", xml)
+        self.assertIn("<serial>S1&lt;/serial&gt;&lt;evil/&gt;</serial>", xml)
+        self.assertNotIn("<evil/>", xml)
+
+    def test_edit_disk_escapes_source_and_serial(self):
+        inst = self._instance()
+        inst._XMLDesc = MagicMock(
+            return_value=(
+                "<domain><devices><disk type='file' device='disk'>"
+                "<driver name='qemu' type='qcow2'/>"
+                "<source file='/images/vm.qcow2'/>"
+                "<target dev='vda' bus='virtio'/>"
+                "</disk></devices></domain>"
+            )
+        )
+        inst.edit_disk(
+            "vda",
+            "/images/b'/><x y='",
+            False,
+            False,
+            "virtio",
+            "S2<evil/>",
+            "qcow2",
+            "default",
+            "default",
+            "default",
+            "default",
+        )
+        xml = inst.instance.updateDeviceFlags.call_args[0][0]
+        self.assertIn("file='/images/b&apos;/&gt;&lt;x y=&apos;'", xml)
+        self.assertNotIn("<evil/>", xml)
+
+    def test_detach_disk_does_not_evaluate_dev_as_xpath(self):
+        inst = self._instance()
+        inst._XMLDesc = MagicMock(
+            return_value=(
+                "<domain><devices><disk type='file' device='disk'>"
+                "<source file='/images/vm.qcow2'/>"
+                "<target dev='vda' bus='virtio'/>"
+                "</disk></devices></domain>"
+            )
+        )
+        with self.assertRaises(IndexError):
+            inst.detach_disk("x' or '1'='1")
+        inst.instance.detachDeviceFlags.assert_not_called()

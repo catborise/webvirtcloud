@@ -392,6 +392,54 @@ def serialize_instance_mutation(func):
     return wrapper
 
 
+DISK_FORMAT_RE = re.compile(r"^[a-z0-9]+$")
+DISK_SERIAL_RE = re.compile(r"^[A-Za-z0-9_.+-]*$")
+VOLUME_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]*$")
+
+
+def invalid_disk_options(
+    instance,
+    bus=None,
+    cache=None,
+    io=None,
+    discard=None,
+    zeroes=None,
+    format=None,
+    serial=None,
+):
+    """
+    Return the names of the given disk options whose values are not allowed.
+    These values end up in libvirt disk XML, so they must come from the
+    hypervisor's own lists (or match a strict pattern). None means "not given".
+    """
+    proxy = instance.proxy
+    checks = {
+        "bus": (
+            bus,
+            lambda v: v in proxy.get_disk_bus_types(instance.arch, instance.machine),
+        ),
+        "cache": (cache, lambda v: v in proxy.get_cache_modes()),
+        "io": (io, lambda v: v in proxy.get_io_modes()),
+        "discard": (discard, lambda v: v in proxy.get_discard_modes()),
+        "detect_zeroes": (zeroes, lambda v: v in proxy.get_detect_zeroes_modes()),
+        "format": (format, lambda v: bool(DISK_FORMAT_RE.match(v))),
+        "serial": (serial, lambda v: bool(DISK_SERIAL_RE.match(v))),
+    }
+    return [
+        name
+        for name, (value, is_valid) in checks.items()
+        if value is not None and not is_valid(value)
+    ]
+
+
+def reject_disk_options(request, invalid):
+    messages.error(
+        request,
+        _("Invalid disk options: %(options)s") % {"options": ", ".join(invalid)},
+    )
+    return redirect(request.META.get("HTTP_REFERER") + "#disks")
+
+
 @require_POST
 @serialize_instance_mutation
 def poweron(request, pk):
@@ -761,135 +809,142 @@ def resize_disk(request, pk):
 
 
 @require_POST
+@superuser_only
 @serialize_instance_mutation
 def add_new_vol(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
+    media = instance.proxy.get_media_devices()
+    disks = instance.proxy.get_disk_devices()
+    storage = request.POST.get("storage", "")
+    name = request.POST.get("name", "")
+    format = request.POST.get("format", app_settings.INSTANCE_VOLUME_DEFAULT_FORMAT)
+    size = request.POST.get("size", 0)
+    meta_prealloc = True if request.POST.get("meta_prealloc", False) else False
+    bus = request.POST.get("bus", app_settings.INSTANCE_VOLUME_DEFAULT_BUS)
+    cache = request.POST.get("cache", app_settings.INSTANCE_VOLUME_DEFAULT_CACHE)
+
+    invalid = invalid_disk_options(instance, bus=bus, cache=cache, format=format)
+    if not VOLUME_NAME_RE.match(name):
+        invalid.append("name")
+    if invalid:
+        return reject_disk_options(request, invalid)
+
+    conn_create = wvmCreate(
+        instance.compute.hostname,
+        instance.compute.login,
+        instance.compute.password,
+        instance.compute.type,
+    )
+    target_dev = utils.get_new_disk_dev(media, disks, bus)
+
+    source = conn_create.create_volume(
+        storage,
+        name,
+        size,
+        format,
+        meta_prealloc,
+        int(app_settings.INSTANCE_VOLUME_DEFAULT_OWNER_UID),
+        int(app_settings.INSTANCE_VOLUME_DEFAULT_OWNER_GID),
     )
 
-    if allow_admin_or_not_template:
-        media = instance.proxy.get_media_devices()
-        disks = instance.proxy.get_disk_devices()
-        conn_create = wvmCreate(
-            instance.compute.hostname,
-            instance.compute.login,
-            instance.compute.password,
-            instance.compute.type,
-        )
-        storage = request.POST.get("storage", "")
-        name = request.POST.get("name", "")
-        format = request.POST.get("format", app_settings.INSTANCE_VOLUME_DEFAULT_FORMAT)
-        size = request.POST.get("size", 0)
-        meta_prealloc = True if request.POST.get("meta_prealloc", False) else False
-        bus = request.POST.get("bus", app_settings.INSTANCE_VOLUME_DEFAULT_BUS)
-        cache = request.POST.get("cache", app_settings.INSTANCE_VOLUME_DEFAULT_CACHE)
-        target_dev = utils.get_new_disk_dev(media, disks, bus)
+    conn_pool = wvmStorage(
+        instance.compute.hostname,
+        instance.compute.login,
+        instance.compute.password,
+        instance.compute.type,
+        storage,
+    )
 
-        source = conn_create.create_volume(
-            storage,
-            name,
-            size,
-            format,
-            meta_prealloc,
-            int(app_settings.INSTANCE_VOLUME_DEFAULT_OWNER_UID),
-            int(app_settings.INSTANCE_VOLUME_DEFAULT_OWNER_GID),
-        )
+    pool_type = conn_pool.get_type()
+    disk_type = conn_pool.get_volume_type(os.path.basename(source))
 
-        conn_pool = wvmStorage(
-            instance.compute.hostname,
-            instance.compute.login,
-            instance.compute.password,
-            instance.compute.type,
-            storage,
-        )
+    if pool_type == "rbd":
+        source_info = conn_pool.get_rbd_source()
+    else:  # add more disk types to handle different pool and disk types
+        source_info = None
 
-        pool_type = conn_pool.get_type()
-        disk_type = conn_pool.get_volume_type(os.path.basename(source))
-
-        if pool_type == "rbd":
-            source_info = conn_pool.get_rbd_source()
-        else:  # add more disk types to handle different pool and disk types
-            source_info = None
-
-        instance.proxy.attach_disk(
-            target_dev,
-            source,
-            source_info=source_info,
-            pool_type=pool_type,
-            disk_type=disk_type,
-            target_bus=bus,
-            format_type=format,
-            cache_mode=cache,
-        )
-        msg = _("Attach new disk: %(name)s (%(format)s)") % {
-            "name": name,
-            "format": format,
-        }
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    instance.proxy.attach_disk(
+        target_dev,
+        source,
+        source_info=source_info,
+        pool_type=pool_type,
+        disk_type=disk_type,
+        target_bus=bus,
+        format_type=format,
+        cache_mode=cache,
+    )
+    msg = _("Attach new disk: %(name)s (%(format)s)") % {
+        "name": name,
+        "format": format,
+    }
+    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
 @require_POST
+@superuser_only
 @serialize_instance_mutation
 def add_existing_vol(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
+    storage = request.POST.get("selected_storage", "")
+    name = request.POST.get("vols", "")
+    bus = request.POST.get("bus", app_settings.INSTANCE_VOLUME_DEFAULT_BUS)
+    cache = request.POST.get("cache", app_settings.INSTANCE_VOLUME_DEFAULT_CACHE)
+
+    invalid = invalid_disk_options(instance, bus=bus, cache=cache)
+    if invalid:
+        return reject_disk_options(request, invalid)
+
+    media = instance.proxy.get_media_devices()
+    disks = instance.proxy.get_disk_devices()
+
+    conn_create = wvmStorage(
+        instance.compute.hostname,
+        instance.compute.login,
+        instance.compute.password,
+        instance.compute.type,
+        storage,
     )
-    if allow_admin_or_not_template:
-        storage = request.POST.get("selected_storage", "")
-        name = request.POST.get("vols", "")
-        bus = request.POST.get("bus", app_settings.INSTANCE_VOLUME_DEFAULT_BUS)
-        cache = request.POST.get("cache", app_settings.INSTANCE_VOLUME_DEFAULT_CACHE)
 
-        media = instance.proxy.get_media_devices()
-        disks = instance.proxy.get_disk_devices()
+    # Only volumes that really exist in the selected pool; this also rules
+    # out path traversal through the volume name.
+    if name not in conn_create.get_volumes():
+        return reject_disk_options(request, ["vols"])
 
-        conn_create = wvmStorage(
-            instance.compute.hostname,
-            instance.compute.login,
-            instance.compute.password,
-            instance.compute.type,
-            storage,
-        )
+    format_type = conn_create.get_volume_format_type(name)
+    disk_type = conn_create.get_volume_type(name)
+    pool_type = conn_create.get_type()
+    if pool_type == "rbd":
+        source_info = conn_create.get_rbd_source()
+        path = conn_create.get_source_name()
+    else:
+        source_info = None
+        path = conn_create.get_target_path()
 
-        format_type = conn_create.get_volume_format_type(name)
-        disk_type = conn_create.get_volume_type(name)
-        pool_type = conn_create.get_type()
-        if pool_type == "rbd":
-            source_info = conn_create.get_rbd_source()
-            path = conn_create.get_source_name()
-        else:
-            source_info = None
-            path = conn_create.get_target_path()
+    target_dev = utils.get_new_disk_dev(media, disks, bus)
+    source = f"{path}/{name}"
 
-        target_dev = utils.get_new_disk_dev(media, disks, bus)
-        source = f"{path}/{name}"
-
-        instance.proxy.attach_disk(
-            target_dev,
-            source,
-            source_info=source_info,
-            pool_type=pool_type,
-            disk_type=disk_type,
-            target_bus=bus,
-            format_type=format_type,
-            cache_mode=cache,
-        )
-        msg = _("Attach Existing disk: %(target_dev)s") % {"target_dev": target_dev}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    instance.proxy.attach_disk(
+        target_dev,
+        source,
+        source_info=source_info,
+        pool_type=pool_type,
+        disk_type=disk_type,
+        target_bus=bus,
+        format_type=format_type,
+        cache_mode=cache,
+    )
+    msg = _("Attach Existing disk: %(target_dev)s") % {"target_dev": target_dev}
+    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
 @require_POST
+@superuser_only
 @serialize_instance_mutation
 def edit_volume(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
-    )
-    if "edit_volume" in request.POST and allow_admin_or_not_template:
+    if "edit_volume" in request.POST:
         target_dev = request.POST.get("dev", "")
 
         new_path = request.POST.get("vol_path", "")
@@ -910,6 +965,22 @@ def edit_volume(request, pk):
         zeroes = request.POST.get(
             "vol_detect_zeroes", app_settings.INSTANCE_VOLUME_DEFAULT_DETECT_ZEROES
         )
+
+        invalid = invalid_disk_options(
+            instance,
+            bus=new_bus,
+            cache=cache,
+            io=io,
+            discard=discard,
+            zeroes=zeroes,
+            format=format,
+            serial=serial,
+        )
+        if target_dev not in [disk["dev"] for disk in instance.disks]:
+            invalid.append("dev")
+        if invalid:
+            return reject_disk_options(request, invalid)
+
         new_target_dev = utils.get_new_disk_dev(instance.media, instance.disks, new_bus)
 
         if new_bus != bus:
@@ -959,122 +1030,113 @@ def edit_volume(request, pk):
 
 
 @require_POST
+@superuser_only
 @serialize_instance_mutation
 def delete_vol(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
-    )
-    if allow_admin_or_not_template:
-        storage = request.POST.get("storage", "")
-        conn_delete = wvmStorage(
-            instance.compute.hostname,
-            instance.compute.login,
-            instance.compute.password,
-            instance.compute.type,
-            storage,
+    dev = request.POST.get("dev", "")
+
+    # Resolve the volume from the VM's own XML; never trust the posted
+    # storage/name, which could point at any volume on the compute.
+    disk = next((d for d in instance.disks if d["dev"] == dev), None)
+    if disk is None or not disk["storage"] or not disk["image"]:
+        messages.error(
+            request,
+            _("Disk %(dev)s is not a storage volume of this instance") % {"dev": dev},
         )
-        dev = request.POST.get("dev", "")
-        path = request.POST.get("path", "")
-        name = request.POST.get("name", "")
+        return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
-        msg = _("Delete disk: %(dev)s") % {"dev": dev}
-        instance.proxy.detach_disk(dev)
-        conn_delete.del_volume(name)
+    conn_delete = wvmStorage(
+        instance.compute.hostname,
+        instance.compute.login,
+        instance.compute.password,
+        instance.compute.type,
+        disk["storage"],
+    )
 
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    msg = _("Delete disk: %(dev)s") % {"dev": dev}
+    instance.proxy.detach_disk(dev)
+    conn_delete.del_volume(disk["image"])
+
+    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
 @require_POST
+@superuser_only
 @serialize_instance_mutation
 def detach_vol(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
-    )
-
-    if allow_admin_or_not_template:
-        dev = request.POST.get("dev", "")
-        path = request.POST.get("path", "")
-        instance.proxy.detach_disk(dev)
-        msg = _("Detach disk: %(dev)s") % {"dev": dev}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    dev = request.POST.get("dev", "")
+    instance.proxy.detach_disk(dev)
+    msg = _("Detach disk: %(dev)s") % {"dev": dev}
+    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
 
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
 @require_POST
+@superuser_only
 @serialize_instance_mutation
 def add_cdrom(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
+    bus = request.POST.get("bus", "ide" if instance.machine == "pc" else "sata")
+    invalid = invalid_disk_options(instance, bus=bus)
+    if invalid:
+        return reject_disk_options(request, invalid)
+
+    target = utils.get_new_disk_dev(instance.media, instance.disks, bus)
+    instance.proxy.attach_disk(
+        target,
+        "",
+        disk_device="cdrom",
+        cache_mode="none",
+        target_bus=bus,
+        readonly=True,
     )
-    if allow_admin_or_not_template:
-        bus = request.POST.get("bus", "ide" if instance.machine == "pc" else "sata")
-        target = utils.get_new_disk_dev(instance.media, instance.disks, bus)
-        instance.proxy.attach_disk(
-            target,
-            "",
-            disk_device="cdrom",
-            cache_mode="none",
-            target_bus=bus,
-            readonly=True,
-        )
-        msg = _("Add CD-ROM: %(target)s") % {"target": target}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    msg = _("Add CD-ROM: %(target)s") % {"target": target}
+    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
 
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
 @require_POST
+@superuser_only
 @serialize_instance_mutation
 def detach_cdrom(request, pk, dev):
     instance = get_instance(request.user, pk, perm_type="change")
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
-    )
-
-    if allow_admin_or_not_template:
-        # dev = request.POST.get('detach_cdrom', '')
-        instance.proxy.detach_disk(dev)
-        msg = _("Detach CD-ROM: %(dev)s") % {"dev": dev}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    # dev = request.POST.get('detach_cdrom', '')
+    instance.proxy.detach_disk(dev)
+    msg = _("Detach CD-ROM: %(dev)s") % {"dev": dev}
+    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
 
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
 @require_POST
+@superuser_only
 @serialize_instance_mutation
 def unmount_iso(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
-    )
-    if allow_admin_or_not_template:
-        image = request.POST.get("path", "")
-        dev = request.POST.get("umount_iso", "")
-        instance.proxy.umount_iso(dev, image)
-        msg = _("Mount media: %(dev)s") % {"dev": dev}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    image = request.POST.get("path", "")
+    dev = request.POST.get("umount_iso", "")
+    instance.proxy.umount_iso(dev, image)
+    msg = _("Mount media: %(dev)s") % {"dev": dev}
+    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
 
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
 
 @require_POST
+@superuser_only
 @serialize_instance_mutation
 def mount_iso(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
-    )
-    if allow_admin_or_not_template:
-        image = request.POST.get("media", "")
-        dev = request.POST.get("mount_iso", "")
-        instance.proxy.mount_iso(dev, image)
-        msg = _("Unmount media: %(dev)s") % {"dev": dev}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    image = request.POST.get("media", "")
+    dev = request.POST.get("mount_iso", "")
+    instance.proxy.mount_iso(dev, image)
+    msg = _("Unmount media: %(dev)s") % {"dev": dev}
+    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
 
     return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
