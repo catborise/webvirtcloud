@@ -11,6 +11,7 @@ from django.contrib.auth.models import Permission
 from django.core.signing import TimestampSigner
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils.html import escapejs
 from instances.models import Instance
 from libvirt import libvirtError
 
@@ -174,6 +175,21 @@ class ConsoleViewsTestCase(TestCase):
         # Non-permitted user attempting to view other user's instance
         self.assertEqual(response.status_code, 403)
         self.assertIn("permission", response.content.decode("utf-8").lower())
+
+    @patch("console.views.wvmInstance")
+    def test_console_lite_uses_the_signed_token_not_the_url_token(self, mock_wvm):
+        mock_conn = MagicMock()
+        mock_conn.get_console_type.return_value = "vnc"
+        mock_conn.get_console_websocket_port.return_value = None
+        mock_wvm.return_value = mock_conn
+
+        self.client.force_login(self.admin_user)
+        response = self.client.get(reverse("console") + f"?token={self.token}")
+
+        signed = response.context["token"]
+        self.assertNotEqual(signed, self.token)
+        self.assertNotContains(response, "readQueryVariable('token'")
+        self.assertContains(response, f"const token = '{escapejs(signed)}'")
 
     @patch("console.views.wvmInstance")
     def test_console_token_cookie_flags(self, mock_wvm):

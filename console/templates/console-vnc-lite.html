@@ -294,7 +294,7 @@
     } else {
         url += '/';
     }
-    const token = readQueryVariable('token', '{{ token|escapejs }}');
+    const token = '{{ token|escapejs }}';
     if (token) {
         url += (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
     }
