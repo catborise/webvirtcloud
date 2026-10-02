@@ -17,6 +17,19 @@ if ROOT_PATH not in sys.path:
 
 django.setup()
 
+from django.conf import settings as django_settings
+
+# socketiod does not authenticate connections yet (ROADMAP S-01): any client
+# that can reach the port can read and write an open serial console. Refuse
+# to start unless an admin explicitly opts in.
+if not getattr(django_settings, "SERIAL_CONSOLE_ENABLED", False):
+    sys.stderr.write(
+        "socketiod: the serial console is disabled (SERIAL_CONSOLE_ENABLED is not "
+        "True in settings). It is unauthenticated; only enable it on a trusted "
+        "network.\n"
+    )
+    sys.exit(1)
+
 import re
 import tempfile
 import io

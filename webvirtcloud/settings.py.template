@@ -218,6 +218,12 @@ WS_PUBLIC_PATH = "novncd/"
 # Websock Certificate for SSL
 WS_CERT = None
 
+# Serial console (xterm.js over socketiod). Disabled by default: socketiod does
+# not authenticate connections yet, so anyone who can reach SOCKETIO_PORT can
+# read and write an open serial console. Only enable it on a trusted network,
+# and also start the socketiod service (autostart=false in the supervisor config).
+SERIAL_CONSOLE_ENABLED = False
+
 SOCKETIO_PORT = 6081
 SOCKETIO_HOST = "0.0.0.0"
 

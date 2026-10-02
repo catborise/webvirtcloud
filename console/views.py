@@ -133,6 +133,16 @@ def console(request):
     if console_type == "vnc":
         console_page = "console-vnc-" + view_type + ".html"
         response = render(request, console_page, locals())
+    elif console_type == "pty" and not getattr(
+        settings, "SERIAL_CONSOLE_ENABLED", False
+    ):
+        # socketiod does not authenticate connections yet (ROADMAP S-01), so
+        # the serial console stays off unless an admin explicitly enables it.
+        console_error = _(
+            "Serial console is disabled on this server. "
+            "Please switch VM graphics to VNC or ask an administrator."
+        )
+        response = render(request, "console-vnc-lite.html", locals())
     elif console_type == "pty":
         socketio_public_host = getattr(settings, "SOCKETIO_PUBLIC_HOST", None)
         socketio_public_port = getattr(settings, "SOCKETIO_PUBLIC_PORT", 6081)
