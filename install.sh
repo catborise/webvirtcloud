@@ -84,7 +84,9 @@ LOG_FILE="/var/log/webvirtcloud-install.log"
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
 if ! touch "$LOG_FILE" 2>/dev/null; then
     LOG_FILE="/tmp/webvirtcloud-install.log"
+    touch "$LOG_FILE"
 fi
+chmod 600 "$LOG_FILE" 2>/dev/null || true
 
 echo "* Executing installer ($INSTALLER)..."
 echo "* Output is logged to $LOG_FILE"

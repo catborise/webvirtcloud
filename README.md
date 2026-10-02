@@ -129,7 +129,7 @@ source venv/bin/activate
 pip install -r conf/requirements.txt
 
 # 6. Database migrations and static files
-# (the first migrate creates the "admin" user and prints its generated password)
+# (the first migrate creates the "admin" user; its password is in data/admin_password)
 python3 manage.py migrate
 python3 manage.py collectstatic --noinput
 
@@ -161,7 +161,7 @@ source venv/bin/activate
 pip install -r conf/requirements.txt
 
 # 5. Database migrations and static files
-# (the first migrate creates the "admin" user and prints its generated password)
+# (the first migrate creates the "admin" user; its password is in data/admin_password)
 python3 manage.py migrate
 python3 manage.py collectstatic --noinput
 
@@ -209,7 +209,7 @@ source venv/bin/activate
 pip install -r conf/requirements.txt
 
 # 5. Database migrations and static files
-# (the first migrate creates the "admin" user and prints its generated password)
+# (the first migrate creates the "admin" user; its password is in data/admin_password)
 python3 manage.py migrate
 python3 manage.py collectstatic --noinput
 
@@ -269,7 +269,7 @@ mkdir -p data && python conf/runit/secret_generator.py > data/secret_key && chmo
 ### 4. Migrate and run the dev server
 
 ```bash
-# The first migrate creates the "admin" user and prints its generated password.
+# The first migrate creates the "admin" user; its password is in data/admin_password.
 # Set ADMIN_PASSWORD beforehand to choose it yourself.
 python manage.py migrate
 
@@ -347,12 +347,7 @@ sudo zypper install -y dmidecode && sudo systemctl restart libvirtd
 
 ### Default Credentials
 
-The first `python3 manage.py migrate` on an empty database creates a superuser named `admin` with a random password and prints it to the console:
-
-```text
-* Generated random admin password: <password>
-* Creating default admin user 'admin'
-```
+The first `python3 manage.py migrate` on an empty database creates a superuser named `admin` with a random password, written to `data/admin_password` (mode 0600). In Docker: `docker compose exec webvirtcloud cat data/admin_password`.
 
 Set `ADMIN_USERNAME` and/or `ADMIN_PASSWORD` in the environment before that first migrate to choose them yourself. Then sign in at `http://<server-ip>`.
 

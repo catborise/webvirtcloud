@@ -296,7 +296,7 @@ install_webvirtcloud () {
   cp "$APP_PATH/webvirtcloud/settings.py.template" "$APP_PATH/webvirtcloud/settings.py"
   
   secret_key=$(generate_secret_key)
-  echo "* Secret for Django generated: $secret_key"
+  echo "* Secret for Django generated."
   tzone_escape="$(echo -n "$tzone"|sed -e 's/[](){}<>=:\!\?\+\|\/\&$*.^[]/\\&/g')"
   secret_key_escape="$(echo -n "$secret_key"|sed -e 's/[](){}<>=:\!\?\+\|\/\&$*.^[]/\\&/g')"
   novncd_port_escape="$(echo -n "$novncd_port"|sed -e 's/[](){}<>=:\!\?\+\|\/\&$*.^[]/\\&/g')"

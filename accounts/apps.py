@@ -26,6 +26,29 @@ def apply_change_password(sender, **kwargs):
         print("\033[1m! Don`t forget to remove the option from settings.py\033[0m")
 
 
+def _store_generated_password(password):
+    """
+    Write the generated admin password to data/admin_password (mode 0600)
+    instead of printing it, so it does not end up in install logs or
+    `docker logs` (ROADMAP O-02). Falls back to printing if the file cannot
+    be written, so the admin is never locked out.
+    """
+    import os
+
+    from django.conf import settings
+
+    path = os.path.join(str(settings.BASE_DIR), "data", "admin_password")
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(password + "\n")
+        os.chmod(path, 0o600)
+        print(f"\033[1m* \033[93mGenerated admin password written to {path}\033[0m")
+    except OSError:
+        print(f"\033[1m* \033[93mGenerated random admin password: {password}\033[0m")
+
+
 def create_admin(sender, **kwargs):
     """
     Create initial admin user
@@ -54,9 +77,7 @@ def create_admin(sender, **kwargs):
                         admin_pass = "admin"
                     else:
                         admin_pass = secrets.token_urlsafe(16)
-                        print(
-                            f"\033[1m* \033[93mGenerated random admin password: {admin_pass}\033[0m"
-                        )
+                        _store_generated_password(admin_pass)
 
                 print(f"\033[1m* \033[92mCreating default admin user '{admin_user}'\033[0m")
                 admin = User.objects.create_superuser(admin_user, None, admin_pass)
