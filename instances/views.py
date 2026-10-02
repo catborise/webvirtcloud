@@ -610,6 +610,24 @@ def migrate(request, pk):
     )
 
 
+GSTFSD_PORT = 16510
+GSTFSD_TIMEOUT = 120  # gstfsd starts a guestfs appliance, which takes a while
+
+
+def gstfsd_request(hostname, data):
+    """Send one request to gstfsd and return its JSON reply, or an error reply."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(GSTFSD_TIMEOUT)
+    try:
+        s.connect((hostname, GSTFSD_PORT))
+        s.send(json.dumps(data).encode())
+        return json.loads(s.recv(1024).strip())
+    except (OSError, ValueError) as err:
+        return {"return": "error", "message": _("gstfsd error: %(err)s") % {"err": err}}
+    finally:
+        s.close()
+
+
 @require_POST
 @serialize_instance_mutation
 def set_root_pass(request, pk):
@@ -618,16 +636,11 @@ def set_root_pass(request, pk):
     if request.method == "POST":
         passwd = request.POST.get("passwd", None)
         if passwd:
-            passwd_hash = crypt.crypt(passwd, "$6$kgPoiREy")
+            passwd_hash = crypt.crypt(passwd, crypt.mksalt(crypt.METHOD_SHA512))
             data = {"action": "password", "passwd": passwd_hash, "vname": instance.name}
 
             if instance.proxy.get_status() == 5:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.connect((instance.compute.hostname, 16510))
-                s.send(bytes(json.dumps(data).encode()))
-                d = s.recv(1024).strip()
-                result = json.loads(d)
-                s.close()
+                result = gstfsd_request(instance.compute.hostname, data)
                 if result["return"] == "success":
                     msg = _("Reset root password")
                     addlogmsg(
@@ -659,11 +672,7 @@ def add_public_key(request, pk):
         }
 
         if instance.proxy.get_status() == 5:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.connect((instance.compute.hostname, 16510))
-            s.send(json.dumps(data).encode())
-            result = json.loads(s.recv(1024))
-            s.close()
+            result = gstfsd_request(instance.compute.hostname, data)
             if result["return"] == "error":
                 msg = result["message"]
             else:

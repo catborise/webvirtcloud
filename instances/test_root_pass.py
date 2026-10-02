@@ -1,4 +1,5 @@
 import json
+import socket
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
@@ -43,8 +44,9 @@ class SetRootPassTestCase(TestCase):
         data = json.loads(sent_bytes.decode())
         self.assertEqual(data["action"], "password")
         self.assertEqual(data["vname"], "root-pass-vm")
-        # SHA-512 crypt starts with $6$kgPoiREy$
-        self.assertTrue(data["passwd"].startswith("$6$kgPoiREy$"))
+        # SHA-512 crypt with a random salt (ROADMAP S-08), not the old fixed one
+        self.assertTrue(data["passwd"].startswith("$6$"))
+        self.assertFalse(data["passwd"].startswith("$6$kgPoiREy$"))
 
     def test_set_root_pass_get_not_allowed(self):
         response = self.client.get(reverse("instances:rootpasswd", args=[self.instance.id]))
@@ -53,3 +55,54 @@ class SetRootPassTestCase(TestCase):
     def test_set_root_pass_not_found(self):
         response = self.client.post(reverse("instances:rootpasswd", args=[99999]), {"passwd": "secret"})
         self.assertEqual(response.status_code, 404)
+
+    @patch("socket.socket")
+    @patch.object(Instance, "proxy")
+    def test_same_password_gets_a_different_salt_each_time(self, mock_proxy, mock_socket_cls):
+        mock_proxy.get_status.return_value = 5
+        mock_sock = MagicMock()
+        mock_socket_cls.return_value = mock_sock
+        mock_sock.recv.return_value = json.dumps({"return": "success"}).encode()
+        url = reverse("instances:rootpasswd", args=[self.instance.id])
+
+        self.client.post(url, {"passwd": "samePassword1"})
+        self.client.post(url, {"passwd": "samePassword1"})
+
+        hashes = [json.loads(c[0][0].decode())["passwd"] for c in mock_sock.send.call_args_list]
+        self.assertEqual(len(hashes), 2)
+        self.assertNotEqual(hashes[0], hashes[1])
+
+    @patch("socket.socket")
+    @patch.object(Instance, "proxy")
+    def test_unreachable_gstfsd_is_an_error_message_not_a_crash(self, mock_proxy, mock_socket_cls):
+        mock_proxy.get_status.return_value = 5
+        mock_sock = MagicMock()
+        mock_socket_cls.return_value = mock_sock
+        mock_sock.connect.side_effect = socket.timeout("timed out")
+
+        response = self.client.post(
+            reverse("instances:rootpasswd", args=[self.instance.id]), {"passwd": "x"}
+        )
+
+        self.assertEqual(response.status_code, 302)
+        mock_sock.settimeout.assert_called()
+
+    @patch("socket.socket")
+    @patch.object(Instance, "proxy")
+    def test_add_public_key_unreachable_gstfsd_is_an_error_message(self, mock_proxy, mock_socket_cls):
+        from accounts.models import UserSSHKey
+        from django.contrib.auth import get_user_model
+
+        admin = get_user_model().objects.get(username="admin")
+        key = UserSSHKey.objects.create(user=admin, keyname="k", keypublic="ssh-ed25519 AAAA k")
+        mock_proxy.get_status.return_value = 5
+        mock_sock = MagicMock()
+        mock_socket_cls.return_value = mock_sock
+        mock_sock.connect.side_effect = ConnectionRefusedError()
+
+        response = self.client.post(
+            reverse("instances:add_public_key", args=[self.instance.id]), {"sshkeyid": key.id}
+        )
+
+        self.assertEqual(response.status_code, 302)
+        mock_sock.settimeout.assert_called()

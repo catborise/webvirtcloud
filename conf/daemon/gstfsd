@@ -3,14 +3,35 @@
 # gstfsd - WebVirtCloud daemon for managing VM's filesystem
 #
 
+import ipaddress
 import os
 import socketserver
 import json
-import guestfs
 import re
+import sys
 
 PORT = int(os.environ.get("GSTFSD_PORT", 16510))
 ADDRESS = os.environ.get("GSTFSD_BIND_HOST", "127.0.0.1")
+
+
+def is_loopback(host):
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host == "localhost"
+
+
+# gstfsd is an unauthenticated root service that rewrites any VM's
+# /etc/shadow and authorized_keys, so it only listens on loopback unless
+# explicitly allowed (ROADMAP S-08).
+if not is_loopback(ADDRESS) and os.environ.get("GSTFSD_ALLOW_REMOTE") != "1":
+    sys.stderr.write(
+        "gstfsd: refusing to listen on %s (unauthenticated root service). "
+        "Set GSTFSD_ALLOW_REMOTE=1 to allow it on a trusted network.\n" % ADDRESS
+    )
+    sys.exit(1)
+
+import guestfs  # noqa: E402
 
 
 class MyTCPServer(socketserver.ThreadingTCPServer):
@@ -38,15 +59,15 @@ class MyTCPServerHandler(socketserver.BaseRequestHandler):
                             new_root_hash = "root:" + data['passwd'] + ":"
                             file_shadow_new = re.sub('^root:.*?:', new_root_hash, file_shadow)
                             gfs.write('/etc/shadow', file_shadow_new)
-                            gfs.chmod(640, '/etc/shadow')
-                            self.request.sendall(json.dumps({'return': 'success'}))
+                            gfs.chmod(0o640, '/etc/shadow')
+                            self.request.sendall(json.dumps({'return': 'success'}).encode())
                         if data['action'] == 'publickey':
                             if not gfs.is_dir('/root/.ssh'):
                                 gfs.mkdir('/root/.ssh')
-                                gfs.chmod(700, "/root/.ssh")
+                                gfs.chmod(0o700, "/root/.ssh")
                             gfs.write('/root/.ssh/authorized_keys', data['key'])
-                            gfs.chmod(600, '/root/.ssh/authorized_keys')
-                            self.request.sendall(json.dumps({'return': 'success'}))
+                            gfs.chmod(0o600, '/root/.ssh/authorized_keys')
+                            self.request.sendall(json.dumps({'return': 'success'}).encode())
                     gfs.umount(part)
                 except RuntimeError:
                     pass

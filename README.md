@@ -315,7 +315,7 @@ sudo -u www-data ssh-copy-id root@<compute-node-ip>
 
 ### 3. Install or Update `gstfsd` Daemon
 
-The `gstfsd` daemon provides guest filesystem inspection and stats on hypervisors:
+The `gstfsd` daemon sets the root password and SSH key of a shut-off VM. It listens on 127.0.0.1 only; for a remote compute set `GSTFSD_BIND_HOST` and `GSTFSD_ALLOW_REMOTE=1` (it is unauthenticated, so trusted networks only):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/daemon/gstfsd | sudo tee /usr/local/bin/gstfsd > /dev/null
