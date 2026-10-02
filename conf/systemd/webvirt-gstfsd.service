@@ -8,6 +8,9 @@ Type=simple
 Restart=on-failure
 RestartSec=10
 LimitNOFILE=64000
+# Remote compute (unauthenticated root service, trusted networks only):
+#Environment=GSTFSD_BIND_HOST=0.0.0.0
+#Environment=GSTFSD_ALLOW_REMOTE=1
 
 ExecStart=/usr/bin/python3 /usr/local/bin/gstfsd
 
