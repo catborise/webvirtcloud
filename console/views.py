@@ -166,5 +166,8 @@ def console(request):
             }
         response = render(request, "console-vnc-lite.html", locals())
 
-    response.set_cookie("token", token)
+    # Only novncd reads this cookie; JavaScript gets the token from the page.
+    response.set_cookie(
+        "token", token, httponly=True, samesite="Lax", secure=request.is_secure()
+    )
     return response

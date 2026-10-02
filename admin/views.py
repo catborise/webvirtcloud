@@ -8,6 +8,7 @@ from django.contrib.auth.models import Group, User
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext_lazy as _
+from django.views.decorators.http import require_POST
 from logs.models import Logs
 
 from . import forms
@@ -180,6 +181,7 @@ def user_delete(request, pk):
     )
 
 
+@require_POST
 @superuser_only
 def user_block(request, pk):
     user: User = get_object_or_404(User, pk=pk)
@@ -188,6 +190,7 @@ def user_block(request, pk):
     return redirect("admin:user_list")
 
 
+@require_POST
 @superuser_only
 def user_unblock(request, pk):
     user: User = get_object_or_404(User, pk=pk)

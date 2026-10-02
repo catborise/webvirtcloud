@@ -102,11 +102,21 @@ class AdminTestCase(TestCase):
         self.assertEqual(ua.max_memory, 2048)
         self.assertEqual(ua.max_disk_size, 8)
 
+        # Blocking changes state, so a GET (e.g. an <img> tag) must not do it.
+        User.objects.filter(id=user_id).update(is_active=True)
         response = self.client.get(reverse("admin:user_block", args=[user_id]))
+        self.assertEqual(response.status_code, 405)
+        self.assertTrue(User.objects.get(id=user_id).is_active)
+
+        response = self.client.post(reverse("admin:user_block", args=[user_id]))
         user = User.objects.get(id=user_id)
         self.assertFalse(user.is_active)
 
         response = self.client.get(reverse("admin:user_unblock", args=[user_id]))
+        self.assertEqual(response.status_code, 405)
+        self.assertFalse(User.objects.get(id=user_id).is_active)
+
+        response = self.client.post(reverse("admin:user_unblock", args=[user_id]))
         user = User.objects.get(id=user_id)
         self.assertTrue(user.is_active)
 

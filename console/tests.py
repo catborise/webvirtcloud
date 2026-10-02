@@ -176,6 +176,21 @@ class ConsoleViewsTestCase(TestCase):
         self.assertIn("permission", response.content.decode("utf-8").lower())
 
     @patch("console.views.wvmInstance")
+    def test_console_token_cookie_flags(self, mock_wvm):
+        # ROADMAP S-11: the token cookie is only read by novncd, never by JS.
+        mock_conn = MagicMock()
+        mock_conn.get_console_type.return_value = "vnc"
+        mock_conn.get_console_websocket_port.return_value = None
+        mock_wvm.return_value = mock_conn
+
+        self.client.force_login(self.admin_user)
+        response = self.client.get(reverse("console") + f"?token={self.token}")
+
+        cookie = response.cookies["token"]
+        self.assertTrue(cookie["httponly"])
+        self.assertEqual(cookie["samesite"], "Lax")
+
+    @patch("console.views.wvmInstance")
     def test_console_view_instances_perm_does_not_open_console(self, mock_wvm):
         # ROADMAP S-09: global view_instances is a read-only role; the console
         # is for superusers and VM owners only.

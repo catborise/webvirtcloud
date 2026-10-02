@@ -9,9 +9,11 @@
 
 {% block page_heading_extra %}
 {% if otp_enabled %}
-<a href="{% url 'accounts:admin_email_otp' user.id %}" class="btn btn-secondary" title="{% trans "Email OTP QR code" %}">
-    {% bs_icon 'qr-code' %}
-</a>
+<form method="post" action="{% url 'accounts:admin_email_otp' user.id %}" class="d-inline">{% csrf_token %}
+    <button type="submit" class="btn btn-secondary" title="{% trans "Email OTP QR code" %}">
+        {% bs_icon 'qr-code' %}
+    </button>
+</form>
 {% endif %}
 <a href="{% url 'admin:user_update' user.id %}?next={% url 'accounts:account' user.id %}" class="btn btn-primary" title="{% trans "Edit user" %}">
     {% bs_icon 'pencil' %}

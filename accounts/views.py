@@ -9,6 +9,7 @@ from django.urls import reverse
 from django.http import HttpResponseRedirect
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
+from django.views.decorators.http import require_POST
 from instances.models import Instance
 
 from accounts.forms import EmailOTPForm, ProfileForm, UserSSHKeyForm
@@ -205,6 +206,7 @@ def email_otp(request):
     )
 
 
+@require_POST
 @superuser_only
 def admin_email_otp(request, user_id):
     user = get_object_or_404(get_user_model(), pk=user_id)

@@ -60,9 +60,13 @@
                                 <a class="btn btn-success" title="{%trans "View Profile" %}" href="{% url 'accounts:account' user.id %}">{% bs_icon 'eye-fill' %}</a>
                                 <a class="btn btn-primary" title="{%trans "Edit" %}" href="{% url 'admin:user_update' user.id %}">{% bs_icon 'pencil-fill' %}</a>
                                 {% if user.is_active %}
-                                    <a class="btn btn-warning" title="{%trans "Block" %}" href="{% url 'admin:user_block' user.id %}">{% bs_icon 'stop-fill' %}</a>
+                                    <form method="post" action="{% url 'admin:user_block' user.id %}">{% csrf_token %}
+                                        <button type="submit" class="btn btn-warning rounded-0" title="{%trans "Block" %}">{% bs_icon 'stop-fill' %}</button>
+                                    </form>
                                 {% else %}
-                                    <a class="btn btn-success" title="{%trans "Unblock" %}" href="{% url 'admin:user_unblock' user.id %}">{% bs_icon 'play-fill' %}</a>
+                                    <form method="post" action="{% url 'admin:user_unblock' user.id %}">{% csrf_token %}
+                                        <button type="submit" class="btn btn-success rounded-0" title="{%trans "Unblock" %}">{% bs_icon 'play-fill' %}</button>
+                                    </form>
                                 {% endif %}
                                 <a class="btn btn-danger" title="{%trans "Delete" %}" href="{% url 'admin:user_delete' user.id %}">{% bs_icon 'x-circle-fill' %}</a>
                             </div>
