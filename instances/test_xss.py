@@ -81,6 +81,20 @@ class JsonEndpointContentTypeTestCase(TestCase):
             self.client.get(reverse("ds_openstack_metadata", args=["latest"]))
         )
 
+    def test_compute_json_endpoints_are_json(self):
+        urls = [
+            reverse("compute_graph", args=[self.compute.id]),
+            reverse("machines", args=[self.compute.id, "x86_64"]),
+            reverse("buses", args=[self.compute.id, "x86_64", "q35", "disk"]),
+            reverse("domcaps", args=[self.compute.id, "x86_64", "q35"]),
+        ]
+        with patch("computes.views.ComputeManager") as mock_mgr:
+            for method in ("compute_graph", "get_machine_types", "get_disk_buses", "get_dom_capabilities"):
+                getattr(mock_mgr.return_value, method).return_value = "{}"
+            for url in urls:
+                with self.subTest(url=url):
+                    self.assertJson(self.client.get(url))
+
     def test_vm_logs_is_json(self):
         self.assertJson(self.client.get(reverse("vm_logs", args=[self.instance.name])))
 
@@ -105,6 +119,10 @@ class TemplateHtmlConcatenationTestCase(TestCase):
         src = self._read("instances/templates/instance.html")
         self.assertNotIn("'<option value=' + item", src)
         self.assertNotIn('pool + "<span', src)
+
+    def test_create_wizard_chipset_list_does_not_concatenate_into_html(self):
+        src = self._read("instances/templates/create_instance_w1.html")
+        self.assertNotIn("""append('<option value="' + item""", src)
 
     def test_create_wizard_volume_lists_do_not_concatenate_volume_names_into_html(self):
         src = self._read("instances/templates/create_instance_w2.html")

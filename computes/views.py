@@ -141,10 +141,7 @@ def compute_graph(request, compute_id):
     comp_mgr = ComputeManager(compute_id)
     data = comp_mgr.compute_graph()
 
-    response = HttpResponse()
-    response["Content-Type"] = "text/javascript"
-    response.write(data)
-    return response
+    return HttpResponse(data, content_type="application/json")
 
 
 def get_compute_disk_buses(request, compute_id, arch, machine, disk):
@@ -157,7 +154,7 @@ def get_compute_disk_buses(request, compute_id, arch, machine, disk):
     :return:
     """
     comp_mgr = ComputeManager(compute_id)
-    return HttpResponse(comp_mgr.get_disk_buses(arch, machine, disk))
+    return HttpResponse(comp_mgr.get_disk_buses(arch, machine, disk), content_type="application/json")
 
 
 def get_compute_machine_types(request, compute_id, arch):
@@ -168,7 +165,7 @@ def get_compute_machine_types(request, compute_id, arch):
     :return:
     """
     comp_mgr = ComputeManager(compute_id)
-    return HttpResponse(comp_mgr.get_machine_types(arch))
+    return HttpResponse(comp_mgr.get_machine_types(arch), content_type="application/json")
 
 
 def get_compute_video_models(request, compute_id, arch, machine):
@@ -180,7 +177,7 @@ def get_compute_video_models(request, compute_id, arch, machine):
     :return:
     """
     comp_mgr = ComputeManager(compute_id)
-    return HttpResponse(comp_mgr.get_video_models(arch, machine))
+    return HttpResponse(comp_mgr.get_video_models(arch, machine), content_type="application/json")
 
 
 def get_dom_capabilities(request, compute_id, arch, machine):
@@ -192,7 +189,7 @@ def get_dom_capabilities(request, compute_id, arch, machine):
     :return:
     """
     comp_mgr = ComputeManager(compute_id)
-    return HttpResponse(comp_mgr.get_dom_capabilities(arch, machine))
+    return HttpResponse(comp_mgr.get_dom_capabilities(arch, machine), content_type="application/json")
 
 
 class ComputeManager:
