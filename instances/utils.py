@@ -250,3 +250,18 @@ def get_clone_disk_name(disk, prefix, clone_name=""):
     else:
         image = f"{disk['image']}-clone"
     return image
+
+
+def can_manage_console(user, instance):
+    """
+    Who may see and change a VM's console settings, including its VNC
+    password: an active superuser, or an active owner with both is_change and
+    is_vnc. is_staff and the global view_instances permission do not count.
+    """
+    if not user.is_active:
+        return False
+    if user.is_superuser:
+        return True
+    return UserInstance.objects.filter(
+        instance=instance, user=user, is_change=True, is_vnc=True
+    ).exists()

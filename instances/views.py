@@ -79,14 +79,19 @@ def instance(request, pk):
     console_types = AppSettings.objects.get(
         key="QEMU_CONSOLE_DEFAULT_TYPE"
     ).choices_as_list()
-    console_form = ConsoleForm(
-        initial={
-            "type": instance.console_type,
-            "listen_on": instance.console_listener_address,
-            "password": instance.console_passwd,
-            "keymap": instance.console_keymap,
-        }
-    )
+    # The console form renders the VNC password, so only users who may manage
+    # console settings get the form (and the password) at all.
+    can_manage_console = utils.can_manage_console(request.user, instance)
+    console_form = None
+    if can_manage_console:
+        console_form = ConsoleForm(
+            initial={
+                "type": instance.console_type,
+                "listen_on": instance.console_listener_address,
+                "password": instance.console_passwd,
+                "keymap": instance.console_keymap,
+            }
+        )
     console_listener_addresses = settings.QEMU_CONSOLE_LISTENER_ADDRESSES
     bottom_bar = app_settings.VIEW_INSTANCE_DETAIL_BOTTOM_BAR
     allow_admin_or_not_template = (
@@ -1639,12 +1644,8 @@ def clone(request, pk):
 @serialize_instance_mutation
 def update_console(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    try:
-        userinstance = instance.userinstance_set.get(user=request.user)
-    except Exception:
-        userinstance = UserInstance(is_vnc=False)
 
-    if request.user.is_superuser or userinstance.is_vnc:
+    if utils.can_manage_console(request.user, instance):
         form = ConsoleForm(request.POST or None)
         if form.is_valid():
             if (
