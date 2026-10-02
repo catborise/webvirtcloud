@@ -1,4 +1,3 @@
-import json
 import os
 import re
 
@@ -6,7 +5,7 @@ from admin.decorators import superuser_only
 from appsettings.settings import app_settings
 from computes.models import Compute
 from django.contrib import messages
-from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
+from django.http import HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -337,4 +336,4 @@ def get_volumes(request, compute_id, pool):
         data["vols"] = sorted(conn.get_volumes())
     except libvirtError:
         pass
-    return HttpResponse(json.dumps(data))
+    return JsonResponse(data)

@@ -1,7 +1,6 @@
-import json
 import logging
 
-from django.http import HttpResponse
+from django.http import JsonResponse
 
 from admin.decorators import superuser_only
 from instances.models import Instance
@@ -42,4 +41,4 @@ def vm_logs(request, vname):
         log["date"] = l.date.strftime("%x %X")
         logs.append(log)
 
-    return HttpResponse(json.dumps(logs))
+    return JsonResponse(logs, safe=False)

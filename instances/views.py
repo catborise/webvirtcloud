@@ -261,13 +261,13 @@ def guess_mac_address(request, vname):
     if not mac:
         mac = utils.get_random_mac_address()
     data["mac"] = mac
-    return HttpResponse(json.dumps(data))
+    return JsonResponse(data)
 
 
 def random_mac_address(request):
     data = dict()
     data["mac"] = utils.get_random_mac_address()
-    return HttpResponse(json.dumps(data))
+    return JsonResponse(data)
 
 
 def guess_clone_name(request):
@@ -284,8 +284,8 @@ def guess_clone_name(request):
                     fqdn = line.split(" ")[1]
                     hostname = fqdn.split(".")[0]
                     if hostname.startswith(prefix) and hostname not in instance_names:
-                        return HttpResponse(json.dumps({"name": hostname}))
-    return HttpResponse(json.dumps({}))
+                        return JsonResponse({"name": hostname})
+    return JsonResponse({})
 
 
 def check_instance(request, vname):
@@ -313,9 +313,8 @@ def sshkeys(request, pk):
     if request.GET.get("plain", ""):
         response = "\n".join(instance_keys)
         response += "\n"
-    else:
-        response = json.dumps(instance_keys)
-    return HttpResponse(response)
+        return HttpResponse(response, content_type="text/plain; charset=utf-8")
+    return JsonResponse(instance_keys, safe=False)
 
 
 def get_safe_redirect(request, default=None):

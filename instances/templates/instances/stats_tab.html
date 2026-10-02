@@ -105,15 +105,16 @@
         // TODO
         logurl = "{% url 'vm_logs' 1 %}".replace(1, vname);
         $.getJSON(logurl, function(data) {
-            var logs = "";
-            $.each(data, function(id) {
-                row = data[id];
-                // console.log(row);
-                logs += '<tr><td style="width:150px">'+row['date']+'</td>';
-                logs += '<td>'+row['user']+'</td>';
-                logs += '<td>'+row['message']+'</td></tr>';
+            // Log messages contain user-entered names (snapshots, disks, clones);
+            // insert them as text, never as HTML.
+            var tbody = $("#logs_table > tbody").empty();
+            $.each(data, function(id, row) {
+                $("<tr>")
+                    .append($("<td>").css("width", "150px").text(row['date']))
+                    .append($("<td>").text(row['user']))
+                    .append($("<td>").text(row['message']))
+                    .appendTo(tbody);
             });
-            $("#logs_table > tbody").html(logs);
         });
     }
 </script>

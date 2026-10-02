@@ -1,9 +1,8 @@
-import json
 import socket
 
 from accounts.models import UserInstance, UserSSHKey
 from computes.models import Compute
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from libvirt import libvirtError
 from vrtManager.instance import wvmInstance
@@ -32,7 +31,7 @@ def os_metadata_json(request, version):
         ip = get_client_ip(request)
         hostname = get_hostname_by_ip(ip)
         response = {"uuid": OS_UUID, "hostname": hostname}
-        return HttpResponse(json.dumps(response))
+        return JsonResponse(response)
     else:
         err = "Invalid version: %(version)s" % {"version": version}
         raise Http404(err)
