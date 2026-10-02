@@ -468,8 +468,8 @@ WebVirtCloud combines three kinds of access rights:
 Notes:
 
 - Only superusers choose disk names and MAC addresses when cloning; for other users the server derives them.
-- `is_staff` gives no access to VMs by itself.
-- Users without ownership or `view_instances` get **404** for a VM (its existence is not revealed); users who can see a VM but lack the right for an action get **403**.
+- `is_staff` gives no access to VMs and does not reveal console settings or VNC passwords by itself. On VMs where a staff user already has `is_change`, staff may also change VMs that are marked as templates; other owners cannot.
+- On VM pages, users without ownership or `view_instances` get **404** (the VM's existence is not revealed), and users who can see a VM but lack the right for an action get **403**. Superuser-only pages answer **403** to everyone else; the console page answers **403** both for a missing VM and for a VM the user may not open.
 
 ## LDAP Configuration
 
