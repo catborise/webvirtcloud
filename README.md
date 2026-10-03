@@ -445,7 +445,7 @@ ruff check .
 ```
 
 > **Live Hypervisor Testing (Optional):**
-> Without these variables the live tests use the local socket (`qemu:///system`) or are skipped. They create and delete `test*` VMs and volumes in the host's `default` pool.
+> The instance tests run only when `TEST_LIBVIRT_HOST` is set. They create `wvc-test-*` VMs and a temporary `wvc-test` pool (`/var/lib/libvirt/wvc-test`), remove them afterwards, and fail if any other VM or volume on the host changed.
 > ```bash
 > export TEST_LIBVIRT_HOST=compute1 TEST_LIBVIRT_TYPE=2   # 1 TCP, 2 SSH, 3 TLS, 4 socket
 > export TEST_LIBVIRT_LOGIN=root TEST_LIBVIRT_PASSWORD=   # login/password for TCP and TLS

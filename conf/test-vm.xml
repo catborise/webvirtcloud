@@ -1,5 +1,5 @@
 <domain type="kvm">
-    <name>test-vm</name>
+    <name>wvc-test-vm</name>
     <uuid>1bd3c1f2-dd12-4b8d-a298-dff387cb9f93</uuid>
     <memory unit="KiB">131072</memory>
     <currentMemory unit="KiB">131072</currentMemory>
@@ -22,7 +22,7 @@
     <devices>
         <disk type="file" device="disk">
             <driver name="qemu" type="qcow2" cache="directsync" />
-            <source file="/var/lib/libvirt/images/test-volume.qcow2" />
+            <source file="/var/lib/libvirt/wvc-test/wvc-test-volume.qcow2" />
             <target dev="vda" bus="virtio" />
             <address type="pci" domain="0x0000" bus="0x03" slot="0x00" function="0x0" />
         </disk>

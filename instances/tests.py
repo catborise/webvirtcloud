@@ -10,10 +10,10 @@ from django.contrib.auth.models import Permission
 from django.http.response import Http404
 from django.shortcuts import reverse
 from django.test import TestCase
-from libvirt import VIR_DOMAIN_UNDEFINE_NVRAM
 from vrtManager.create import wvmCreate
 from vrtManager.util import randomUUID
 
+from . import livetest
 from .models import Flavor, Instance
 from .utils import refr
 
@@ -26,6 +26,8 @@ TEST_COMPUTE_TYPE = int(os.environ.get("TEST_LIBVIRT_TYPE", 4))
 class InstancesTestCase(TestCase):
     @classmethod
     def setUpClass(cls):
+        if not livetest.enabled():
+            raise unittest.SkipTest("Set TEST_LIBVIRT_HOST to run the live libvirt tests")
         super().setUpClass()
 
         # Add users for testing purposes
@@ -60,11 +62,16 @@ class InstancesTestCase(TestCase):
                 cls.compute.type,
             )
 
+            # Remove leftovers of an interrupted run, then record what
+            # else is on the host so tearDownClass can prove it is untouched.
+            livetest.cleanup(cls.connection.wvm)
+            livetest.ensure_pool(cls.connection.wvm)
+            cls.inventory = livetest.inventory(cls.connection.wvm)
+
             # Add disks for testing
-            cls.volume_path = None
-            cls.volume_path = cls.connection.create_volume(
-                "default",
-                "test-volume",
+            cls.connection.create_volume(
+                livetest.POOL,
+                "wvc-test-volume",
                 1,
                 "qcow2",
                 False,
@@ -79,12 +86,12 @@ class InstancesTestCase(TestCase):
             cls.connection._defineXML(cls.xml)
             refr(cls.compute)
             # The compute may hold other VMs; never pick one of them.
-            cls.instance: Instance = Instance.objects.get(compute=cls.compute, name="test-vm")
+            cls.instance: Instance = Instance.objects.get(compute=cls.compute, name="wvc-test-vm")
         except Exception as e:
             cls.instance = None
-            if getattr(cls, "volume_path", None):
+            if getattr(cls, "connection", None):
                 try:
-                    cls.connection.get_volume_by_path(cls.volume_path).delete(0)
+                    livetest.remove_pool(cls.connection.wvm)
                 except Exception:
                     pass
             if getattr(cls, "compute", None):
@@ -100,16 +107,18 @@ class InstancesTestCase(TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        # Destroy testing vm
-        if getattr(cls, "instance", None):
-            try:
-                cls.instance.proxy.delete_all_disks()
-                cls.instance.proxy.delete(VIR_DOMAIN_UNDEFINE_NVRAM)
-            except Exception:
-                pass
-        if getattr(cls, "compute", None):
+        conn = cls.connection.wvm
+        try:
+            livetest.remove_pool(conn)
+        finally:
             cls.compute.delete()
-        super().tearDownClass()
+            super().tearDownClass()
+        domains, volumes = livetest.inventory(conn)
+        if (domains, volumes) != cls.inventory:
+            raise AssertionError(
+                "Live tests changed objects outside the test namespace: "
+                f"domains {cls.inventory[0] ^ domains}, volumes {cls.inventory[1] ^ volumes}"
+            )
 
     def setUp(self):
         self.client.login(username="admin", password="admin")
@@ -167,16 +176,16 @@ class InstancesTestCase(TestCase):
                 "instances:create_instance", args=[self.compute.id, "x86_64", "q35"]
             ),
             {
-                "name": "test",
+                "name": "wvc-test-new",
                 "firmware": "BIOS",
                 "vcpu": 1,
                 "vcpu_mode": "host-model",
                 "memory": 128,
                 "device0": "disk",
                 "bus0": "virtio",
-                "images": "test-volume.qcow2",
-                "storage-control": "default",
-                "image-control": "test.qcow2",
+                "images": "wvc-test-volume.qcow2",
+                "storage-control": livetest.POOL,
+                "image-control": "wvc-test.qcow2",
                 "networks": "default",
                 "network-control": "default",
                 "cache_mode": "directsync",
@@ -194,7 +203,7 @@ class InstancesTestCase(TestCase):
         )
         self.assertEqual(response.status_code, 302)
 
-        instance_qs: Instance = Instance.objects.filter(name="test")
+        instance_qs: Instance = Instance.objects.filter(name="wvc-test-new")
         self.assertEqual(len(instance_qs), 1)
 
         instance = instance_qs[0]
@@ -212,7 +221,7 @@ class InstancesTestCase(TestCase):
 
     def test_create_from_xml(self):
         uuid = randomUUID()
-        xml = self.xml.replace("test-vm", "test-vm-xml")
+        xml = self.xml.replace("wvc-test-vm", "wvc-test-vm-xml")
         xml = re.sub(r"\s?<uuid>.*?</uuid>", f"<uuid>{uuid}</uuid>", xml)
         response = self.client.post(
             reverse("instances:create_instance_select_type", args=[self.compute.id]),
@@ -223,7 +232,7 @@ class InstancesTestCase(TestCase):
         )
         self.assertEqual(response.status_code, 302)
 
-        xml_instance_qs: Instance = Instance.objects.filter(name="test-vm-xml")
+        xml_instance_qs: Instance = Instance.objects.filter(name="wvc-test-vm-xml")
         self.assertEqual(len(xml_instance_qs), 1)
 
         xml_instance = xml_instance_qs[0]
@@ -391,8 +400,8 @@ class InstancesTestCase(TestCase):
         response = self.client.post(
             reverse("instances:add_new_vol", args=[self.instance.id]),
             {
-                "storage": "default",
-                "name": "test-volume-2",
+                "storage": livetest.POOL,
+                "name": "wvc-test-volume-2",
                 "size": 1,
             },
             HTTP_REFERER=reverse("index"),
@@ -405,9 +414,9 @@ class InstancesTestCase(TestCase):
         response = self.client.post(
             reverse("instances:delete_vol", args=[self.instance.id]),
             {
-                "storage": "default",
+                "storage": livetest.POOL,
                 "dev": "vdb",
-                "name": "test-volume-2.qcow2",
+                "name": "wvc-test-volume-2.qcow2",
             },
             HTTP_REFERER=reverse("index"),
         )
@@ -434,8 +443,8 @@ class InstancesTestCase(TestCase):
         response = self.client.post(
             reverse("instances:add_existing_vol", args=[self.instance.id]),
             {
-                "selected_storage": "default",
-                "vols": "test-volume.qcow2",
+                "selected_storage": livetest.POOL,
+                "vols": "wvc-test-volume.qcow2",
             },
             HTTP_REFERER=reverse("index"),
         )
@@ -448,7 +457,7 @@ class InstancesTestCase(TestCase):
         response = self.client.post(
             reverse("instances:edit_volume", args=[self.instance.id]),
             {
-                "vol_path": "/var/lib/libvirt/images/test-volume.qcow2",
+                "vol_path": f"{livetest.POOL_PATH}/wvc-test-volume.qcow2",
                 # 'vol_shareable': False,
                 # 'vol_readonly': False,
                 "vol_bus": "virtio",
@@ -657,9 +666,9 @@ class InstancesTestCase(TestCase):
         response = self.client.post(
             reverse("instances:clone", args=[self.instance.id]),
             {
-                "name": "test-vm-clone",
+                "name": "wvc-test-vm-clone",
                 "clone-net-mac-0": "de:ad:be:ef:de:ad",
-                "disk-vda": "test-clone.img",
+                "disk-vda": "wvc-test-clone.img",
                 "clone-title": "",
                 "clone-description": "",
                 "clone": "",
@@ -669,7 +678,7 @@ class InstancesTestCase(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Instance.objects.count(), instance_count + 1)
 
-        clone_qs = Instance.objects.filter(name="test-vm-clone")
+        clone_qs = Instance.objects.filter(name="wvc-test-vm-clone")
         self.assertEqual(len(clone_qs), 1)
         clone = clone_qs[0]
 
@@ -704,9 +713,9 @@ class InstancesTestCase(TestCase):
         response = self.client.post(
             reverse("instances:clone", args=[self.instance.id]),
             {
-                "name": "test-vm-clone",
+                "name": "wvc-test-vm-clone",
                 "clone-net-mac-0": "de:ad:be:ef:de:ad",
-                "disk-vda": "test-clone.img",
+                "disk-vda": "wvc-test-clone.img",
                 "clone-title": "",
                 "clone-description": "",
                 "clone": "",
@@ -724,9 +733,9 @@ class InstancesTestCase(TestCase):
         response = self.client.post(
             reverse("instances:clone", args=[self.instance.id]),
             {
-                "name": "test-vm",
+                "name": "wvc-test-vm",
                 "clone-net-mac-0": "de:ad:be:ef:de:ad",
-                "disk-vda": "test.img",
+                "disk-vda": "wvc-test.img",
                 "clone-title": "",
                 "clone-description": "",
                 "clone": "",
@@ -756,9 +765,9 @@ class InstancesTestCase(TestCase):
         response = self.client.post(
             reverse("instances:clone", args=[self.instance.id]),
             {
-                "name": "test-vm-clone",
+                "name": "wvc-test-vm-clone",
                 "clone-net-mac-0": "gh:ad:be:ef:de:ad",
-                "disk-vda": "test-clone.img",
+                "disk-vda": "wvc-test-clone.img",
                 "clone-title": "",
                 "clone-description": "",
                 "clone": "",
