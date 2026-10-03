@@ -1,28 +1,14 @@
 import os
 
 from django.apps import AppConfig
-from django.contrib.auth.signals import user_logged_in
 from django.db.models.signals import post_migrate
+from django.db import transaction
 
 
 def admin_password_path():
     from django.conf import settings
 
     return os.path.join(str(settings.BASE_DIR), "data", "admin_password")
-
-
-def flag_generated_password(sender, request, user, **kwargs):
-    """
-    While a user still has the generated admin password, make them set a new
-    one before using the panel (ROADMAP O-17; see ForcePasswordChangeMiddleware).
-    """
-    try:
-        with open(admin_password_path()) as f:
-            generated = f.read().strip()
-    except OSError:
-        return
-    if generated and user.check_password(generated):
-        request.session["must_change_password"] = True
 
 
 def apply_change_password(sender, **kwargs):
@@ -53,8 +39,7 @@ def _store_generated_password(password):
     """
     Write the generated admin password to data/admin_password (mode 0600)
     instead of printing it, so it does not end up in install logs or
-    `docker logs` (ROADMAP O-02). Falls back to printing if the file cannot
-    be written, so the admin is never locked out.
+    `docker logs` (ROADMAP O-02). Abort provisioning if private storage fails.
     """
     path = admin_password_path()
     try:
@@ -64,12 +49,15 @@ def _store_generated_password(password):
         if os.path.lexists(path):
             os.unlink(path)
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w") as f:
+            os.fchmod(f.fileno(), 0o600)
             f.write(password + "\n")
         print(f"\033[1m* \033[93mGenerated admin password written to {path}\033[0m")
-    except OSError:
-        print(f"\033[1m* \033[93mGenerated random admin password: {password}\033[0m")
+    except OSError as err:
+        raise RuntimeError(
+            f"Cannot securely store the generated admin password at {path}. "
+            "Fix the data directory permissions and run migrate again."
+        ) from err
 
 
 def create_admin(sender, **kwargs):
@@ -94,6 +82,7 @@ def create_admin(sender, **kwargs):
                 is_testing = "test" in sys.argv
                 admin_user = os.environ.get("ADMIN_USERNAME", "admin")
                 admin_pass = os.environ.get("ADMIN_PASSWORD")
+                generated_password = not admin_pass and not is_testing
 
                 if not admin_pass:
                     if is_testing:
@@ -103,14 +92,16 @@ def create_admin(sender, **kwargs):
                         _store_generated_password(admin_pass)
 
                 print(f"\033[1m* \033[92mCreating default admin user '{admin_user}'\033[0m")
-                admin = User.objects.create_superuser(admin_user, None, admin_pass)
-                UserAttributes(
-                    user=admin,
-                    max_instances=-1,
-                    max_cpus=-1,
-                    max_memory=-1,
-                    max_disk_size=-1,
-                ).save()
+                with transaction.atomic():
+                    admin = User.objects.create_superuser(admin_user, None, admin_pass)
+                    UserAttributes.objects.create(
+                        user=admin,
+                        must_change_password=generated_password,
+                        max_instances=-1,
+                        max_cpus=-1,
+                        max_memory=-1,
+                        max_disk_size=-1,
+                    )
             break
 
 
@@ -121,4 +112,4 @@ class AccountsConfig(AppConfig):
     def ready(self):
         post_migrate.connect(create_admin, sender=self)
         post_migrate.connect(apply_change_password, sender=self)
-        user_logged_in.connect(flag_generated_password)
+        from . import checks  # noqa: F401

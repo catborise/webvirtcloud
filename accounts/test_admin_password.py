@@ -11,6 +11,7 @@ from django.contrib.auth import authenticate, get_user_model
 from django.test import TestCase, override_settings
 
 from accounts.apps import create_admin
+from accounts.models import UserAttributes
 
 
 class GeneratedAdminPasswordTestCase(TestCase):
@@ -38,6 +39,7 @@ class GeneratedAdminPasswordTestCase(TestCase):
             self.assertNotIn(password, output)
             self.assertIn(str(password_file), output)
             self.assertIsNotNone(authenticate(username="admin", password=password))
+            self.assertTrue(UserAttributes.objects.get(user__username="admin").must_change_password)
 
     def test_does_not_follow_a_planted_symlink(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -52,3 +54,14 @@ class GeneratedAdminPasswordTestCase(TestCase):
             self.assertEqual(victim.read_text(), "original\n")
             self.assertFalse(password_file.is_symlink())
             self.assertEqual(stat.S_IMODE(password_file.stat().st_mode), 0o600)
+
+    def test_storage_failure_does_not_print_password_or_create_an_admin(self):
+        password = "review-dummy-generated-password"
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "secrets.token_urlsafe", return_value=password
+        ), patch("accounts.apps.os.open", side_effect=PermissionError("read-only")), redirect_stdout(output):
+            with self.assertRaisesRegex(RuntimeError, "Cannot securely store"):
+                self._run_create_admin(tmp)
+        self.assertNotIn(password, output.getvalue())
+        self.assertFalse(get_user_model().objects.exists())

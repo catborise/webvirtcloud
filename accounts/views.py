@@ -1,12 +1,14 @@
-import contextlib
+import logging
 import os
 
 from admin.decorators import superuser_only
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model, update_session_auth_hash, login as auth_login
-from django.contrib.auth.decorators import permission_required
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
+from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.http import HttpResponseRedirect
@@ -112,17 +114,28 @@ def account(request, user_id):
     )
 
 
-@permission_required("accounts.change_password", raise_exception=True)
+@login_required
 def change_password(request):
+    must_change = UserAttributes.objects.filter(
+        user=request.user, must_change_password=True
+    ).exists()
+    if not must_change and not request.user.has_perm("accounts.change_password"):
+        raise PermissionDenied
     form = PasswordChangeForm(request.user, request.POST or None)
 
     if form.is_valid():
-        user = form.save()
-        update_session_auth_hash(request, user)  # Important!
-        if request.session.pop("must_change_password", False):
-            # The generated first-install password is no longer valid.
-            with contextlib.suppress(FileNotFoundError):
+        with transaction.atomic():
+            user = form.save()
+            UserAttributes.objects.filter(user=user).update(must_change_password=False)
+        update_session_auth_hash(request, user)
+        request.session.pop("must_change_password", None)
+        if must_change and not UserAttributes.objects.filter(must_change_password=True).exists():
+            try:
                 os.remove(admin_password_path())
+            except FileNotFoundError:
+                pass
+            except OSError:
+                logging.getLogger(__name__).warning("Could not remove the generated admin password file")
         messages.success(request, _("Password Changed"))
         return redirect("accounts:profile")
 

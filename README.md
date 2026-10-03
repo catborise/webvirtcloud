@@ -394,6 +394,19 @@ environment=CSRF_TRUSTED_ORIGINS="https://webvirtcloud.example.com"
 
 ## How To Update
 
+Before running migrations, add `accounts.middleware.ForcePasswordChangeMiddleware`
+to `MIDDLEWARE` in your existing `webvirtcloud/settings.py`, after
+`django.contrib.auth.middleware.AuthenticationMiddleware` (and the OTP/login-required
+middleware, if present). A system check rejects a missing or misplaced middleware.
+The template is not copied over an existing settings file during an upgrade.
+
+Migration `accounts.0007` transfers the first-login requirement from any existing
+`data/admin_password` file to the user record. Run migrations as a user who can read
+that file. Thereafter, deleting or losing access to the file does not bypass the
+requirement. If provisioning cannot write a new private password file, it stops
+without creating an admin account or printing its password; fix the directory
+permissions and rerun migrations.
+
 ```bash
 # Go to Installation Directory
 cd /srv/webvirtcloud
@@ -412,7 +425,10 @@ sudo systemctl restart supervisor    # supervisord on RHEL / openSUSE
 
 ## Running Tests
 
-WebVirtCloud includes unit tests for both Django models/views and the `vrtManager` libvirt abstraction layer. The test suite uses isolated mock drivers by default and does not require a live KVM hypervisor.
+WebVirtCloud includes unit tests for both Django models/views and the `vrtManager` libvirt abstraction layer. The suite includes mocked regression tests and disk/clone tests using libvirt's
+in-process `test:///default` driver. The live compute and instance integration
+tests still require a configured libvirt host and are skipped when it is unavailable;
+a green result with skips does not establish live KVM compatibility.
 
 ### 1. Setup Virtual Environment
 Use the same virtualenv as in [Local Development Setup](#local-development-setup), steps 1–3. Tests need the secret key too.
