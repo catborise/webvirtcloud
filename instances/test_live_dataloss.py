@@ -29,7 +29,6 @@ class LiveDataLossTestCase(TestCase):
     def setUpClass(cls):
         if not livetest.enabled():
             raise unittest.SkipTest("Set TEST_LIBVIRT_HOST to run the live libvirt tests")
-        super().setUpClass()
         cls.compute_args = dict(
             hostname=os.environ["TEST_LIBVIRT_HOST"],
             login=os.environ.get("TEST_LIBVIRT_LOGIN", ""),
@@ -40,6 +39,9 @@ class LiveDataLossTestCase(TestCase):
         livetest.cleanup(cls.conn)
         livetest.ensure_pool(cls.conn)
         cls.inventory = livetest.inventory(cls.conn)
+        # Last: a failure above must not leave the class transaction open,
+        # which would lock the shared test database for later test classes.
+        super().setUpClass()
 
     @classmethod
     def tearDownClass(cls):
