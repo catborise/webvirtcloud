@@ -16,11 +16,13 @@ from instances.views import (
     resume,
     suspend,
 )
+from drf_spectacular.utils import extend_schema
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from vrtManager import util
 from vrtManager.create import wvmCreate
+from webvirtcloud.serializers import StatusSerializer
 
 from .serializers import (
     CreateInstanceSerializer,
@@ -37,6 +39,8 @@ class InstancesViewSet(viewsets.ViewSet):
     """
 
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = InstanceSerializer
+    lookup_value_converter = "int"
 
     def list(self, request):
 
@@ -66,8 +70,9 @@ class InstanceViewSet(viewsets.ViewSet):
     A simple ViewSet for listing or retrieving Compute Instances.
     """
 
-    # serializer_class = CreateInstanceSerializer
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = InstanceSerializer
+    lookup_value_converter = "int"
 
     def list(self, request, compute_pk=None):
         compute = get_object_or_404(Compute, pk=compute_pk)
@@ -98,6 +103,7 @@ class InstanceViewSet(viewsets.ViewSet):
 
         return Response(serializer.data)
 
+    @extend_schema(responses=InstanceDetailsSerializer)
     def retrieve(self, request, pk=None, compute_pk=None):
         queryset = get_instance(request.user, pk)
         if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
@@ -106,6 +112,7 @@ class InstanceViewSet(viewsets.ViewSet):
 
         return Response(serializer.data)
 
+    @extend_schema(responses=StatusSerializer)
     def destroy(self, request, pk=None, compute_pk=None):
         queryset = get_instance(request.user, pk, perm_type="delete")
         if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
@@ -113,6 +120,7 @@ class InstanceViewSet(viewsets.ViewSet):
         instance_destroy(request, pk)
         return Response({"status": "Instance is destroyed"})
 
+    @extend_schema(request=None, responses=StatusSerializer)
     @action(detail=True, methods=["post"])
     def poweron(self, request, pk=None, compute_pk=None):
         queryset = get_instance(request.user, pk, perm_type="power")
@@ -121,6 +129,7 @@ class InstanceViewSet(viewsets.ViewSet):
         poweron(request, pk)
         return Response({"status": "poweron command send"})
 
+    @extend_schema(request=None, responses=StatusSerializer)
     @action(detail=True, methods=["post"])
     def poweroff(self, request, pk=None, compute_pk=None):
         queryset = get_instance(request.user, pk, perm_type="power")
@@ -129,6 +138,7 @@ class InstanceViewSet(viewsets.ViewSet):
         poweroff(request, pk)
         return Response({"status": "poweroff command send"})
 
+    @extend_schema(request=None, responses=StatusSerializer)
     @action(detail=True, methods=["post"])
     def powercycle(self, request, pk=None, compute_pk=None):
         queryset = get_instance(request.user, pk, perm_type="power")
@@ -137,6 +147,7 @@ class InstanceViewSet(viewsets.ViewSet):
         powercycle(request, pk)
         return Response({"status": "powercycle command send"})
 
+    @extend_schema(request=None, responses=StatusSerializer)
     @action(detail=True, methods=["post"])
     def forceoff(self, request, pk=None, compute_pk=None):
         queryset = get_instance(request.user, pk, perm_type="power")
@@ -145,6 +156,7 @@ class InstanceViewSet(viewsets.ViewSet):
         force_off(request, pk)
         return Response({"status": "force off command send"})
 
+    @extend_schema(request=None, responses=StatusSerializer)
     @action(detail=True, methods=["post"])
     def suspend(self, request, pk=None, compute_pk=None):
         queryset = get_instance(request.user, pk)
@@ -153,6 +165,7 @@ class InstanceViewSet(viewsets.ViewSet):
         suspend(request, pk)
         return Response({"status": "suspend command send"})
 
+    @extend_schema(request=None, responses=StatusSerializer)
     @action(detail=True, methods=["post"])
     def resume(self, request, pk=None, compute_pk=None):
         queryset = get_instance(request.user, pk)
@@ -171,6 +184,7 @@ class MigrateViewSet(viewsets.ViewSet):
     serializer_class = MigrateSerializer
     queryset = ""
 
+    @extend_schema(responses=StatusSerializer)
     def create(self, request):
         serializer = MigrateSerializer(data=request.data)
         if serializer.is_valid():
@@ -208,6 +222,7 @@ class FlavorViewSet(viewsets.ModelViewSet):
     """
 
     queryset = Flavor.objects.all().order_by("id")
+    lookup_value_converter = "int"
     serializer_class = FlavorSerializer
 
     def get_permissions(self):
@@ -225,6 +240,7 @@ class CreateInstanceViewSet(viewsets.ViewSet):
     serializer_class = CreateInstanceSerializer
     queryset = ""
 
+    @extend_schema(responses=StatusSerializer)
     def create(self, request, compute_pk=None, arch=None, machine=None):
         serializer = CreateInstanceSerializer(
             data=request.data,
@@ -260,7 +276,6 @@ class CreateInstanceViewSet(viewsets.ViewSet):
                 default_disk_owner_gid,
             )
             volume = {}
-            firmware = {}
             volume["device"] = "disk"
             volume["path"] = path
             volume["type"] = conn.get_volume_format_type(path)
@@ -274,17 +289,6 @@ class CreateInstanceViewSet(viewsets.ViewSet):
 
             volume_list.append(volume)
 
-            if "UEFI" in serializer.validated_data["firmware"]:
-                firmware["loader"] = (
-                    serializer.validated_data["firmware"].split(":")[1].strip()
-                )
-                firmware["secure"] = "no"
-                firmware["readonly"] = "yes"
-                firmware["type"] = "pflash"
-                if "secboot" in firmware["loader"] and machine != "q35":
-                    machine = "q35"
-                    firmware["secure"] = "yes"
-
             with utils.libvirt_compute_lock(compute):
                 ret = conn.create_instance(
                     name=serializer.validated_data["name"],
@@ -294,7 +298,7 @@ class CreateInstanceViewSet(viewsets.ViewSet):
                     uuid=util.randomUUID(),
                     arch=arch,
                     machine=machine,
-                    firmware=firmware,
+                    firmware={},
                     volumes=volume_list,
                     networks=serializer.validated_data["networks"],
                     nwfilter=serializer.validated_data["nwfilter"],

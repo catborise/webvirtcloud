@@ -14,6 +14,7 @@ class InterfaceViewSet(viewsets.ViewSet):
     """
 
     permission_classes = [IsSuperUser]
+    serializer_class = InterfacesSerializer
     
     def list(self, request, compute_pk=None):
         queryset = []

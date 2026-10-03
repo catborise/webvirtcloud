@@ -52,11 +52,6 @@ class FlavorSerializer(serializers.ModelSerializer):
 
 
 class CreateInstanceSerializer(serializers.ModelSerializer):
-    firmware_choices = (
-        ("", "BIOS"),
-        # ('UEFI', 'UEFI'),
-    )
-    firmware = serializers.ChoiceField(choices=firmware_choices)
     graphics = serializers.CharField(initial="vnc")
     video = serializers.CharField(initial="vga")
     storage = serializers.CharField(initial="default")
@@ -68,7 +63,6 @@ class CreateInstanceSerializer(serializers.ModelSerializer):
         model = CreateInstance
         fields = [
             "name",
-            "firmware",
             "vcpu",
             "vcpu_mode",
             "memory",
