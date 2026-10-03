@@ -1367,15 +1367,12 @@ class wvmInstance(wvmConnect):
             state,
             time.time(),
         )
-        changed = self.change_snapshot_xml()
-        try:
-            xml += self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-            xml += """<active>0</active>
-                      </domainsnapshot>"""
-            self._snapshotCreateXML(xml, 0)
-        finally:
-            if changed:
-                self.recover_snapshot_xml()
+        # libvirt decides whether this firmware/NVRAM supports internal
+        # snapshots; the domain definition is never rewritten for it (R-13).
+        xml += self._XMLDesc(VIR_DOMAIN_XML_SECURE)
+        xml += """<active>0</active>
+                  </domainsnapshot>"""
+        self._snapshotCreateXML(xml, 0)
 
     def change_snapshot_xml(self):
         try:
@@ -1508,13 +1505,8 @@ class wvmInstance(wvmConnect):
         snap.delete(0)
 
     def snapshot_revert(self, snapshot):
-        changed = self.change_snapshot_xml()
-        try:
-            snap = self.instance.snapshotLookupByName(snapshot, 0)
-            self.instance.revertToSnapshot(snap, 0)
-        finally:
-            if changed:
-                self.recover_snapshot_xml()
+        snap = self.instance.snapshotLookupByName(snapshot, 0)
+        self.instance.revertToSnapshot(snap, 0)
 
     def get_managed_save_image(self):
         return self.instance.hasManagedSaveImage(0)

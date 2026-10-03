@@ -12,6 +12,7 @@ import unittest
 import libvirt
 from computes.models import Compute
 from django.contrib.auth import get_user_model
+from django.contrib.messages import get_messages
 from django.test import TestCase
 from django.urls import reverse
 from vrtManager.connection import connection_manager
@@ -120,6 +121,35 @@ class LiveDataLossTestCase(TestCase):
         for path in sources:
             self.assertTrue(livetest.volume_exists(self.conn, path), f"{path} was deleted")
         self.assertIn("s1.newer", dom.snapshotListNames(0))
+
+    # R-13: internal snapshots of UEFI VMs
+
+    def _uefi_internal_snapshot(self, running):
+        base = livetest.create_volume(self.conn, P + "r13")
+        dom, inst = self.vm("r13", [base], uefi=True)
+        if running:
+            dom.create()
+        os_before = self.os_xml(dom)
+
+        response = self.post("snapshot", inst, {"name": "snap"})
+
+        # Taken where libvirt supports it, otherwise refused with a message;
+        # never a server error and never a rewritten loader or NVRAM.
+        self.assertEqual(response.status_code, 302)
+        if dom.snapshotNum(0) == 0:
+            self.assertTrue(list(get_messages(response.wsgi_request)))
+        self.assertEqual(self.os_xml(dom), os_before)
+
+    def os_xml(self, dom):
+        from lxml import etree
+
+        return etree.tostring(etree.fromstring(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)).find("os"))
+
+    def test_r13_uefi_internal_snapshot_of_a_stopped_vm(self):
+        self._uefi_internal_snapshot(running=False)
+
+    def test_r13_uefi_internal_snapshot_of_a_running_vm(self):
+        self._uefi_internal_snapshot(running=True)
 
     # R-14: destroy
 
