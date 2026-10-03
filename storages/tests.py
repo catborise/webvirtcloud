@@ -624,6 +624,38 @@ class StorageUploadSecurityTests(TestCase):
                 handle_uploaded_file(self.mock_ssh_conn, "/var/lib/libvirt/images", "../../../evil.iso", dummy_chunk, is_last_chunk=True, upload_id="sess-ssh-1")
 
 
+    def test_interrupted_first_chunk_can_be_retried_without_appending_partial_data(self):
+        file_name = "first-chunk-retry.iso"
+        chunk = SimpleUploadedFile(file_name, b"complete-data")
+
+        def interrupted():
+            yield b"partial"
+            raise OSError("Interrupted first write")
+
+        chunk.chunks = interrupted
+        with self.assertRaises(OSError):
+            handle_uploaded_file(
+                self.mock_socket_conn, self.temp_dir, file_name, chunk, True,
+                upload_id="first-chunk-retry",
+            )
+        handle_uploaded_file(
+            self.mock_socket_conn, self.temp_dir, file_name,
+            SimpleUploadedFile(file_name, b"complete-data"), True,
+            upload_id="first-chunk-retry",
+        )
+        with open(os.path.join(self.temp_dir, file_name), "rb") as stream:
+            self.assertEqual(stream.read(), b"complete-data")
+
+    def test_first_chunk_can_retry_after_failure_before_part_file_creation(self):
+        chunk = SimpleUploadedFile("start-retry.iso", b"complete-data")
+        with patch("storages.upload._UploadTarget.write_chunk", side_effect=OSError("Cannot open part")):
+            with self.assertRaises(OSError):
+                handle_uploaded_file(self.mock_socket_conn, self.temp_dir, chunk.name, chunk, True, upload_id="start-retry")
+        handle_uploaded_file(self.mock_socket_conn, self.temp_dir, chunk.name, chunk, True, upload_id="start-retry")
+        with open(os.path.join(self.temp_dir, chunk.name), "rb") as stream:
+            self.assertEqual(stream.read(), b"complete-data")
+
+
 class StorageUploadViewTests(TestCase):
     def setUp(self):
         self.admin = User.objects.create_superuser(username="storage_admin", password="password", email="storage_admin@example.com")
