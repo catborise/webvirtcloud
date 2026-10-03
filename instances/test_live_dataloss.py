@@ -1,0 +1,214 @@
+"""Live reproductions of the Wave 1a data-loss findings.
+
+Each test asserts the safe behavior and is marked expectedFailure until
+its finding is fixed; a fix turns it into an unexpected success, which
+fails the run until the marker is removed. Runs only with
+TEST_LIBVIRT_HOST set (see instances/livetest.py).
+"""
+
+import os
+import unittest
+
+import libvirt
+from computes.models import Compute
+from django.contrib.auth import get_user_model
+from django.contrib.messages import get_messages
+from django.test import TestCase
+from django.urls import reverse
+from vrtManager.connection import connection_manager
+
+from . import livetest
+from .models import Instance
+from .utils import refr
+
+P = livetest.PREFIX
+
+
+class LiveDataLossTestCase(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if not livetest.enabled():
+            raise unittest.SkipTest("Set TEST_LIBVIRT_HOST to run the live libvirt tests")
+        super().setUpClass()
+        cls.compute_args = dict(
+            hostname=os.environ["TEST_LIBVIRT_HOST"],
+            login=os.environ.get("TEST_LIBVIRT_LOGIN", ""),
+            password=os.environ.get("TEST_LIBVIRT_PASSWORD", ""),
+            type=int(os.environ.get("TEST_LIBVIRT_TYPE", 4)),
+        )
+        cls.conn = connection_manager.get_connection(*cls.compute_args.values())
+        livetest.cleanup(cls.conn)
+        livetest.ensure_pool(cls.conn)
+        cls.inventory = livetest.inventory(cls.conn)
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            livetest.remove_pool(cls.conn)
+        finally:
+            super().tearDownClass()
+        if livetest.inventory(cls.conn) != cls.inventory:
+            raise AssertionError("Live tests changed objects outside the test namespace")
+
+    def setUp(self):
+        self.compute = Compute.objects.create(name="live-dataloss", details="test", **self.compute_args)
+        admin = get_user_model().objects.create_superuser("live_admin", "l@example.com", "pw")
+        self.client.force_login(admin)
+        self.client.raise_request_exception = False
+
+    def tearDown(self):
+        livetest.cleanup(self.conn)
+
+    # helpers
+
+    def vm(self, name, disks, uefi=False):
+        dom = livetest.define_vm(self.conn, P + name, disks, uefi=uefi)
+        refr(self.compute)
+        return dom, Instance.objects.get(compute=self.compute, uuid=dom.UUIDString())
+
+    def post(self, view, instance, data=None):
+        return self.client.post(
+            reverse(f"instances:{view}", args=[instance.id]),
+            data or {},
+            HTTP_REFERER=reverse("instances:instance", args=[instance.id]),
+        )
+
+    def disk_sources(self, dom, flags=0):
+        from lxml import etree
+
+        return {
+            d.find("target").get("dev"): d.find("source").get("file")
+            for d in etree.fromstring(dom.XMLDesc(flags)).findall("devices/disk")
+        }
+
+    def domain_exists(self, uuid):
+        try:
+            self.conn.lookupByUUIDString(uuid)
+            return True
+        except libvirt.libvirtError:
+            return False
+
+    # R-03: external snapshots
+
+    @unittest.expectedFailure
+    def test_r03_revert_external_snapshot_keeps_disk_added_later(self):
+        base = livetest.create_volume(self.conn, P + "r03-a")
+        dom, inst = self.vm("r03-a", [base])
+        self.post("create_external_snapshot", inst, {"name": "snap"})
+
+        later = livetest.create_volume(self.conn, P + "r03-later")
+        dom.attachDeviceFlags(
+            f"<disk type='file' device='disk'><driver name='qemu' type='qcow2'/>"
+            f"<source file='{later}'/><target dev='vdb' bus='virtio'/></disk>",
+            libvirt.VIR_DOMAIN_AFFECT_CONFIG,
+        )
+        self.post("revert_external_snapshot", inst, {"name": "s1.snap", "date": "", "desc": ""})
+
+        self.assertTrue(livetest.volume_exists(self.conn, later), "revert deleted a disk the snapshot never had")
+
+    @unittest.expectedFailure
+    def test_r03_delete_older_external_snapshot_keeps_newer_snapshot_files(self):
+        base = livetest.create_volume(self.conn, P + "r03-b")
+        dom, inst = self.vm("r03-b", [base])
+        self.post("create_external_snapshot", inst, {"name": "older"})
+        self.post("create_external_snapshot", inst, {"name": "newer"})
+        sources = set(self.disk_sources(dom).values())
+
+        self.post("delete_external_snapshot", inst, {"name": "s1.older"})
+
+        for path in sources:
+            self.assertTrue(livetest.volume_exists(self.conn, path), f"{path} was deleted")
+        self.assertIn("s1.newer", dom.snapshotListNames(0))
+
+    # R-13: internal snapshots of UEFI VMs
+
+    @unittest.expectedFailure
+    def test_r13_uefi_internal_snapshot_is_refused_without_touching_the_loader(self):
+        base = livetest.create_volume(self.conn, P + "r13")
+        dom, inst = self.vm("r13", [base], uefi=True)
+        loader_before = dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE).count("type='pflash'")
+
+        response = self.post("snapshot", inst, {"name": "snap"})
+
+        # Refused with a message, not a server error
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(list(get_messages(response.wsgi_request)))
+        self.assertEqual(dom.snapshotNum(0), 0)
+        self.assertEqual(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE).count("type='pflash'"), loader_before)
+
+    # R-14: destroy
+
+    @unittest.expectedFailure
+    def test_r14_destroy_keeps_a_volume_another_vm_uses(self):
+        shared = livetest.create_volume(self.conn, P + "r14-shared")
+        _, inst = self.vm("r14-a", [shared])
+        self.vm("r14-b", [shared])
+
+        self.post("destroy", inst, {"delete_disk": "1"})
+
+        self.assertTrue(livetest.volume_exists(self.conn, shared), "destroy deleted another VM's disk")
+
+    @unittest.expectedFailure
+    def test_r14_destroy_with_managed_save_removes_the_vm(self):
+        base = livetest.create_volume(self.conn, P + "r14-save")
+        dom, inst = self.vm("r14-save", [base])
+        dom.create()
+        dom.managedSave(0)
+
+        self.post("destroy", inst, {"delete_disk": "1"})
+
+        uuid = dom.UUIDString()
+        self.assertFalse(self.domain_exists(uuid), "VM is still defined")
+        self.assertFalse(Instance.objects.filter(uuid=uuid).exists())
+
+    @unittest.expectedFailure
+    def test_r14_destroy_of_a_paused_vm_removes_it(self):
+        base = livetest.create_volume(self.conn, P + "r14-paused")
+        dom, inst = self.vm("r14-paused", [base])
+        dom.create()
+        dom.suspend()
+
+        self.post("destroy", inst)
+
+        self.assertFalse(self.domain_exists(dom.UUIDString()), "paused VM is still running")
+
+    # S-02: delete a volume only after it is detached
+
+    def _delete_attached_volume(self, pause):
+        base = livetest.create_volume(self.conn, P + "s02")
+        data = livetest.create_volume(self.conn, P + "s02-data")
+        dom, inst = self.vm("s02", [base, data])
+        dom.create()
+        if pause:
+            dom.suspend()
+
+        self.post("delete_vol", inst, {"dev": "vdb"})
+
+        still_attached = "vdb" in self.disk_sources(dom)
+        self.assertFalse(
+            still_attached and not livetest.volume_exists(self.conn, data),
+            "volume deleted while the running VM still uses it",
+        )
+
+    @unittest.expectedFailure
+    def test_s02_delete_volume_of_a_paused_vm(self):
+        self._delete_attached_volume(pause=True)
+
+    @unittest.expectedFailure
+    def test_s02_delete_volume_of_a_running_vm_without_guest_ack(self):
+        self._delete_attached_volume(pause=False)
+
+    # R-06: operations follow the VM's UUID, not its name
+
+    @unittest.expectedFailure
+    def test_r06_mutation_follows_uuid_after_names_are_swapped(self):
+        dom_a, inst_a = self.vm("r06-a", [])
+        dom_b, _ = self.vm("r06-b", [])
+        dom_a.rename(P + "r06-tmp", 0)
+        dom_b.rename(P + "r06-a", 0)
+        dom_a.rename(P + "r06-b", 0)
+
+        self.post("change_options", inst_a, {"title": "for-a", "description": ""})
+
+        self.assertIn("<title>for-a</title>", dom_a.XMLDesc(0))
+        self.assertNotIn("<title>for-a</title>", dom_b.XMLDesc(0))

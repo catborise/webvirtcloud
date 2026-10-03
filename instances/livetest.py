@@ -47,9 +47,11 @@ def cleanup(conn):
     for dom in conn.listAllDomains():
         if not dom.name().startswith(PREFIX):
             continue
+        persistent = dom.isPersistent()
         if dom.isActive():
             dom.destroy()
-        dom.undefineFlags(UNDEFINE_FLAGS)
+        if persistent:
+            dom.undefineFlags(UNDEFINE_FLAGS)
     try:
         pool = conn.storagePoolLookupByName(POOL)
     except libvirt.libvirtError:
@@ -82,3 +84,44 @@ def inventory(conn):
         pool.refresh(0)
         volumes.update((pool.name(), v.name()) for v in pool.listAllVolumes())
     return domains, volumes
+
+
+def create_volume(conn, name, size_mib=64):
+    """A qcow2 volume in the test pool; returns its path."""
+    assert name.startswith(PREFIX)
+    pool = conn.storagePoolLookupByName(POOL)
+    vol = pool.createXML(
+        f"<volume><name>{name}.qcow2</name><capacity unit='MiB'>{size_mib}</capacity>"
+        "<target><format type='qcow2'/></target></volume>",
+        0,
+    )
+    return vol.path()
+
+
+OVMF_CODE = "/usr/share/edk2/ovmf/OVMF_CODE.fd"
+
+
+def define_vm(conn, name, disk_paths, uefi=False):
+    """A small q35 VM without an OS; disks are attached as vda, vdb, ..."""
+    assert name.startswith(PREFIX)
+    disks = "".join(
+        f"<disk type='file' device='disk'><driver name='qemu' type='qcow2'/>"
+        f"<source file='{path}'/><target dev='vd{chr(ord('a') + i)}' bus='virtio'/></disk>"
+        for i, path in enumerate(disk_paths)
+    )
+    firmware = (
+        "<os><type arch='x86_64' machine='q35'>hvm</type>"
+        f"<loader readonly='yes' type='pflash'>{OVMF_CODE}</loader></os>"
+        if uefi
+        else "<os><type arch='x86_64' machine='q35'>hvm</type></os>"
+    )
+    return conn.defineXML(
+        f"<domain type='kvm'><name>{name}</name><memory unit='MiB'>128</memory><vcpu>1</vcpu>"
+        f"{firmware}<features><acpi/></features><devices>{disks}</devices></domain>"
+    )
+
+
+def volume_exists(conn, path):
+    pool = conn.storagePoolLookupByName(POOL)
+    pool.refresh(0)
+    return os.path.basename(path) in pool.listVolumes()
