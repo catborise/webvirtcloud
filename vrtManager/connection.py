@@ -65,9 +65,6 @@ class wvmConnection(object):
         self.passwd = passwd
         self.type = conn
 
-        # connect
-        self.connect()
-
     def connect(self):
         self.connection_state_lock.acquire()
         try:
@@ -281,19 +278,15 @@ class wvmConnectionManager(object):
                 # as the thread previously holding the write lock may have already added our connection
                 connection = self._search_connection(host, login, passwd, conn)
                 if connection is None:
-                    # create a new connection if a matching connection does not already exist
+                    # Only register it here: connecting under the global lock
+                    # would make every other host wait for a slow one.
                     connection = wvmConnection(host, login, passwd, conn)
-
-                    # add new connection to connection dict
-                    if host in self._connections:
-                        self._connections[host].append(connection)
-                    else:
-                        self._connections[host] = [connection]
+                    self._connections.setdefault(host, []).append(connection)
             finally:
                 self._connections_lock.release()
 
-        elif not connection.connected:
-            # try to (re-)connect if connection is closed
+        if not connection.connected:
+            # (re-)connect; the connection's own lock serializes concurrent attempts
             connection.connect()
 
         if connection.connected:
@@ -303,34 +296,33 @@ class wvmConnectionManager(object):
             # raise libvirt error
             raise util.OperationError(connection.last_error)
 
-    def host_is_up(self, conn_type, hostname):
-        """
-        returns True if the given host is up and we are able to establish
-        a connection using the given credentials.
-        """
+    def host_is_up(self, conn_type, hostname, timeout=1):
+        """True if the libvirt endpoint of hostname accepts a TCP (or Unix
+        socket) connection. This is a reachability probe only: it does not
+        check credentials or libvirt itself. hostname may carry a port
+        ("host:port", "[v6]:port")."""
+        if conn_type == CONN_SOCKET:
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                sock.settimeout(timeout)
+                sock.connect("/var/run/libvirt/libvirt-sock")
+                return True
+            except OSError:
+                return False
+            finally:
+                sock.close()
+        default_port = {CONN_SSH: SSH_PORT, CONN_TCP: TCP_PORT, CONN_TLS: TLS_PORT}.get(conn_type)
+        if default_port is None:
+            return False
+        host, port = str(hostname), default_port
+        match = re.fullmatch(r"\[?([^\[\]]+?)\]?:(\d+)", host)
+        if match and (host.startswith("[") or host.count(":") == 1):
+            host, port = match.group(1), int(match.group(2))
         try:
-            socket_host = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            socket_host.settimeout(1)
-            if conn_type == CONN_SSH:
-                if ":" in hostname:
-                    libvirt_host, PORT = hostname.split(":")
-                    PORT = int(PORT)
-                else:
-                    PORT = SSH_PORT
-                    libvirt_host = hostname
-                socket_host.connect((libvirt_host, PORT))
-            if conn_type == CONN_TCP:
-                socket_host.connect((hostname, TCP_PORT))
-            if conn_type == CONN_TLS:
-                socket_host.connect((hostname, TLS_PORT))
-            if conn_type == CONN_SOCKET:
-                socket_host = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                socket_host.connect("/var/run/libvirt/libvirt-sock")
-            socket_host.close()
-            return True
-        except Exception as err:
-            return err
-
+            with socket.create_connection((host.strip("[]"), port), timeout=timeout):
+                return True
+        except OSError:
+            return False
 
 connection_manager = wvmConnectionManager(
     settings.LIBVIRT_KEEPALIVE_INTERVAL if hasattr(settings, "LIBVIRT_KEEPALIVE_INTERVAL") else 5,
