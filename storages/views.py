@@ -290,8 +290,6 @@ def create_volume(request, compute_id, pool):
         compute.hostname, compute.login, compute.password, compute.type, pool
     )
 
-    storages = conn.get_storages()
-
     form = CreateVolumeForm(request.POST or None)
     if form.is_valid():
         data = form.cleaned_data

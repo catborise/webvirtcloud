@@ -6,7 +6,7 @@ import string
 import libvirt
 import lxml.etree as etree
 
-from django.conf import UserSettingsHolder, settings
+from django.conf import settings
 
 
 def is_kvm_available(xml):

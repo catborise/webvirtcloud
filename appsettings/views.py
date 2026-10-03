@@ -3,7 +3,6 @@ import os
 import sass
 from admin.decorators import superuser_only
 from django.contrib import messages
-from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.utils.translation import gettext_noop as _

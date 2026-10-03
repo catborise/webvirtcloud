@@ -4,7 +4,7 @@ disk and media mutation views must be superuser-only (matching the UI, where
 the Disk tab is only rendered for superusers), and even for superusers the
 views must not act on volumes or option values taken blindly from the client.
 """
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase

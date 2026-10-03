@@ -1,11 +1,10 @@
 import json
-from unittest.mock import MagicMock, patch
 
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
 from computes.models import Compute
-from datasource.views import get_client_ip, get_hostname_by_ip, os_index, os_metadata_json, os_userdata
+from datasource.views import get_client_ip, get_hostname_by_ip
 
 
 class DataSourceTestCase(TestCase):

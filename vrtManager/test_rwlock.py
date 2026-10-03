@@ -128,7 +128,6 @@ class TestReadWriteLock(unittest.TestCase):
     def test_writer_blocks_subsequent_readers(self):
         """Pending writers take priority and should block subsequent new readers."""
         order = []
-        lock_held_event = threading.Event()
         writer_ready_event = threading.Event()
 
         # Step 1: Initial reader holds read lock

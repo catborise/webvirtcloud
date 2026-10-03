@@ -290,7 +290,7 @@ class CreateInstanceViewSet(viewsets.ViewSet):
             volume_list.append(volume)
 
             with utils.libvirt_compute_lock(compute):
-                ret = conn.create_instance(
+                conn.create_instance(
                     name=serializer.validated_data["name"],
                     memory=serializer.validated_data["memory"],
                     vcpu=serializer.validated_data["vcpu"],
