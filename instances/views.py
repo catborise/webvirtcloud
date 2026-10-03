@@ -1910,7 +1910,7 @@ def create_instance_select_type(request, compute_id):
             else:
                 with libvirt_compute_lock(compute):
                     conn._defineXML(xml)
-                    utils.refresh_instance_database(compute)
+                    utils.refr(compute)
                     instance = compute.instance_set.get(name=name)
                 return redirect(reverse("instances:instance", args=[instance.id]))
 
@@ -2193,7 +2193,7 @@ def flavor_create(request):
     if form.is_valid():
         form.save()
         messages.success(request, _("Flavor Created"))
-        return get_safe_redirect(request, default=reverse("instances:flavors"))
+        return get_safe_redirect(request, default=reverse("instances:index"))
 
     return render(
         request,
@@ -2209,7 +2209,7 @@ def flavor_update(request, pk):
     if form.is_valid():
         form.save()
         messages.success(request, _("Flavor Updated"))
-        return get_safe_redirect(request, default=reverse("instances:flavors"))
+        return get_safe_redirect(request, default=reverse("instances:index"))
 
     return render(
         request,
@@ -2224,7 +2224,7 @@ def flavor_delete(request, pk):
     if request.method == "POST":
         flavor.delete()
         messages.success(request, _("Flavor Deleted"))
-        return get_safe_redirect(request, default=reverse("instances:flavors"))
+        return get_safe_redirect(request, default=reverse("instances:index"))
 
     return render(
         request,
