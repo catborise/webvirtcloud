@@ -52,7 +52,6 @@ class FlavorSerializer(serializers.ModelSerializer):
 
 
 class CreateInstanceSerializer(serializers.ModelSerializer):
-    graphics = serializers.CharField(initial="vnc")
     video = serializers.CharField(initial="vga")
     storage = serializers.CharField(initial="default")
     cache_mode = serializers.CharField(initial="none")
@@ -76,7 +75,6 @@ class CreateInstanceSerializer(serializers.ModelSerializer):
             "virtio",
             "qemu_ga",
             "console_pass",
-            "graphics",
             "video",
             "listener_addr",
         ]

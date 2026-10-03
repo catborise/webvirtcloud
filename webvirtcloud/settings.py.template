@@ -287,6 +287,8 @@ LIBVIRT_KEEPALIVE_COUNT = 5
 
 ALLOW_EMPTY_PASSWORD = False
 NEW_USER_DEFAULT_INSTANCES = []
+# Days the owners of a VM that vanished from its compute are kept, in case it comes back
+INSTANCE_OWNERSHIP_RETENTION_DAYS = 30
 SHOW_PROFILE_EDIT_PASSWORD = True
 
 

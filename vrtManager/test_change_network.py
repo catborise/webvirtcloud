@@ -6,50 +6,51 @@ from django.conf import settings
 if not settings.configured:
     settings.configure(MAC_OUI="52:54:10")
 
-from libvirt import VIR_DOMAIN_AFFECT_CONFIG, libvirtError
+from libvirt import libvirtError
 from vrtManager.instance import wvmInstance
 
 DOMAIN_XML = """<domain><devices>
 <interface type='network'><mac address='52:54:00:00:00:01'/><source network='default'/><model type='virtio'/></interface>
-<interface type='network'><mac address='52:54:00:00:00:02'/><source network='default'/><model type='virtio'/></interface>
+<interface type='network'><mac address='52:54:00:00:00:02'/><source network='default'/><model type='virtio'/>
+<bandwidth><outbound average='1000'/></bandwidth><link state='down'/>
+<address type='pci' domain='0x0000' bus='0x02' slot='0x00' function='0x0'/></interface>
 </devices></domain>"""
 
 
 def stopped_instance():
     inst = wvmInstance.__new__(wvmInstance)
     inst.instance = MagicMock()
+    inst.wvm = MagicMock()
     inst._XMLDesc = MagicMock(return_value=DOMAIN_XML)
     inst.get_status = MagicMock(return_value=5)
     return inst
 
 
 class TestChangeNetwork(unittest.TestCase):
-    def test_replaces_the_nic_with_the_old_mac(self):
+    def test_edits_the_nic_in_place_and_keeps_its_other_settings(self):
+        from lxml import etree
+
         inst = stopped_instance()
-        inst.change_network("52:54:00:00:00:02", "52:54:00:00:00:03", "default", "net", "e1000", "")
+        inst.change_network("52:54:00:00:00:02", "52:54:00:00:00:03", "br0", "bridge", "e1000", "clean-traffic")
 
-        detached = inst.instance.detachDeviceFlags.call_args[0][0]
-        self.assertIn("52:54:00:00:00:02", detached)
-        attached = inst.instance.attachDeviceFlags.call_args[0][0]
-        self.assertIn("52:54:00:00:00:03", attached)
-        self.assertIn("e1000", attached)
+        defined = etree.fromstring(inst.wvm.defineXML.call_args[0][0])
+        first, second = defined.findall("devices/interface")
+        self.assertEqual(first.find("mac").get("address"), "52:54:00:00:00:01")
+        self.assertEqual(second.get("type"), "bridge")
+        self.assertEqual(second.find("mac").get("address"), "52:54:00:00:00:03")
+        self.assertEqual(second.find("source").attrib, {"bridge": "br0"})
+        self.assertEqual(second.find("model").get("type"), "e1000")
+        self.assertEqual(second.find("filterref").get("filter"), "clean-traffic")
+        # F-06: QoS, link state and the PCI address survive
+        self.assertEqual(second.find("bandwidth/outbound").get("average"), "1000")
+        self.assertEqual(second.find("link").get("state"), "down")
+        self.assertEqual(second.find("address").get("bus"), "0x02")
 
-    def test_unknown_old_mac_adds_nothing(self):
+    def test_unknown_old_mac_changes_nothing(self):
         inst = stopped_instance()
         with self.assertRaises(libvirtError):
             inst.change_network("52:54:00:00:00:09", "52:54:00:00:00:03", "default", "net", "virtio", "")
-        inst.instance.detachDeviceFlags.assert_not_called()
-        inst.instance.attachDeviceFlags.assert_not_called()
-
-    def test_failed_add_restores_the_old_nic(self):
-        inst = stopped_instance()
-        inst.instance.attachDeviceFlags.side_effect = [libvirtError("bad source"), 0]
-        with self.assertRaises(libvirtError):
-            inst.change_network("52:54:00:00:00:01", "52:54:00:00:00:03", "missing", "net", "virtio", "")
-
-        restored, flags = inst.instance.attachDeviceFlags.call_args[0]
-        self.assertIn("52:54:00:00:00:01", restored)
-        self.assertEqual(flags, VIR_DOMAIN_AFFECT_CONFIG)
+        inst.wvm.defineXML.assert_not_called()
 
 
 class TestAddNetworkXml(unittest.TestCase):

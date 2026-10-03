@@ -780,7 +780,7 @@ class InstancesTestCase(TestCase):
     def test_console(self):
         response = self.client.post(
             reverse("instances:update_console", args=[self.instance.id]),
-            {"type": "spice", "listen_on": "0.0.0.0", "password": "", "keymap": "auto"},
+            {"listen_on": "0.0.0.0", "password": "", "keymap": "auto"},
             HTTP_REFERER=reverse("index"),
         )
         self.assertEqual(response.status_code, 302)

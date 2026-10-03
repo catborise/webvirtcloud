@@ -136,6 +136,21 @@ class Instance(models.Model):
         return self.proxy.get_net_devices()
 
     @cached_property
+    def config_networks(self) -> list[dict]:
+        """NICs of the persistent definition, which the edit and clone forms
+        change; target is the running VM's device name, if any."""
+        live_targets = {net["mac"]: net.get("target", "") for net in self.networks}
+        networks = self.proxy.get_net_devices(config=True)
+        for net in networks:
+            net["target"] = live_targets.get(net["mac"], "")
+        return networks
+
+    @cached_property
+    def config_disks(self) -> list[dict]:
+        """Disks of the persistent definition, which a clone copies."""
+        return self.proxy.get_disk_devices(config=True)
+
+    @cached_property
     def qos(self):
         return self.proxy.get_all_qos()
 
@@ -273,9 +288,6 @@ class CreateInstance(models.Model):
     console_pass = models.CharField(max_length=64, blank=True)
     add_cdrom = models.CharField(max_length=16)
     add_input = models.CharField(max_length=16)
-    graphics = models.CharField(
-        max_length=16, error_messages={"required": _("Please select a graphics type")}
-    )
     video = models.CharField(
         max_length=16, error_messages={"required": _("Please select a video driver")}
     )
@@ -285,6 +297,20 @@ class CreateInstance(models.Model):
 
     class Meta:
         managed = False
+
+
+class InstanceTombstone(models.Model):
+    """Ownership of a VM that disappeared from its compute (R-05).
+
+    Kept for INSTANCE_OWNERSHIP_RETENTION_DAYS so that the owners come back
+    when the same UUID shows up again, on this or another compute.
+    """
+
+    uuid = models.CharField(max_length=36, db_index=True)
+    name = models.CharField(max_length=120)
+    is_template = models.BooleanField(default=False)
+    owners = models.JSONField(default=list)  # [{"user": id, "is_change": .., "is_delete": .., "is_vnc": ..}]
+    removed = models.DateTimeField(auto_now_add=True)
 
 
 class PermissionSet(models.Model):

@@ -156,15 +156,10 @@ def console(request):
             console_error = _(
                 "Fail to get console. Please check the console configuration of your VM."
             )
-        elif console_type == "spice":
-            console_error = _(
-                "SPICE console protocol is deprecated and no longer supported. "
-                "Please switch VM graphics to VNC."
-            )
         else:
-            console_error = _("Console type '%(type)s' has not support") % {
-                "type": console_type
-            }
+            console_error = _(
+                "Console type '%(type)s' is not supported. Please switch the VM graphics to VNC."
+            ) % {"type": console_type}
         response = render(request, "console-vnc-lite.html", locals())
 
     # Only novncd reads this cookie; JavaScript gets the token from the page.

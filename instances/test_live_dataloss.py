@@ -63,8 +63,8 @@ class LiveDataLossTestCase(TestCase):
 
     # helpers
 
-    def vm(self, name, disks, uefi=False):
-        dom = livetest.define_vm(self.conn, P + name, disks, uefi=uefi)
+    def vm(self, name, disks, uefi=False, extra_devices=""):
+        dom = livetest.define_vm(self.conn, P + name, disks, uefi=uefi, extra_devices=extra_devices)
         refr(self.compute)
         return dom, Instance.objects.get(compute=self.compute, uuid=dom.UUIDString())
 
@@ -268,3 +268,23 @@ class LiveDataLossTestCase(TestCase):
         self.post("change_options", inst, {"title": "for-old", "description": ""})
 
         self.assertNotIn("<title>for-old</title>", dom_new.XMLDesc(0))
+
+    # NIC edits of a running VM are pending until restart; the form must show them
+
+    def test_pending_nic_change_is_shown_and_can_be_edited_again(self):
+        nic = "<interface type='network'><mac address='52:54:00:aa:05:01'/><source network='default'/></interface>"
+        dom, inst = self.vm("nic-pending", [], extra_devices=nic)
+        dom.create()
+
+        def change(old, new):
+            return self.post("change_network", inst, {
+                "net-old-mac-0": old, "net-mac-0": new, "net-source-0": "net:default", "net-model-0": "virtio",
+            })
+
+        change("52:54:00:aa:05:01", "52:54:00:aa:05:02")
+        page = self.client.get(reverse("instances:instance", args=[inst.id])).content.decode()
+        self.assertIn('name="net-old-mac-0" value="52:54:00:aa:05:02"', page)
+
+        change("52:54:00:aa:05:02", "52:54:00:aa:05:03")
+        self.assertIn("52:54:00:aa:05:03", dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
+

@@ -128,5 +128,21 @@ class TestVrtManagerUtil(unittest.TestCase):
         self.assertIsNone(vol_dev_type("unknown_bus"))
 
 
+
+class OperationErrorTestCase(unittest.TestCase):
+    def test_keeps_its_own_message_after_a_libvirt_failure(self):
+        import libvirt
+        from vrtManager.util import OperationError
+
+        conn = libvirt.open("test:///default")
+        self.addCleanup(conn.close)
+        with self.assertRaises(libvirt.libvirtError):
+            conn.lookupByName("no-such-domain")  # leaves a thread-local last error
+        self.assertNotEqual(str(libvirt.libvirtError("own message")), "own message")
+        error = OperationError("own message")
+        self.assertEqual(str(error), "own message")
+        self.assertIsInstance(error, libvirt.libvirtError)
+
+
 if __name__ == "__main__":
     unittest.main()

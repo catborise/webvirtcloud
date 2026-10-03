@@ -185,6 +185,47 @@ class TestXmlSafety(unittest.TestCase):
         self.assertIn("type='pflash'", inst._snapshotCreateXML.call_args[0][0])
 
 
+
+class TestCloneRollback(unittest.TestCase):
+    """R-08: a failed clone removes only the volumes it created."""
+
+    def test_copies_are_removed_when_the_definition_fails(self):
+        import libvirt
+
+        inst = wvmInstance.__new__(wvmInstance)
+        inst.wvm = MagicMock()
+        inst.get_status = MagicMock(return_value=5)
+        inst.get_instances = MagicMock(return_value=[])
+        inst.get_nvram = MagicMock(return_value=None)
+        inst._XMLDesc = MagicMock(return_value=(
+            "<domain><name>src</name><devices>"
+            "<disk type='file' device='disk'><source file='/pool/src.qcow2'/><target dev='vda'/></disk>"
+            "</devices></domain>"
+        ))
+        source_vol = MagicMock()
+        source_vol.XMLDesc.return_value = "<volume><target><format type='qcow2'/></target></volume>"
+        copy = MagicMock()
+        copy.path.return_value = "/pool/copy.qcow2"
+        source_vol.storagePoolLookupByVolume.return_value.createXMLFrom.return_value = copy
+        inst.get_volume_by_path = MagicMock(side_effect=lambda path: copy if path == "/pool/copy.qcow2" else source_vol)
+        inst._defineXML = MagicMock(side_effect=libvirt.libvirtError("bad definition"))
+
+        with self.assertRaises(libvirt.libvirtError):
+            inst.clone_instance({"name": "copy", "disk-vda": "copy.qcow2", "disk_owner_uid": 0, "disk_owner_gid": 0})
+        copy.delete.assert_called_once_with(0)
+        source_vol.delete.assert_not_called()
+
+    def test_running_vm_is_refused_before_anything_is_read(self):
+        import libvirt
+
+        inst = wvmInstance.__new__(wvmInstance)
+        inst.get_status = MagicMock(return_value=1)
+        inst._XMLDesc = MagicMock()
+        with self.assertRaisesRegex(libvirt.libvirtError, "Shut the VM down"):
+            inst.clone_instance({"name": "copy"})
+        inst._XMLDesc.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -379,6 +420,7 @@ class TestEmptyDiskClone(unittest.TestCase):
         # Exercise defensive handling of incomplete disk metadata, while the
         # clone is still defined and looked up through the real test driver.
         inst._XMLDesc = MagicMock(return_value=etree.tostring(config).decode())
+        inst.get_status = MagicMock(return_value=5)  # only shut-off VMs are cloned
         clone_uuid = inst.clone_instance({"name": "empty-disk-clone"})
         clone = conn.lookupByUUIDString(clone_uuid)
         self.addCleanup(clone.undefine)
@@ -396,6 +438,7 @@ class TestEmptyDiskClone(unittest.TestCase):
         inst.wvm = conn
         inst.instance = conn.lookupByName("test")
         inst._XMLDesc = MagicMock()
+        inst.get_status = MagicMock(return_value=5)
         with self.assertRaisesRegex(ValueError, "already exists"):
             inst.clone_instance({"name": "test"})
         inst._XMLDesc.assert_not_called()

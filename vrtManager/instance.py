@@ -15,6 +15,8 @@ try:
         VIR_DOMAIN_RUNNING,
         VIR_DOMAIN_XML_SECURE,
         VIR_DOMAIN_XML_INACTIVE,
+        VIR_DOMAIN_BLOCK_RESIZE_BYTES,
+        VIR_STORAGE_VOL_FILE,
         VIR_MIGRATE_AUTO_CONVERGE,
         VIR_MIGRATE_COMPRESSED,
         VIR_MIGRATE_LIVE,
@@ -35,7 +37,7 @@ try:
     )
     from libvirt_qemu import VIR_DOMAIN_QEMU_AGENT_COMMAND_DEFAULT, qemuAgentCommand
 except Exception:
-    from libvirt import libvirtError, VIR_DOMAIN_XML_SECURE, VIR_MIGRATE_LIVE
+    from libvirt import libvirtError, VIR_DOMAIN_XML_SECURE, VIR_DOMAIN_XML_INACTIVE, VIR_MIGRATE_LIVE
 
 from collections import OrderedDict
 from datetime import datetime
@@ -46,6 +48,12 @@ from lxml import etree
 from vrtManager import util
 from vrtManager.connection import wvmConnect
 from vrtManager.storage import wvmStorage, wvmStorages
+
+# Edits that redefine the domain start from this: the persistent definition,
+# with secrets. Live XML would drop pending changes, non-secure XML the VNC
+# password (R-01, R-02).
+PERSISTENT_XML = VIR_DOMAIN_XML_INACTIVE | VIR_DOMAIN_XML_SECURE
+
 
 class wvmInstances(wvmConnect):
     def get_instance_status(self, name):
@@ -132,7 +140,7 @@ class wvmInstances(wvmConnect):
         dom_emulator = conn.get_dom_emulator()
 
         if dom_emulator != self.get_emulator(dom_arch):
-            raise libvirtError(
+            raise util.OperationError(
                 "Destination host emulator is different. Cannot be migrated"
             )
 
@@ -405,7 +413,7 @@ class wvmInstance(wvmConnect):
         arp_flag = 3  # libvirt."VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_ARP"
         self._ip_cache["arp"] = self._get_interface_addresses(arp_flag)
 
-    def get_net_devices(self):
+    def get_net_devices(self, config=False):
         def networks(ctx):
             result = []
             inbound = outbound = []
@@ -452,7 +460,7 @@ class wvmInstance(wvmConnect):
                 )
             return result
 
-        return util.get_xml_path(self._XMLDesc(0), func=networks)
+        return util.get_xml_path(self._XMLDesc(PERSISTENT_XML if config else 0), func=networks)
 
     def get_disk_devices(self, config=False):
         def disks(doc):
@@ -584,12 +592,12 @@ class wvmInstance(wvmConnect):
         return menu == "yes"
 
     def set_bootmenu(self, flag):
-        tree = ElementTree.fromstring(self._XMLDesc(0))
+        tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
         os = tree.find("os")
         menu = os.find("bootmenu")
 
         if menu is None:
-            bootmenu = ElementTree.fromstring("<bootmenu enable='yes'/>")
+            bootmenu = etree.fromstring("<bootmenu enable='yes'/>")
             os.append(bootmenu)
             menu = os.find("bootmenu")
 
@@ -604,7 +612,7 @@ class wvmInstance(wvmConnect):
                 "Unknown boot menu option, please choose one of 0:disable, 1:enable, -1:remove"
             )
 
-        xmldom = ElementTree.tostring(tree).decode()
+        xmldom = etree.tostring(tree).decode()
         self._defineXML(xmldom)
 
     def get_bootorder(self):
@@ -660,7 +668,7 @@ class wvmInstance(wvmConnect):
             return
 
         def remove_bootorder():
-            tree = ElementTree.fromstring(self._XMLDesc(0))
+            tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
             os = tree.find("os")
             boot = os.findall("boot")
             # Remove old style boot order
@@ -676,7 +684,7 @@ class wvmInstance(wvmConnect):
         tree = remove_bootorder()
 
         for idx, dev in devorder.items():
-            order = ElementTree.fromstring("<boot order='{}'/>".format(idx + 1))
+            order = etree.fromstring("<boot order='{}'/>".format(idx + 1))
             if dev["type"] == "disk":
                 devices = tree.findall("./devices/disk[@device='disk']")
                 for d in devices:
@@ -697,54 +705,50 @@ class wvmInstance(wvmConnect):
                         d.append(order)
             else:
                 raise Exception("Invalid Device Type for boot order")
-        self._defineXML(ElementTree.tostring(tree).decode())
+        self._defineXML(etree.tostring(tree).decode())
+
+    def _set_cdrom_media(self, dev, path):
+        """Insert path into, or with None eject, CD-ROM dev.
+
+        The live and the persistent definition are updated separately from
+        their own device XML, so neither is rewritten from the other (R-12).
+        """
+        definitions = [("persistent", PERSISTENT_XML, VIR_DOMAIN_AFFECT_CONFIG)]
+        if self.instance.isActive():  # running or paused
+            definitions.insert(0, ("running", VIR_DOMAIN_XML_SECURE, VIR_DOMAIN_AFFECT_LIVE))
+        devices = []
+        for label, xml_flags, _ in definitions:
+            tree = etree.fromstring(self._XMLDesc(xml_flags))
+            found = tree.xpath("./devices/disk[@device='cdrom'][target/@dev=$dev]", dev=dev)
+            if not found:
+                raise util.OperationError(f"CD-ROM {dev} is not in the {label} definition")
+            devices.append(found[0])
+        for (label, _, affect), disk in zip(definitions, devices):
+            for source in disk.findall("source"):
+                disk.remove(source)
+            if path:
+                disk.insert(1, etree.Element("source", file=path))
+            try:
+                self.instance.updateDeviceFlags(etree.tostring(disk).decode(), affect)
+            except libvirtError as err:
+                if label == "persistent" and len(definitions) == 2:
+                    raise util.OperationError(f"Media of {dev} changed in the running VM only: {err}") from err
+                raise
 
     def mount_iso(self, dev, image):
-        def attach_iso(dev, disk, vol):
-            if disk.get("device") == "cdrom":
-                for elm in disk:
-                    if elm.tag == "target" and elm.get("dev") == dev:
-                        src_media = ElementTree.Element("source")
-                        src_media.set("file", vol.path())
-                        disk.insert(2, src_media)
-                        return True
-
-        vol = None
-        storages = self.get_storages(only_actives=True)
-        for storage in storages:
+        paths = []
+        for storage in self.get_storages(only_actives=True):
             stg = self.get_storage(storage)
-            if stg.info()[0] != 0:
-                for img in stg.listVolumes():
-                    if image == img:
-                        vol = stg.storageVolLookupByName(image)
-        tree = ElementTree.fromstring(self._XMLDesc(0))
-        for disk in tree.findall("devices/disk"):
-            if attach_iso(dev, disk, vol):
-                break
-        if self.get_status() == 1:
-            xml = ElementTree.tostring(disk).decode()
-            self.instance.attachDevice(xml)
-            xmldom = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        if self.get_status() == 5:
-            xmldom = ElementTree.tostring(tree).decode()
-        self._defineXML(xmldom)
+            if image in stg.listVolumes():
+                paths.append(stg.storageVolLookupByName(image).path())
+        if not paths:
+            raise util.OperationError(f"ISO image {image} was not found")
+        if len(paths) > 1:
+            raise util.OperationError(f"ISO image {image} is in more than one storage pool")
+        self._set_cdrom_media(dev, paths[0])
 
-    def umount_iso(self, dev, image):
-        tree = ElementTree.fromstring(self._XMLDesc(0))
-        for disk in tree.findall("devices/disk"):
-            if disk.get("device") == "cdrom":
-                for elm in disk:
-                    if elm.tag == "source" and elm.get("file") == image:
-                        src_media = elm
-                    if elm.tag == "target" and elm.get("dev") == dev:
-                        disk.remove(src_media)
-        if self.get_status() == 1:
-            xml_disk = ElementTree.tostring(disk).decode()
-            self.instance.attachDevice(xml_disk)
-            xmldom = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        if self.get_status() == 5:
-            xmldom = ElementTree.tostring(tree).decode()
-        self._defineXML(xmldom)
+    def umount_iso(self, dev, image=None):
+        self._set_cdrom_media(dev, None)
 
     def attach_disk(
         self,
@@ -969,20 +973,20 @@ class wvmInstance(wvmConnect):
                     xml += f"""<vcpu id='{i}' enabled='yes' hotpluggable='yes' order='{i+1}'/>"""
                 xml += """</vcpus>"""
 
-                tree = etree.fromstring(self._XMLDesc(0))
+                tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
                 vcpus = tree.xpath("/domain/vcpus")
                 if not vcpus:
                     tree.append(etree.fromstring(xml))
                     self._defineXML(etree.tostring(tree).decode())
             else:
-                tree = etree.fromstring(self._XMLDesc(0))
+                tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
                 vcpus = tree.xpath("/domain/vcpus")
                 for vcpu in vcpus:
                     parent = vcpu.getparent()
                     parent.remove(vcpu)
                     self._defineXML(etree.tostring(tree).decode())
         else:
-            raise libvirtError(
+            raise util.OperationError(
                 "Please shutdown the instance then try to enable vCPU hotplug"
             )
 
@@ -1092,14 +1096,10 @@ class wvmInstance(wvmConnect):
         return listener_addr
 
     def set_console_listener_addr(self, listener_addr):
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        root = ElementTree.fromstring(xml)
-        console_type = self.get_console_type()
-        try:
-            graphic = root.find("devices/graphics[@type='%s']" % console_type)
-        except SyntaxError:
-            # Little fix for old version ElementTree
-            graphic = root.find("devices/graphics")
+        root = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        # The console is the first graphics device of the definition being
+        # edited; the running VM may still have another type.
+        graphic = root.find("devices/graphics")
         if graphic is None:
             return False
         listen = graphic.find("listen[@type='address']")
@@ -1113,7 +1113,7 @@ class wvmInstance(wvmConnect):
                 graphic.attrib.pop("listen")
                 listen.attrib.pop("address")
 
-        newxml = ElementTree.tostring(root).decode()
+        newxml = etree.tostring(root).decode()
         return self._defineXML(newxml)
 
     def get_console_socket(self):
@@ -1129,23 +1129,6 @@ class wvmInstance(wvmConnect):
                 self._XMLDesc(0), "/domain/devices/console/@type"
             )
         return console_type
-
-    def set_console_type(self, console_type):
-        current_type = self.get_console_type()
-        if current_type == console_type:
-            return True
-        if console_type == "":
-            return False
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        root = ElementTree.fromstring(xml)
-        try:
-            graphic = root.find(f"devices/graphics[@type='{current_type}']")
-        except SyntaxError:
-            # Little fix for old version ElementTree
-            graphic = root.find("devices/graphics")
-        graphic.set("type", console_type)
-        newxml = ElementTree.tostring(root).decode()
-        self._defineXML(newxml)
 
     def get_console_port(self, console_type=None):
         if console_type is None:
@@ -1170,14 +1153,8 @@ class wvmInstance(wvmConnect):
         )
 
     def set_console_passwd(self, passwd):
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        root = ElementTree.fromstring(xml)
-        console_type = self.get_console_type()
-        try:
-            graphic = root.find(f"devices/graphics[@type='{console_type}']")
-        except SyntaxError:
-            # Little fix for old version ElementTree
-            graphic = root.find("devices/graphics")
+        root = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        graphic = root.find("devices/graphics")
         if graphic is None:
             return False
         if passwd:
@@ -1186,25 +1163,21 @@ class wvmInstance(wvmConnect):
             with contextlib.suppress(Exception):
                 graphic.attrib.pop("passwd")
 
-        newxml = ElementTree.tostring(root).decode()
+        newxml = etree.tostring(root).decode()
         return self._defineXML(newxml)
 
     def set_console_keymap(self, keymap):
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        root = ElementTree.fromstring(xml)
-        console_type = self.get_console_type()
-        try:
-            graphic = root.find("devices/graphics[@type='%s']" % console_type)
-        except SyntaxError:
-            # Little fix for old version ElementTree
-            graphic = root.find("devices/graphics")
+        root = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        graphic = root.find("devices/graphics")
+        if graphic is None:
+            return False
         if keymap != "auto":
             graphic.set("keymap", keymap)
         else:
             with contextlib.suppress(Exception):
                 graphic.attrib.pop("keymap")
 
-        newxml = ElementTree.tostring(root).decode()
+        newxml = etree.tostring(root).decode()
         self._defineXML(newxml)
 
     def get_console_keymap(self):
@@ -1226,7 +1199,7 @@ class wvmInstance(wvmConnect):
 
     def set_video_model(self, model):
         """Changes only primary video card"""
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
+        xml = self._XMLDesc(PERSISTENT_XML)
         tree = etree.fromstring(xml)
         video_models = tree.xpath("/domain/devices/video/model")
         video_xml = "<model type='{}'/>".format(model)
@@ -1245,7 +1218,7 @@ class wvmInstance(wvmConnect):
         if is_vcpus_enabled:
             self.set_vcpu_hotplug(False)
 
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
+        xml = self._XMLDesc(PERSISTENT_XML)
         tree = etree.fromstring(xml)
 
         vcpu_elem = tree.find("vcpu")
@@ -1270,7 +1243,7 @@ class wvmInstance(wvmConnect):
             self.set_memory(cur_memory, VIR_DOMAIN_AFFECT_CONFIG)
             return
 
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
+        xml = self._XMLDesc(PERSISTENT_XML)
         tree = etree.fromstring(xml)
 
         mem_elem = tree.find("memory")
@@ -1282,19 +1255,16 @@ class wvmInstance(wvmConnect):
         self._defineXML(new_xml)
 
     def resize_disk(self, disks):
-        """
-        Function change disks on vds.
-        """
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        tree = etree.fromstring(xml)
-
+        """Grow disks. QEMU holds the lock of a running domain's image files and
+        grows them itself; block volumes (e.g. LVM) are grown by the storage
+        pool first, then QEMU is told the new size."""
+        active = self.instance.isActive()
         for disk in disks:
-            source_dev = disk["path"]
-            vol = self.get_volume_by_path(source_dev)
-            vol.resize(disk["size_new"])
-
-        new_xml = etree.tostring(tree).decode()
-        self._defineXML(new_xml)
+            vol = self.get_volume_by_path(disk["path"])
+            if not active or vol.info()[0] != VIR_STORAGE_VOL_FILE:
+                vol.resize(disk["size_new"])
+            if active:
+                self.instance.blockResize(disk["path"], disk["size_new"], VIR_DOMAIN_BLOCK_RESIZE_BYTES)
 
     def get_iso_media(self):
         iso = []
@@ -1535,26 +1505,29 @@ class wvmInstance(wvmConnect):
         return ":".join(mac_tuples)
 
     def clone_instance(self, clone_data):
-        clone_dev_path = []
-
+        """Copy a shut-off VM. Inputs are checked before anything is allocated,
+        and on failure only the volumes this call created are removed (R-08)."""
+        if self.get_status() != 5:
+            # A running guest keeps writing while its disks are copied.
+            raise util.OperationError("Shut the VM down before cloning it")
         if clone_data["name"] in self.get_instances():
             raise ValueError("An instance with the clone name already exists")
 
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        tree = etree.fromstring(xml)
-        name = tree.find("name")
-        name.text = clone_data["name"]
+        tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        tree.find("name").text = clone_data["name"]
         uuid = tree.find("uuid")
         if uuid is None:
             uuid = etree.SubElement(tree, "uuid")
         uuid.text = util.randomUUID()
+        self._set_options(
+            tree,
+            {
+                "title": clone_data.get("clone-title", ""),
+                "description": clone_data.get("clone-description", ""),
+            },
+        )
 
-        options = {
-            "title": clone_data.get("clone-title", ""),
-            "description": clone_data.get("clone-description", ""),
-        }
-        self._set_options(tree, options)
-
+        disks = []
         for disk in list(tree.findall("devices/disk")):
             if disk.get("device") != "disk":
                 continue
@@ -1569,120 +1542,96 @@ class wvmInstance(wvmConnect):
             dev = target.get("dev") if target is not None else None
             if not supported or not dev or not clone_data.get("disk-" + dev):
                 raise ValueError("Cannot clone a disk without a supported source and destination")
-
-        src_nvram_path = self.get_nvram()
-        if src_nvram_path:
-            # Change XML for nvram
-            nvram = tree.find("os/nvram")
-            nvram.getparent().remove(nvram)
-
-            # NVRAM CLONE: create pool if nvram is not in a pool. then clone it
-            src_nvram_name = os.path.basename(src_nvram_path)
-            nvram_dir = os.path.dirname(src_nvram_path)
-            nvram_pool_name = os.path.basename(nvram_dir)
-            try:
-                self.get_volume_by_path(src_nvram_path)
-            except libvirtError:
-                stg_conn = self.get_wvmStorages()
-                stg_conn.create_storage("dir", nvram_pool_name, None, nvram_dir)
-
-            new_nvram_name = f"{clone_data['name']}_VARS"
-            nvram_stg = self.get_wvmStorage(nvram_pool_name)
-            nvram_stg.clone_volume(src_nvram_name, new_nvram_name, file_suffix="fd")
+            disks.append((source, dev))
 
         for num, net in enumerate(tree.findall("devices/interface")):
-            elm = net.find("mac")
-            mac_address = self.fix_mac(clone_data["clone-net-mac-" + str(num)])
-            elm.set("address", mac_address)
+            mac = clone_data.get(f"clone-net-mac-{num}")
+            if not mac:
+                raise ValueError(f"No MAC address for network interface {num}")
+            net.find("mac").set("address", self.fix_mac(mac))
 
-        for disk in tree.findall("devices/disk"):
-            if disk.get("device") == "disk":
-                elm = disk.find("target")
-                device_name = elm.get("dev")
-                if device_name:
-                    target_file = clone_data["disk-" + device_name]
-                    meta_prealloc = False
-                    with contextlib.suppress(Exception):
-                        meta_prealloc = clone_data["meta-" + device_name]
+        created = []  # paths of volumes this call created
+        try:
+            src_nvram_path = self.get_nvram()
+            if src_nvram_path:
+                nvram = tree.find("os/nvram")
+                nvram.getparent().remove(nvram)
 
-                    elm.set("dev", device_name)
+                # NVRAM CLONE: create pool if nvram is not in a pool. then clone it
+                src_nvram_name = os.path.basename(src_nvram_path)
+                nvram_dir = os.path.dirname(src_nvram_path)
+                nvram_pool_name = os.path.basename(nvram_dir)
+                try:
+                    self.get_volume_by_path(src_nvram_path)
+                except libvirtError:
+                    self.get_wvmStorages().create_storage("dir", nvram_pool_name, None, nvram_dir)
+                nvram_stg = self.get_wvmStorage(nvram_pool_name)
+                name = nvram_stg.clone_volume(src_nvram_name, f"{clone_data['name']}_VARS", file_suffix="fd")
+                created.append(os.path.join(nvram_dir, name))
 
-                elm = disk.find("source")
-                source_file = elm.get("file")
-                if source_file:
-                    clone_dev_path.append(source_file)
-                    clone_path = os.path.join(os.path.dirname(source_file), target_file)
-                    elm.set("file", clone_path)
-
-                    vol = self.get_volume_by_path(source_file)
-                    vol_format = util.get_xml_path(
-                        vol.XMLDesc(0), "/volume/target/format/@type"
+            for source, dev in disks:
+                target_file = clone_data["disk-" + dev]
+                meta_prealloc = bool(clone_data.get("meta-" + dev))
+                if source.get("file"):
+                    vol = self.get_volume_by_path(source.get("file"))
+                    vol_format = util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type")
+                    new_vol = vol.storagePoolLookupByVolume().createXMLFrom(
+                        f"""<volume>
+                              <name>{target_file}</name>
+                              <capacity>0</capacity>
+                              <allocation>0</allocation>
+                              <target>
+                                <format type='{vol_format}'/>
+                                <permissions>
+                                  <owner>{clone_data['disk_owner_uid']}</owner>
+                                  <group>{clone_data['disk_owner_gid']}</group>
+                                  <mode>0644</mode>
+                                  <label>virt_image_t</label>
+                                </permissions>
+                                <compat>1.1</compat>
+                                <features><lazy_refcounts/></features>
+                              </target>
+                            </volume>""",
+                        vol,
+                        meta_prealloc and vol_format == "qcow2",
                     )
-
-                    if vol_format == "qcow2" and meta_prealloc:
-                        meta_prealloc = True
-
-                    vol_clone_xml = f"""
-                                    <volume>
-                                        <name>{target_file}</name>
-                                        <capacity>0</capacity>
-                                        <allocation>0</allocation>
-                                        <target>
-                                            <format type='{vol_format}'/>
-                                            <permissions>
-                                                <owner>{clone_data['disk_owner_uid']}</owner>
-                                                <group>{clone_data['disk_owner_gid']}</group>
-                                                <mode>0644</mode>
-                                                <label>virt_image_t</label>
-                                            </permissions>
-                                            <compat>1.1</compat>
-                                            <features>
-                                                <lazy_refcounts/>
-                                            </features>
-                                        </target>
-                                    </volume>"""
-
-                    stg = vol.storagePoolLookupByVolume()
-                    stg.createXMLFrom(vol_clone_xml, vol, meta_prealloc)
-
-                source_protocol = elm.get("protocol")
-                if source_protocol == "rbd":
-                    source_name = elm.get("name")
-                    clone_name = "%s/%s" % (os.path.dirname(source_name), target_file)
-                    elm.set("name", clone_name)
-
-                    vol = self.get_volume_by_path(source_name)
-                    vol_format = util.get_xml_path(
-                        vol.XMLDesc(0), "/volume/target/format/@type"
+                    created.append(new_vol.path())
+                    source.set("file", new_vol.path())
+                elif source.get("protocol") == "rbd":
+                    vol = self.get_volume_by_path(source.get("name"))
+                    vol_format = util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type")
+                    new_vol = vol.storagePoolLookupByVolume().createXMLFrom(
+                        f"""<volume type='network'>
+                              <name>{target_file}</name>
+                              <capacity>0</capacity>
+                              <allocation>0</allocation>
+                              <target><format type='{vol_format}'/></target>
+                            </volume>""",
+                        vol,
+                        meta_prealloc,
                     )
-
-                    vol_clone_xml = f"""
-                                    <volume type='network'>
-                                        <name>{target_file}</name>
-                                        <capacity>0</capacity>
-                                        <allocation>0</allocation>
-                                        <target>
-                                            <format type='{vol_format}'/>
-                                        </target>
-                                    </volume>"""
-                    stg = vol.storagePoolLookupByVolume()
-                    stg.createXMLFrom(vol_clone_xml, vol, meta_prealloc)
-
-                source_dev = elm.get("dev")
-                if source_dev:
-                    clone_path = os.path.join(os.path.dirname(source_dev), target_file)
-                    elm.set("dev", clone_path)
-
-                    vol = self.get_volume_by_path(source_dev)
-                    stg = vol.storagePoolLookupByVolume()
-
-                    vol_name = util.get_xml_path(vol.XMLDesc(0), "/volume/name")
-                    pool_name = util.get_xml_path(stg.XMLDesc(0), "/pool/name")
-
+                    created.append(new_vol.path())
+                    source.set("name", f"{os.path.dirname(source.get('name'))}/{target_file}")
+                else:
+                    vol = self.get_volume_by_path(source.get("dev"))
+                    pool_name = util.get_xml_path(vol.storagePoolLookupByVolume().XMLDesc(0), "/pool/name")
                     storage = self.get_wvmStorage(pool_name)
-                    storage.clone_volume(vol_name, target_file)
+                    name = storage.clone_volume(vol.name(), target_file)
+                    new_path = storage.get_volume(name).path()
+                    created.append(new_path)
+                    source.set("dev", new_path)
 
-        self._defineXML(ElementTree.tostring(tree).decode())
+            self._defineXML(etree.tostring(tree).decode())
+        except Exception as err:
+            leftovers = []
+            for path in reversed(created):
+                try:
+                    self.get_volume_by_path(path).delete(0)
+                except libvirtError:
+                    leftovers.append(path)
+            if leftovers:
+                raise util.OperationError(f"Clone failed ({err}); remove these copies by hand: {', '.join(leftovers)}") from err
+            raise
 
         return self.get_instance(clone_data["name"]).UUIDString()
 
@@ -1725,41 +1674,67 @@ class wvmInstance(wvmConnect):
             etree.SubElement(iface, "filterref", filter=nwfilter)
         xml_iface = etree.tostring(iface).decode()
 
-        if self.get_status() == 1:
+        if self.instance.isActive():  # running or paused
             self.instance.attachDeviceFlags(xml_iface, VIR_DOMAIN_AFFECT_LIVE)
-            self.instance.attachDeviceFlags(xml_iface, VIR_DOMAIN_AFFECT_CONFIG)
-        if self.get_status() == 5:
-            self.instance.attachDeviceFlags(xml_iface, VIR_DOMAIN_AFFECT_CONFIG)
+        self.instance.attachDeviceFlags(xml_iface, VIR_DOMAIN_AFFECT_CONFIG)
+
+    def _definitions(self):
+        """(XMLDesc flags, affect flag) of the definitions a device edit applies to:
+        the running one when the VM is active (running or paused), and the
+        persistent one. Each is edited from its own XML."""
+        definitions = [(PERSISTENT_XML, VIR_DOMAIN_AFFECT_CONFIG)]
+        if self.instance.isActive():
+            definitions.insert(0, (VIR_DOMAIN_XML_SECURE, VIR_DOMAIN_AFFECT_LIVE))
+        return definitions
+
+    def _nic(self, xml_flags, mac_address):
+        found = etree.fromstring(self._XMLDesc(xml_flags)).xpath(
+            "./devices/interface[mac/@address=$mac]", mac=mac_address
+        )
+        return found[0] if found else None
 
     def delete_network(self, mac_address):
-        tree = ElementTree.fromstring(self._XMLDesc(0))
-        for interface in tree.findall("devices/interface"):
-            source = interface.find("mac")
-            if source.get("address", "") == mac_address:
-                new_xml = ElementTree.tostring(interface).decode()
-
-                if self.get_status() == 1:
-                    self.instance.detachDeviceFlags(new_xml, VIR_DOMAIN_AFFECT_LIVE)
-                    self.instance.detachDeviceFlags(new_xml, VIR_DOMAIN_AFFECT_CONFIG)
-                if self.get_status() == 5:
-                    self.instance.detachDeviceFlags(new_xml, VIR_DOMAIN_AFFECT_CONFIG)
-                return new_xml
-        return None
+        """Detach the NIC; returns its persistent XML, or None if there is none."""
+        removed = None
+        for xml_flags, affect in self._definitions():
+            nic = self._nic(xml_flags, mac_address)
+            if nic is not None:
+                removed = etree.tostring(nic).decode()
+                self.instance.detachDeviceFlags(removed, affect)
+        return removed
 
     def change_network(self, old_mac, mac, source, source_type, model, nwfilter):
-        """Replace the NIC with old_mac; put it back if the new one cannot be added."""
-        old_xml = self.delete_network(old_mac)
-        if old_xml is None:
-            raise libvirtError(f"No network interface with MAC {old_mac}")
-        try:
-            self.add_network(mac, source, source_type, model, nwfilter)
-        except libvirtError:
-            if self.get_status() == 1:
-                self.instance.attachDeviceFlags(old_xml, VIR_DOMAIN_AFFECT_LIVE)
-                self.instance.attachDeviceFlags(old_xml, VIR_DOMAIN_AFFECT_CONFIG)
-            if self.get_status() == 5:
-                self.instance.attachDeviceFlags(old_xml, VIR_DOMAIN_AFFECT_CONFIG)
-            raise
+        """Edit the NIC with old_mac in the persistent definition, in place.
+
+        Settings this form does not edit (QoS, link state, driver, PCI address)
+        stay. A running VM gets the change at its next start.
+        """
+        tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        found = tree.xpath("./devices/interface[mac/@address=$mac]", mac=old_mac)
+        if not found:
+            raise util.OperationError(f"No network interface with MAC {old_mac}")
+        iface = found[0]
+
+        iface_type = {"net": "network", "bridge": "bridge"}.get(source_type, "direct")
+        iface.set("type", iface_type)
+        for old_source in iface.findall("source"):
+            iface.remove(old_source)
+        source_attrs = {"network": {"network": source}, "bridge": {"bridge": source}}.get(
+            iface_type, {"dev": source, "mode": "bridge"}
+        )
+        iface.insert(1, etree.Element("source", **source_attrs))
+
+        iface.find("mac").set("address", mac)
+        for old_model in iface.findall("model"):
+            iface.remove(old_model)
+        if model:
+            etree.SubElement(iface, "model", type=model)
+        for old_filter in iface.findall("filterref"):
+            iface.remove(old_filter)
+        if nwfilter:
+            etree.SubElement(iface, "filterref", filter=nwfilter)
+
+        self._defineXML(etree.tostring(tree).decode())
 
     def change_network_oldway(self, network_data):
         """
@@ -1787,11 +1762,11 @@ class wvmInstance(wvmConnect):
                 elif net_source_type == "iface":
                     source.set("dev", net_source)
                 else:
-                    raise libvirtError(
+                    raise util.OperationError(
                         "Unknown network type: {}".format(net_source_type)
                     )
             else:
-                raise libvirtError(
+                raise util.OperationError(
                     "Unknown network type: {}".format(interface.get("type"))
                 )
 
@@ -1819,22 +1794,14 @@ class wvmInstance(wvmConnect):
         self._defineXML(new_xml)
 
     def set_link_state(self, mac_address, state):
-        tree = etree.fromstring(self._XMLDesc(0))
-        for interface in tree.findall("devices/interface"):
-            source = interface.find("mac")
-            if source.get("address") == mac_address:
-                link = interface.find("link")
-                if link is not None:
-                    interface.remove(link)
-                link_el = etree.Element("link")
-                link_el.attrib["state"] = state
-                interface.append(link_el)
-                new_xml = etree.tostring(interface).decode()
-                if self.get_status() == 1:
-                    self.instance.updateDeviceFlags(new_xml, VIR_DOMAIN_AFFECT_LIVE)
-                    self.instance.updateDeviceFlags(new_xml, VIR_DOMAIN_AFFECT_CONFIG)
-                if self.get_status() == 5:
-                    self.instance.updateDeviceFlags(new_xml, VIR_DOMAIN_AFFECT_CONFIG)
+        for xml_flags, affect in self._definitions():
+            nic = self._nic(xml_flags, mac_address)
+            if nic is None:
+                continue
+            for link in nic.findall("link"):
+                nic.remove(link)
+            etree.SubElement(nic, "link", state=state)
+            self.instance.updateDeviceFlags(etree.tostring(nic).decode(), affect)
 
     def _set_options(self, tree, options):
         for o in ["title", "description"]:
@@ -1852,7 +1819,7 @@ class wvmInstance(wvmConnect):
         """
         Function change description, title
         """
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
+        xml = self._XMLDesc(PERSISTENT_XML)
         tree = etree.fromstring(xml)
 
         self._set_options(tree, options)
@@ -1917,7 +1884,7 @@ class wvmInstance(wvmConnect):
         else:
             xml = f"<outbound average='{average}' peak='{peak}' burst='{burst}'/>"
 
-        tree = etree.fromstring(self._XMLDesc(0))
+        tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
 
         macs = tree.xpath("/domain/devices/interface/mac")
         for cur_mac in macs:
@@ -1940,7 +1907,7 @@ class wvmInstance(wvmConnect):
         self.wvm.defineXML(new_xml)
 
     def unset_qos(self, mac, direction):
-        tree = etree.fromstring(self._XMLDesc(0))
+        tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
         for direct in tree.xpath(
             "/domain/devices/interface/bandwidth/{}".format(direction)
         ):

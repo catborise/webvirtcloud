@@ -9,6 +9,19 @@ import lxml.etree as etree
 from django.conf import settings
 
 
+
+class OperationError(libvirt.libvirtError):
+    """An error with WebVirtCloud's own message.
+
+    libvirtError(msg) reports the thread's last libvirt error instead of msg
+    when there is one, so an earlier, unrelated failure would be shown.
+    """
+
+    def __init__(self, msg):
+        Exception.__init__(self, msg)
+        self.err = None
+
+
 def is_kvm_available(xml):
     kvm_domains = get_xml_path(xml, "//domain/@type='kvm'")
     return kvm_domains > 0

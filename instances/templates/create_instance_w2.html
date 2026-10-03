@@ -216,20 +216,6 @@
                                                                             </select>
                                                                         </div>
                                                                     </div>
-                                                                    {% if dom_caps.graphics_support == 'yes' %}
-                                                                    <div class="row">
-                                                                        <label class="col-sm-4 col-form-label">{% trans "Graphics" %}</label>
-                                                                        <div class="col-sm-7">
-                                                                            <select class="form-select" name="graphics">
-                                                                                {% for graphics in dom_caps.graphics_types %}
-                                                                                {% if graphics != 'spice' %}
-                                                                                <option value="{{ graphics }}" {% if default_graphics == graphics %}selected{% endif %}>{{ graphics }}</option>
-                                                                                {% endif %}
-                                                                                {% endfor %}
-                                                                            </select>
-                                                                        </div>
-                                                                    </div>
-                                                                    {% endif %}
                                                                     <div class="row">
                                                                         <label class="col-sm-4 col-form-label">{% trans "Video" %}</label>
                                                                         <div class="col-sm-7">
@@ -483,20 +469,6 @@
                                 </select>
                             </div>
                         </div>
-                        {% if dom_caps.graphics_support == 'yes' %}
-                            <div class="row">
-                                <label class="col-sm-3 col-form-label">{% trans "Graphics" %}</label>
-                                <div class="col-sm-7">
-                                    <select class="form-select" name="graphics">
-                                        {% for graphics in dom_caps.graphics_types %}
-                                        {% if graphics != 'spice' %}
-                                        <option value="{{ graphics }}" {% if default_graphics == graphics %}selected{% endif %}>{{ graphics }}</option>
-                                        {% endif %}
-                                        {% endfor %}
-                                    </select>
-                                </div>
-                            </div>
-                        {% endif %}
                         <div class="row">
                             <label class="col-sm-3 col-form-label">{% trans "Video" %}</label>
                             <div class="col-sm-7">
@@ -737,20 +709,6 @@
                                     </select>
                                 </div>
                             </div>
-                            {% if dom_caps.graphics_support == 'yes' %}
-                            <div class="row">
-                                <label class="col-sm-3 col-form-label">{% trans "Graphics" %}</label>
-                                <div class="col-sm-7">
-                                    <select class="form-select" name="graphics">
-                                        {% for graphics in dom_caps.graphics_types %}
-                                        {% if graphics != 'spice' %}
-                                        <option value="{{ graphics }}" {% if default_graphics == graphics %}selected{% endif %}>{{ graphics }}</option>
-                                        {% endif %}
-                                        {% endfor %}
-                                    </select>
-                                </div>
-                            </div>
-                            {% endif %}
                             <div class="row">
                                 <label class="col-sm-3 col-form-label">{% trans "Video" %}</label>
                                 <div class="col-sm-7">

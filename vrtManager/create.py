@@ -158,7 +158,6 @@ class wvmCreate(wvmConnect):
         volumes,
         networks,
         nwfilter,
-        graphics,
         virtio,
         listener_addr,
         net_model="virtio",
@@ -337,7 +336,7 @@ class wvmCreate(wvmConnect):
                 xml += """<input type='tablet'/>"""
 
         xml += f"""
-                <graphics type='{graphics}' port='-1' autoport='yes' {console_pass} listen='{listener_addr}'/>
+                <graphics type='vnc' port='-1' autoport='yes' {console_pass} listen='{listener_addr}'/>
                 <console type='pty'/> """
 
         if qemu_ga and virtio:

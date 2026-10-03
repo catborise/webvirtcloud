@@ -223,8 +223,8 @@ __gather_linux_system_info() {
                 done < /etc/"${rsource}"
                 ;;
             os                 )
-                nn=$(grep '^ID=' /etc/os-release | sed -e 's/^ID=\(.*\)$/\1/g' | tr -d '"'\'')
-                rv=$(grep '^VERSION_ID=' /etc/os-release | sed -e 's/^VERSION_ID=\(.*\)$/\1/g' | tr -d '"'\'')
+                nn=$(grep '^ID=' /etc/os-release | sed -e 's/^ID=\(.*\)$/\1/g' | tr -d "\"'")
+                rv=$(grep '^VERSION_ID=' /etc/os-release | sed -e 's/^VERSION_ID=\(.*\)$/\1/g' | tr -d "\"'")
                 [ "${rv}x" != "x" ] && v=$(__parse_version_string "$rv") || v=""
                 case $(echo "${nn}" | tr '[:upper:]' '[:lower:]') in
                     arch        )
@@ -410,7 +410,6 @@ install_centos_post() {
     fi
     if [ -f /etc/libvirt/qemu.conf ]; then
         sed -i 's/#[ ]*vnc_listen.*/vnc_listen = "0.0.0.0"/g' /etc/libvirt/qemu.conf
-        sed -i 's/#[ ]*spice_listen.*/spice_listen = "0.0.0.0"/g' /etc/libvirt/qemu.conf
     else
         echoerror "/etc/libvirt/qemu.conf not found. Exiting..."
         exit 1
@@ -512,7 +511,6 @@ install_fedora_post() {
     fi
     if [ -f /etc/libvirt/qemu.conf ]; then
         sed -i 's/#[ ]*vnc_listen.*/vnc_listen = "0.0.0.0"/g' /etc/libvirt/qemu.conf
-        sed -i 's/#[ ]*spice_listen.*/spice_listen = "0.0.0.0"/g' /etc/libvirt/qemu.conf
     else
         echoerror "/etc/libvirt/qemu.conf not found. Exiting..."
         exit 1
@@ -581,7 +579,6 @@ install_opensuse_post() {
     fi
     if [ -f /etc/libvirt/qemu.conf ]; then
         sed -i 's/#[ ]*vnc_listen.*/vnc_listen = "0.0.0.0"/g' /etc/libvirt/qemu.conf
-        sed -i 's/#[ ]*spice_listen.*/spice_listen = "0.0.0.0"/g' /etc/libvirt/qemu.conf
     fi
     mkdir -p /etc/supervisord.d /etc/supervisor/conf.d
     if [ -f /etc/supervisord.conf ] || [ -f /etc/supervisor/supervisord.conf ]; then
@@ -650,7 +647,6 @@ install_ubuntu_post() {
     fi
     if [ -f /etc/libvirt/qemu.conf ]; then
         sed -i 's/#[ ]*vnc_listen.*/vnc_listen = "0.0.0.0"/g' /etc/libvirt/qemu.conf
-        sed -i 's/#[ ]*spice_listen.*/spice_listen = "0.0.0.0"/g' /etc/libvirt/qemu.conf
 
     else
         echoerror "/etc/libvirt/qemu.conf not found. Exiting..."
@@ -730,7 +726,6 @@ install_debian_post() {
     fi
     if [ -f /etc/libvirt/qemu.conf ]; then
         sed -i 's/#[ ]*vnc_listen.*/vnc_listen = "0.0.0.0"/g' /etc/libvirt/qemu.conf
-        sed -i 's/#[ ]*spice_listen.*/spice_listen = "0.0.0.0"/g' /etc/libvirt/qemu.conf
     else
         echoerror "/etc/libvirt/qemu.conf not found. Exiting..."
         exit 1

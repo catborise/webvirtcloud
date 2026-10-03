@@ -6,9 +6,15 @@ import stat
 import tempfile
 import threading
 import time
+from datetime import timedelta
+
+from accounts.models import UserInstance
+from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.utils import timezone
 from computes.models import Compute
-from instances.models import Instance
+from instances.models import Instance, InstanceTombstone
 
 logger = logging.getLogger(__name__)
 
@@ -147,11 +153,61 @@ def libvirt_instance_lock(instance, timeout=15.0):
             yield
 
 
+def _move_ownership(source, target):
+    """Give target the owners and template flag of source; a user's rights are merged."""
+    for ui in UserInstance.objects.filter(instance=source):
+        existing = UserInstance.objects.filter(instance=target, user=ui.user).first()
+        if existing is None:
+            ui.instance = target
+            ui.save(update_fields=["instance"])
+            continue
+        for flag in ("is_change", "is_delete", "is_vnc"):
+            if getattr(ui, flag):
+                setattr(existing, flag, True)
+        existing.save()
+    if source.is_template and not target.is_template:
+        target.is_template = True
+        target.save(update_fields=["is_template"])
+
+
+def _bury(inst):
+    owners = [
+        {"user": ui.user_id, "is_change": ui.is_change, "is_delete": ui.is_delete, "is_vnc": ui.is_vnc}
+        for ui in UserInstance.objects.filter(instance=inst)
+    ]
+    if owners or inst.is_template:
+        InstanceTombstone.objects.create(uuid=inst.uuid, name=inst.name, is_template=inst.is_template, owners=owners)
+        logger.info("Instance %s (%s) disappeared; ownership kept", inst.name, inst.uuid)
+
+
+def _restore(inst):
+    tombstone = InstanceTombstone.objects.filter(uuid=inst.uuid).order_by("-removed").first()
+    if tombstone is None:
+        return
+    users = set(get_user_model().objects.filter(id__in=[o["user"] for o in tombstone.owners]).values_list("id", flat=True))
+    for owner in tombstone.owners:
+        if owner["user"] in users:
+            UserInstance.objects.create(
+                instance=inst,
+                user_id=owner["user"],
+                is_change=owner["is_change"],
+                is_delete=owner["is_delete"],
+                is_vnc=owner["is_vnc"],
+            )
+    if tombstone.is_template:
+        inst.is_template = True
+        inst.save(update_fields=["is_template"])
+    InstanceTombstone.objects.filter(uuid=inst.uuid).delete()
+    logger.info("Instance %s (%s) is back; ownership restored", inst.name, inst.uuid)
+
+
 def refresh_instance_database(compute):
     """
     Synchronizes the WebVirtCloud database with libvirt domain state.
     Libvirt is the single source of truth:
-      - VMs removed in virt-manager/virsh are deleted from the database.
+      - VMs removed in virt-manager/virsh are deleted from the database; their
+        ownership is moved to the same UUID on another compute or kept in a
+        tombstone for INSTANCE_OWNERSHIP_RETENTION_DAYS (R-05).
       - VMs created in virt-manager/virsh are added to the database.
       - VMs renamed in virt-manager/virsh have their name updated without losing
         UserInstance permission relationships (matched by UUID).
@@ -207,17 +263,32 @@ def refresh_instance_database(compute):
                             inst.name = new_name
                             inst.save(update_fields=["name"])
 
-                # 2. Delete instances that were genuinely undefined/deleted in virsh/virt-manager
-                Instance.objects.filter(compute=compute).exclude(uuid__in=host_domains.keys()).delete()
+                # 2. Instances gone from this compute. Their ownership goes to the
+                #    same UUID on another compute (an out-of-band move) or is kept
+                #    in a tombstone in case the VM comes back (R-05).
+                for inst in db_instances:
+                    if inst.uuid not in host_domains:
+                        elsewhere = Instance.objects.filter(uuid=inst.uuid).exclude(compute=compute).first()
+                        if elsewhere:
+                            _move_ownership(inst, elsewhere)
+                        else:
+                            _bury(inst)
+                        inst.delete()
 
-                # 3. Create or update new instances that were created out-of-band in virsh/virt-manager
+                # 3. Instances created out-of-band. A UUID that also exists on another
+                #    compute is a copy and gets no owners; otherwise a tombstone's
+                #    ownership is restored.
+                retention = getattr(settings, "INSTANCE_OWNERSHIP_RETENTION_DAYS", 30)
+                InstanceTombstone.objects.filter(removed__lt=timezone.now() - timedelta(days=retention)).delete()
                 for uuid, name in host_domains.items():
                     if uuid not in db_uuids:
-                        Instance.objects.get_or_create(
+                        inst, created = Instance.objects.get_or_create(
                             compute=compute,
                             uuid=uuid,
                             defaults={"name": name},
                         )
+                        if created and not Instance.objects.filter(uuid=uuid).exclude(compute=compute).exists():
+                            _restore(inst)
     except (OSError, PermissionError, TimeoutError) as e:
         logger.error("Could not synchronize instances for compute %s: %s; failing closed", compute_pk, e)
         return

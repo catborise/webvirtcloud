@@ -17,6 +17,7 @@ from instances.views import (
     suspend,
 )
 from drf_spectacular.utils import extend_schema
+from libvirt import libvirtError
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -266,50 +267,65 @@ class CreateInstanceViewSet(viewsets.ViewSet):
                 compute.type,
             )
 
-            path = conn.create_volume(
-                serializer.validated_data["storage"],
-                serializer.validated_data["name"],
-                serializer.validated_data["hdd_size"],
-                default_disk_format,
-                serializer.validated_data["meta_prealloc"],
-                default_disk_owner_uid,
-                default_disk_owner_gid,
-            )
-            volume = {}
-            volume["device"] = "disk"
-            volume["path"] = path
-            volume["type"] = conn.get_volume_format_type(path)
-            volume["cache_mode"] = serializer.validated_data["cache_mode"]
-            volume["bus"] = default_bus
-            if volume["bus"] == "scsi":
-                volume["scsi_model"] = default_scsi_disk_model
-            volume["discard_mode"] = default_discard
-            volume["detect_zeroes_mode"] = default_zeroes
-            volume["io_mode"] = default_io
-
-            volume_list.append(volume)
-
-            with utils.libvirt_compute_lock(compute):
-                conn.create_instance(
-                    name=serializer.validated_data["name"],
-                    memory=serializer.validated_data["memory"],
-                    vcpu=serializer.validated_data["vcpu"],
-                    vcpu_mode=serializer.validated_data["vcpu_mode"],
-                    uuid=util.randomUUID(),
-                    arch=arch,
-                    machine=machine,
-                    firmware={},
-                    volumes=volume_list,
-                    networks=serializer.validated_data["networks"],
-                    nwfilter=serializer.validated_data["nwfilter"],
-                    graphics=serializer.validated_data["graphics"],
-                    virtio=serializer.validated_data["virtio"],
-                    listener_addr=serializer.validated_data["listener_addr"],
-                    video=serializer.validated_data["video"],
-                    console_pass=serializer.validated_data["console_pass"],
-                    mac=serializer.validated_data["mac"],
-                    qemu_ga=serializer.validated_data["qemu_ga"],
+            path = None  # the volume this request allocated
+            try:
+                path = conn.create_volume(
+                    serializer.validated_data["storage"],
+                    serializer.validated_data["name"],
+                    serializer.validated_data["hdd_size"],
+                    default_disk_format,
+                    serializer.validated_data["meta_prealloc"],
+                    default_disk_owner_uid,
+                    default_disk_owner_gid,
                 )
+                volume = {}
+                volume["device"] = "disk"
+                volume["path"] = path
+                volume["type"] = conn.get_volume_format_type(path)
+                volume["cache_mode"] = serializer.validated_data["cache_mode"]
+                volume["bus"] = default_bus
+                if volume["bus"] == "scsi":
+                    volume["scsi_model"] = default_scsi_disk_model
+                volume["discard_mode"] = default_discard
+                volume["detect_zeroes_mode"] = default_zeroes
+                volume["io_mode"] = default_io
+
+                volume_list.append(volume)
+
+                with utils.libvirt_compute_lock(compute):
+                    conn.create_instance(
+                        name=serializer.validated_data["name"],
+                        memory=serializer.validated_data["memory"],
+                        vcpu=serializer.validated_data["vcpu"],
+                        vcpu_mode=serializer.validated_data["vcpu_mode"],
+                        uuid=util.randomUUID(),
+                        arch=arch,
+                        machine=machine,
+                        firmware={},
+                        volumes=volume_list,
+                        networks=serializer.validated_data["networks"],
+                        nwfilter=serializer.validated_data["nwfilter"],
+                        virtio=serializer.validated_data["virtio"],
+                        listener_addr=serializer.validated_data["listener_addr"],
+                        video=serializer.validated_data["video"],
+                        console_pass=serializer.validated_data["console_pass"],
+                        mac=serializer.validated_data["mac"],
+                        qemu_ga=serializer.validated_data["qemu_ga"],
+                    )
+            except Exception as err:
+                # R-08: a failed definition must not leave the new disk behind
+                if path:
+                    try:
+                        conn.delete_volume(path)
+                    except libvirtError:
+                        return Response(
+                            {"status": f"{err}; remove {path} by hand"}, status=status.HTTP_400_BAD_REQUEST
+                        )
+                if not isinstance(err, libvirtError):
+                    raise
+                return Response({"status": str(err)}, status=status.HTTP_400_BAD_REQUEST)
+            # After the definition: the VM uses the volume, so no rollback here.
+            with utils.libvirt_compute_lock(compute):
                 utils.refresh_instance_database(compute)
             msg = f"Instance {serializer.validated_data['name']} is created"
             return Response({"status": msg})
