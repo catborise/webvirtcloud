@@ -161,6 +161,31 @@ class LiveDataLossTestCase(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(livetest.volume_exists(self.conn, shared), "destroy deleted another VM's disk")
 
+    def _destroy_base_of_another_vms_overlay(self, running):
+        base = livetest.create_volume(self.conn, P + "r14-base")
+        pool = self.conn.storagePoolLookupByName(livetest.POOL)
+        overlay = pool.createXML(
+            f"<volume><name>{P}r14-overlay.qcow2</name><capacity unit='MiB'>64</capacity>"
+            f"<target><format type='qcow2'/></target><backingStore><path>{base}</path>"
+            "<format type='qcow2'/></backingStore></volume>",
+            0,
+        ).path()
+        _, inst = self.vm("r14-base", [base])
+        dom_b, _ = self.vm("r14-overlay", [overlay])
+        if running:
+            dom_b.create()
+
+        response = self.post("destroy", inst, {"delete_disk": "1"})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(livetest.volume_exists(self.conn, base), "deleted the backing file of another VM's disk")
+
+    def test_r14_destroy_keeps_the_backing_file_of_a_stopped_vm(self):
+        self._destroy_base_of_another_vms_overlay(running=False)
+
+    def test_r14_destroy_keeps_the_backing_file_of_a_running_vm(self):
+        self._destroy_base_of_another_vms_overlay(running=True)
+
     def test_r14_destroy_with_managed_save_removes_the_vm(self):
         base = livetest.create_volume(self.conn, P + "r14-save")
         dom, inst = self.vm("r14-save", [base])
@@ -197,11 +222,10 @@ class LiveDataLossTestCase(TestCase):
 
         self.assertEqual(response.status_code, 302)
 
-        still_attached = "vdb" in self.disk_sources(dom)
-        self.assertFalse(
-            still_attached and not livetest.volume_exists(self.conn, data),
-            "volume deleted while the running VM still uses it",
-        )
+        # The guest has no OS, so it never releases the disk: the live
+        # definition keeps vdb, and the volume must be kept with it.
+        self.assertIn("vdb", self.disk_sources(dom))
+        self.assertTrue(livetest.volume_exists(self.conn, data), "volume deleted while the VM still uses it")
 
     def test_s02_delete_volume_of_a_paused_vm(self):
         self._delete_attached_volume(pause=True)

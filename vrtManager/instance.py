@@ -1311,7 +1311,7 @@ class wvmInstance(wvmConnect):
         return iso
 
     def paths_used_by_other_domains(self):
-        """Disk sources referenced by any other domain's live or persistent definition."""
+        """Paths another domain uses as a disk or as a backing file of one."""
         uuid = self.instance.UUIDString()
         used = set()
         for dom in self.wvm.listAllDomains():
@@ -1319,7 +1319,18 @@ class wvmInstance(wvmConnect):
                 continue
             for flags in (0, VIR_DOMAIN_XML_INACTIVE):
                 tree = etree.fromstring(dom.XMLDesc(flags))
-                used.update(tree.xpath("./devices/disk/source/@file|./devices/disk/source/@dev"))
+                # "//" also reaches backingStore chains in a running domain's XML
+                used.update(tree.xpath("./devices/disk//source/@file|./devices/disk//source/@dev"))
+        # A stopped domain's XML has no backing chain; the volumes have it.
+        # Any volume backed by a path keeps that path, even an unattached one.
+        for pool in self.wvm.listAllStoragePools():
+            if not pool.isActive():
+                continue
+            with contextlib.suppress(libvirtError):
+                pool.refresh(0)
+            for vol in pool.listAllVolumes():
+                with contextlib.suppress(libvirtError):
+                    used.update(etree.fromstring(vol.XMLDesc(0)).xpath("./backingStore/path/text()"))
         return used
 
     def split_disk_paths_by_use(self):
