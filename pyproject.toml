@@ -9,3 +9,11 @@ select = ["E9", "F"]
 [tool.ruff.lint.per-file-ignores]
 # Settings overlay: re-exports the base settings by design.
 "webvirtcloud/settings-dev.py" = ["F403", "F405"]
+
+[tool.coverage.run]
+source = ["."]
+omit = [".venv/*", "*/migrations/*", "*/test*.py", "*/tests.py", "manage.py", "webvirtcloud/settings*.py"]
+
+[tool.coverage.report]
+# Measured 51% without the live libvirt suite (2026-10-03); raise as tests grow.
+fail_under = 50
