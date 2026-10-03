@@ -7,3 +7,5 @@ pyflakes==4.0.0
 pylint==4.0.9
 yapf==0.43.0
 black==26.5.1
+pip-audit==2.10.1
+ruff==0.16.10
