@@ -16,8 +16,6 @@ RUN apt-get update -qqy \
 	python3-venv \
 	python3-pip \
 	python3-dev \
-	python3-lxml \
-	python3-libvirt \
 	libvirt-dev \
 	zlib1g-dev \
 	nginx \
@@ -32,10 +30,10 @@ RUN apt-get update -qqy \
 # Setup webvirtcloud
 WORKDIR /srv/webvirtcloud
 
-# Install Python dependencies first with system-site-packages to leverage prebuilt bindings
+# Install Python dependencies first; libvirt-python and python-ldap build from source
 COPY conf/requirements.txt conf/requirements.txt
 # hadolint ignore=DL3013,DL3042,SC1091
-RUN python3 -m venv --system-site-packages venv && \
+RUN python3 -m venv venv && \
 	. venv/bin/activate && \
 	pip3 install --no-cache-dir -U pip wheel && \
 	pip3 install --no-cache-dir -r conf/requirements.txt
