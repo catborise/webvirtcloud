@@ -1,0 +1,112 @@
+"""R-05: ownership survives a VM's temporary disappearance or an out-of-band move."""
+
+from datetime import timedelta
+from unittest.mock import MagicMock
+
+from accounts.models import UserInstance
+from computes.models import Compute
+from computes.utils import refresh_instance_database
+from django.contrib.auth import get_user_model
+from django.test import TestCase, override_settings
+from django.utils import timezone
+from instances.models import Instance, InstanceTombstone
+
+UUID = "44444444-4444-4444-4444-444444444444"
+
+
+class Domain:
+    def __init__(self, name, uuid):
+        self._name, self._uuid = name, uuid
+
+    def name(self):
+        return self._name
+
+    def UUIDString(self):
+        return self._uuid
+
+
+class OwnershipTestCase(TestCase):
+    def setUp(self):
+        self.owner = get_user_model().objects.create_user("owner", password="pw")
+        self.host_a = self.compute("host-a")
+        self.host_b = self.compute("host-b")
+
+    def compute(self, name):
+        compute = Compute.objects.create(name=name, hostname=f"{name}.example", login="", password="", type=1)
+        compute.__dict__["proxy"] = MagicMock()
+        self.on(compute, [])
+        return compute
+
+    def on(self, compute, domains):
+        compute.proxy.wvm.listAllDomains.return_value = [Domain(n, u) for n, u in domains]
+
+    def owned_vm(self, compute):
+        vm = Instance.objects.create(compute=compute, name="vm", uuid=UUID, is_template=True)
+        UserInstance.objects.create(instance=vm, user=self.owner, is_change=True, is_vnc=True)
+        return vm
+
+    def ownership(self, compute):
+        vm = Instance.objects.get(compute=compute, uuid=UUID)
+        return vm.is_template, [(ui.user, ui.is_change, ui.is_delete, ui.is_vnc) for ui in vm.userinstance_set.all()]
+
+    def test_vm_that_disappears_and_returns_keeps_its_owners(self):
+        self.owned_vm(self.host_a)
+        refresh_instance_database(self.host_a)  # undefined for a while
+        self.assertFalse(Instance.objects.filter(uuid=UUID).exists())
+
+        self.on(self.host_a, [("vm", UUID)])  # defined again
+        refresh_instance_database(self.host_a)
+
+        self.assertEqual(self.ownership(self.host_a), (True, [(self.owner, True, False, True)]))
+        self.assertFalse(InstanceTombstone.objects.exists())
+
+    def test_move_seen_on_the_new_host_first(self):
+        self.owned_vm(self.host_a)
+        self.on(self.host_a, [("vm", UUID)])
+        self.on(self.host_b, [("vm", UUID)])
+        refresh_instance_database(self.host_b)  # still listed on A: a copy for now
+        self.on(self.host_a, [])
+        refresh_instance_database(self.host_a)  # gone from A: it moved to B
+
+        self.assertEqual(self.ownership(self.host_b), (True, [(self.owner, True, False, True)]))
+        self.assertFalse(Instance.objects.filter(compute=self.host_a).exists())
+
+    def test_move_seen_on_the_old_host_first(self):
+        self.owned_vm(self.host_a)
+        refresh_instance_database(self.host_a)
+        self.on(self.host_b, [("vm", UUID)])
+        refresh_instance_database(self.host_b)
+
+        self.assertEqual(self.ownership(self.host_b), (True, [(self.owner, True, False, True)]))
+
+    def test_copied_uuid_grants_nothing(self):
+        self.owned_vm(self.host_a)
+        self.on(self.host_a, [("vm", UUID)])
+        self.on(self.host_b, [("vm-copy", UUID)])
+        refresh_instance_database(self.host_a)
+        refresh_instance_database(self.host_b)
+
+        self.assertEqual(self.ownership(self.host_a), (True, [(self.owner, True, False, True)]))
+        self.assertEqual(self.ownership(self.host_b), (False, []))
+
+    @override_settings(INSTANCE_OWNERSHIP_RETENTION_DAYS=30)
+    def test_ownership_is_kept_for_a_bounded_time(self):
+        self.owned_vm(self.host_a)
+        refresh_instance_database(self.host_a)
+        InstanceTombstone.objects.update(removed=timezone.now() - timedelta(days=31))
+
+        self.on(self.host_a, [("vm", UUID)])
+        refresh_instance_database(self.host_a)
+
+        self.assertEqual(self.ownership(self.host_a), (False, []))
+        self.assertFalse(InstanceTombstone.objects.exists())
+
+    def test_deleted_users_are_skipped(self):
+        self.owned_vm(self.host_a)
+        refresh_instance_database(self.host_a)
+        self.owner.delete()
+
+        self.on(self.host_a, [("vm", UUID)])
+        refresh_instance_database(self.host_a)
+
+        self.assertEqual(self.ownership(self.host_a), (True, []))

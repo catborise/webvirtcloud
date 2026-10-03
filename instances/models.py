@@ -299,6 +299,20 @@ class CreateInstance(models.Model):
         managed = False
 
 
+class InstanceTombstone(models.Model):
+    """Ownership of a VM that disappeared from its compute (R-05).
+
+    Kept for INSTANCE_OWNERSHIP_RETENTION_DAYS so that the owners come back
+    when the same UUID shows up again, on this or another compute.
+    """
+
+    uuid = models.CharField(max_length=36, db_index=True)
+    name = models.CharField(max_length=120)
+    is_template = models.BooleanField(default=False)
+    owners = models.JSONField(default=list)  # [{"user": id, "is_change": .., "is_delete": .., "is_vnc": ..}]
+    removed = models.DateTimeField(auto_now_add=True)
+
+
 class PermissionSet(models.Model):
     """
     Dummy model for holding set of permissions we need to be automatically added by Django
