@@ -61,7 +61,8 @@ class InstancesTestCase(TestCase):
             )
 
             # Add disks for testing
-            cls.connection.create_volume(
+            cls.volume_path = None
+            cls.volume_path = cls.connection.create_volume(
                 "default",
                 "test-volume",
                 1,
@@ -77,9 +78,15 @@ class InstancesTestCase(TestCase):
             # Create testing vm from XML
             cls.connection._defineXML(cls.xml)
             refr(cls.compute)
-            cls.instance: Instance = Instance.objects.filter(compute=cls.compute).first()
+            # The compute may hold other VMs; never pick one of them.
+            cls.instance: Instance = Instance.objects.get(compute=cls.compute, name="test-vm")
         except Exception as e:
             cls.instance = None
+            if getattr(cls, "volume_path", None):
+                try:
+                    cls.connection.get_volume_by_path(cls.volume_path).delete(0)
+                except Exception:
+                    pass
             if getattr(cls, "compute", None):
                 try:
                     cls.compute.delete()
@@ -174,12 +181,14 @@ class InstancesTestCase(TestCase):
                 "network-control": "default",
                 "cache_mode": "directsync",
                 "nwfilter": "",
-                "graphics": "spice",
+                "graphics": "vnc",
                 "video": "vga",
                 "listener_addr": "0.0.0.0",
                 "console_pass": "",
                 "qemu_ga": False,
                 "virtio": True,
+                "add_cdrom": "None",
+                "add_input": "None",
                 "create": True,
             },
         )
@@ -687,7 +696,8 @@ class InstancesTestCase(TestCase):
         # test for non admin user with quotas
         instance_count = Instance.objects.count()
 
-        UserInstance.objects.create(user=self.test_user, instance=self.instance)
+        # Cloning needs change permission on the source VM
+        UserInstance.objects.create(user=self.test_user, instance=self.instance, is_change=True)
 
         self.client.force_login(self.test_user)
 
@@ -811,7 +821,7 @@ class InstancesTestCase(TestCase):
         self.instance.is_template = True
         self.instance.save()
 
-        response = self.client.get(
+        response = self.client.post(
             reverse("instances:poweron", args=[self.instance.id]),
             HTTP_REFERER=reverse("index"),
         )
@@ -827,7 +837,7 @@ class InstancesTestCase(TestCase):
         # poweron
         self.assertEqual(self.instance.status, 5)
 
-        response = self.client.get(
+        response = self.client.post(
             reverse("instances:poweron", args=[self.instance.id]),
             HTTP_REFERER=reverse("index"),
         )
@@ -838,7 +848,7 @@ class InstancesTestCase(TestCase):
         self.assertEqual(self.instance.status, 1)
 
         # suspend
-        response = self.client.get(
+        response = self.client.post(
             reverse("instances:suspend", args=[self.instance.id]),
             HTTP_REFERER=reverse("index"),
         )
@@ -848,7 +858,7 @@ class InstancesTestCase(TestCase):
         self.assertEqual(self.instance.status, 3)
 
         # resume
-        response = self.client.get(
+        response = self.client.post(
             reverse("instances:resume", args=[self.instance.id]),
             HTTP_REFERER=reverse("index"),
         )
@@ -858,7 +868,7 @@ class InstancesTestCase(TestCase):
         self.assertEqual(self.instance.status, 1)
 
         # poweroff
-        response = self.client.get(
+        response = self.client.post(
             reverse("instances:poweroff", args=[self.instance.id]),
             HTTP_REFERER=reverse("index"),
         )
@@ -869,7 +879,7 @@ class InstancesTestCase(TestCase):
         self.assertEqual(self.instance.status, 1)
 
         # powercycle
-        response = self.client.get(
+        response = self.client.post(
             reverse("instances:powercycle", args=[self.instance.id]),
             HTTP_REFERER=reverse("index"),
         )
@@ -879,7 +889,7 @@ class InstancesTestCase(TestCase):
         self.assertEqual(self.instance.status, 1)
 
         # force_off
-        response = self.client.get(
+        response = self.client.post(
             reverse("instances:force_off", args=[self.instance.id]),
             HTTP_REFERER=reverse("index"),
         )

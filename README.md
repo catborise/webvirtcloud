@@ -445,9 +445,10 @@ ruff check .
 ```
 
 > **Live Hypervisor Testing (Optional):**
-> To run tests against a live libvirt host instead of standalone mocks, set the `WEBVIRTCLOUD_TEST_LIBVIRT_URI` environment variable before running tests:
+> Without these variables the live tests use the local socket (`qemu:///system`) or are skipped. They create and delete `test*` VMs and volumes in the host's `default` pool.
 > ```bash
-> export WEBVIRTCLOUD_TEST_LIBVIRT_URI="qemu+ssh://root@compute1/system"
+> export TEST_LIBVIRT_HOST=compute1 TEST_LIBVIRT_TYPE=2   # 1 TCP, 2 SSH, 3 TLS, 4 socket
+> export TEST_LIBVIRT_LOGIN=root TEST_LIBVIRT_PASSWORD=   # login/password for TCP and TLS
 > python manage.py test
 > ```
 

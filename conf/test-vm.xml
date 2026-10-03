@@ -5,7 +5,7 @@
     <currentMemory unit="KiB">131072</currentMemory>
     <vcpu placement="static">1</vcpu>
     <os>
-        <type arch="x86_64" machine="pc-q35-5.1">hvm</type>
+        <type arch="x86_64" machine="q35">hvm</type>
         <boot dev="hd" />
         <boot dev="cdrom" />
         <bootmenu enable="yes" />
@@ -20,7 +20,6 @@
     <on_reboot>restart</on_reboot>
     <on_crash>restart</on_crash>
     <devices>
-        <emulator>/usr/bin/qemu-system-x86_64</emulator>
         <disk type="file" device="disk">
             <driver name="qemu" type="qcow2" cache="directsync" />
             <source file="/var/lib/libvirt/images/test-volume.qcow2" />
