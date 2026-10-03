@@ -52,5 +52,28 @@ class TestChangeNetwork(unittest.TestCase):
         self.assertEqual(flags, VIR_DOMAIN_AFFECT_CONFIG)
 
 
+class TestAddNetworkXml(unittest.TestCase):
+    def attached(self, **kwargs):
+        from lxml import etree
+
+        inst = stopped_instance()
+        inst.add_network(**kwargs)
+        return etree.fromstring(inst.instance.attachDeviceFlags.call_args[0][0])
+
+    def test_posted_values_cannot_inject_elements(self):
+        iface = self.attached(
+            mac_address="52:54:00:00:00:05",
+            source="default",
+            model="virtio'/><filesystem type='mount'/><model type='x",
+            nwfilter="f'/><evil/>",
+        )
+        self.assertEqual([el.tag for el in iface], ["mac", "source", "model", "filterref"])
+        self.assertEqual(iface.find("model").get("type"), "virtio'/><filesystem type='mount'/><model type='x")
+
+    def test_missing_mac_is_left_to_libvirt(self):
+        iface = self.attached(mac_address="", source="default")
+        self.assertIsNone(iface.find("mac"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -319,6 +319,16 @@ def sshkeys(request, pk):
     return JsonResponse(instance_keys, safe=False)
 
 
+def _same_origin_referer(request, default):
+    """The Referer without its fragment if it is on this site, else default."""
+    referer = request.META.get("HTTP_REFERER")
+    if referer and url_has_allowed_host_and_scheme(
+        url=referer, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return referer.split("#")[0]
+    return default
+
+
 def get_safe_redirect(request, default=None):
     referer = request.META.get("HTTP_REFERER")
     if referer and url_has_allowed_host_and_scheme(
@@ -401,6 +411,8 @@ def serialize_compute_mutation(func):
     @functools.wraps(func)
     def wrapper(request, pk, *args, **kwargs):
         inst = get_instance(request.user, pk)
+        if request.method in ("GET", "HEAD"):  # e.g. the destroy confirmation page
+            return func(request, pk, *args, **kwargs)
         try:
             with libvirt_compute_lock(inst.compute):
                 return func(request, pk, *args, **kwargs)
@@ -1475,7 +1487,7 @@ def set_video_model(request, pk):
 @serialize_instance_mutation
 def change_network(request, pk):
     instance = get_instance(request.user, pk)
-    back = request.META.get("HTTP_REFERER") + "#network"
+    back = _same_origin_referer(request, reverse("instances:instance", args=[pk])) + "#network"
 
     # Each NIC has its own form; its fields end with that NIC's index.
     nums = [key[len("net-old-mac-"):] for key in request.POST if key.startswith("net-old-mac-")]

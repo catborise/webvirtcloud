@@ -52,3 +52,16 @@ class DestroyOrderTestCase(TestCase):
                 self.client.post(reverse("instances:delete_vol", args=[self.instance.id]), {"dev": "vda"})
             self.destroy()
         self.assertEqual(calls, [False, False])
+
+    def test_confirmation_page_takes_no_lock(self):
+        calls = []
+
+        @contextmanager
+        def record(compute, timeout=15.0, *, shared=False):
+            calls.append(shared)
+            yield
+
+        with patch("instances.views.libvirt_compute_lock", record), patch("instances.models.wvmInstance"):
+            response = self.client.get(reverse("instances:destroy", args=[self.instance.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(calls, [])

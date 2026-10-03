@@ -44,3 +44,14 @@ class ChangeNetworkViewTestCase(TestCase):
     def test_missing_old_mac_is_rejected(self):
         change = self.post({"net-mac-0": "52:54:00:00:00:03", "net-source-0": "net:default"})
         change.assert_not_called()
+
+    def test_missing_referer_redirects_to_the_instance(self):
+        with patch("instances.models.wvmInstance") as wvm:
+            wvm.return_value.get_status.return_value = 5
+            response = self.client.post(self.url, {
+                "net-old-mac-0": "52:54:00:00:00:01",
+                "net-source-0": "net:default",
+                "net-model-0": "virtio",
+            })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, f"/instances/{self.instance.id}/#network")

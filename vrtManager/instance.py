@@ -1709,23 +1709,21 @@ class wvmInstance(wvmConnect):
         else:
             interface_type = "direct"
 
-        # network modes not handled: default is bridge
-
-        xml_iface = f"""
-          <interface type='{interface_type}'>
-          <mac address='{mac_address}'/>"""
+        # Built with lxml so posted values are escaped, never parsed as XML.
+        iface = etree.Element("interface", type=interface_type)
+        if mac_address:  # otherwise libvirt generates one
+            etree.SubElement(iface, "mac", address=mac_address)
         if interface_type == "network":
-            xml_iface += f"""<source network='{source}'/>"""
+            etree.SubElement(iface, "source", network=source)
         elif interface_type == "direct":
-            xml_iface += f"""<source dev='{source}' mode='bridge'/>"""
-        elif interface_type == "bridge":
-            xml_iface += f"""<source bridge='{source}'/>"""
+            etree.SubElement(iface, "source", dev=source, mode="bridge")
         else:
-            raise libvirtError(f"'{interface_type}' is an unexpected interface type.")
-        xml_iface += f"""<model type='{model}'/>"""
+            etree.SubElement(iface, "source", bridge=source)
+        if model:
+            etree.SubElement(iface, "model", type=model)
         if nwfilter:
-            xml_iface += f"""<filterref filter='{nwfilter}'/>"""
-        xml_iface += """</interface>"""
+            etree.SubElement(iface, "filterref", filter=nwfilter)
+        xml_iface = etree.tostring(iface).decode()
 
         if self.get_status() == 1:
             self.instance.attachDeviceFlags(xml_iface, VIR_DOMAIN_AFFECT_LIVE)
