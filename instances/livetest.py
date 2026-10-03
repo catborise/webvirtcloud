@@ -101,7 +101,7 @@ def create_volume(conn, name, size_mib=64):
 OVMF_CODE = "/usr/share/edk2/ovmf/OVMF_CODE.fd"
 
 
-def define_vm(conn, name, disk_paths, uefi=False):
+def define_vm(conn, name, disk_paths, uefi=False, extra_devices=""):
     """A small q35 VM without an OS; disks are attached as vda, vdb, ..."""
     assert name.startswith(PREFIX)
     disks = "".join(
@@ -117,7 +117,7 @@ def define_vm(conn, name, disk_paths, uefi=False):
     )
     return conn.defineXML(
         f"<domain type='kvm'><name>{name}</name><memory unit='MiB'>128</memory><vcpu>1</vcpu>"
-        f"{firmware}<features><acpi/></features><devices>{disks}</devices></domain>"
+        f"{firmware}<features><acpi/></features><devices>{disks}{extra_devices}</devices></domain>"
     )
 
 

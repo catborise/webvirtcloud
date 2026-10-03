@@ -15,6 +15,8 @@ try:
         VIR_DOMAIN_RUNNING,
         VIR_DOMAIN_XML_SECURE,
         VIR_DOMAIN_XML_INACTIVE,
+        VIR_DOMAIN_BLOCK_RESIZE_BYTES,
+        VIR_STORAGE_VOL_FILE,
         VIR_MIGRATE_AUTO_CONVERGE,
         VIR_MIGRATE_COMPRESSED,
         VIR_MIGRATE_LIVE,
@@ -35,7 +37,7 @@ try:
     )
     from libvirt_qemu import VIR_DOMAIN_QEMU_AGENT_COMMAND_DEFAULT, qemuAgentCommand
 except Exception:
-    from libvirt import libvirtError, VIR_DOMAIN_XML_SECURE, VIR_MIGRATE_LIVE
+    from libvirt import libvirtError, VIR_DOMAIN_XML_SECURE, VIR_DOMAIN_XML_INACTIVE, VIR_MIGRATE_LIVE
 
 from collections import OrderedDict
 from datetime import datetime
@@ -46,6 +48,12 @@ from lxml import etree
 from vrtManager import util
 from vrtManager.connection import wvmConnect
 from vrtManager.storage import wvmStorage, wvmStorages
+
+# Edits that redefine the domain start from this: the persistent definition,
+# with secrets. Live XML would drop pending changes, non-secure XML the VNC
+# password (R-01, R-02).
+PERSISTENT_XML = VIR_DOMAIN_XML_INACTIVE | VIR_DOMAIN_XML_SECURE
+
 
 class wvmInstances(wvmConnect):
     def get_instance_status(self, name):
@@ -584,7 +592,7 @@ class wvmInstance(wvmConnect):
         return menu == "yes"
 
     def set_bootmenu(self, flag):
-        tree = ElementTree.fromstring(self._XMLDesc(0))
+        tree = ElementTree.fromstring(self._XMLDesc(PERSISTENT_XML))
         os = tree.find("os")
         menu = os.find("bootmenu")
 
@@ -660,7 +668,7 @@ class wvmInstance(wvmConnect):
             return
 
         def remove_bootorder():
-            tree = ElementTree.fromstring(self._XMLDesc(0))
+            tree = ElementTree.fromstring(self._XMLDesc(PERSISTENT_XML))
             os = tree.find("os")
             boot = os.findall("boot")
             # Remove old style boot order
@@ -969,13 +977,13 @@ class wvmInstance(wvmConnect):
                     xml += f"""<vcpu id='{i}' enabled='yes' hotpluggable='yes' order='{i+1}'/>"""
                 xml += """</vcpus>"""
 
-                tree = etree.fromstring(self._XMLDesc(0))
+                tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
                 vcpus = tree.xpath("/domain/vcpus")
                 if not vcpus:
                     tree.append(etree.fromstring(xml))
                     self._defineXML(etree.tostring(tree).decode())
             else:
-                tree = etree.fromstring(self._XMLDesc(0))
+                tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
                 vcpus = tree.xpath("/domain/vcpus")
                 for vcpu in vcpus:
                     parent = vcpu.getparent()
@@ -1092,14 +1100,10 @@ class wvmInstance(wvmConnect):
         return listener_addr
 
     def set_console_listener_addr(self, listener_addr):
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        root = ElementTree.fromstring(xml)
-        console_type = self.get_console_type()
-        try:
-            graphic = root.find("devices/graphics[@type='%s']" % console_type)
-        except SyntaxError:
-            # Little fix for old version ElementTree
-            graphic = root.find("devices/graphics")
+        root = ElementTree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        # The console is the first graphics device of the definition being
+        # edited; the running VM may still have another type.
+        graphic = root.find("devices/graphics")
         if graphic is None:
             return False
         listen = graphic.find("listen[@type='address']")
@@ -1131,18 +1135,14 @@ class wvmInstance(wvmConnect):
         return console_type
 
     def set_console_type(self, console_type):
-        current_type = self.get_console_type()
-        if current_type == console_type:
-            return True
         if console_type == "":
             return False
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        root = ElementTree.fromstring(xml)
-        try:
-            graphic = root.find(f"devices/graphics[@type='{current_type}']")
-        except SyntaxError:
-            # Little fix for old version ElementTree
-            graphic = root.find("devices/graphics")
+        root = ElementTree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        graphic = root.find("devices/graphics")
+        if graphic is None:
+            return False
+        if graphic.get("type") == console_type:
+            return True
         graphic.set("type", console_type)
         newxml = ElementTree.tostring(root).decode()
         self._defineXML(newxml)
@@ -1170,14 +1170,8 @@ class wvmInstance(wvmConnect):
         )
 
     def set_console_passwd(self, passwd):
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        root = ElementTree.fromstring(xml)
-        console_type = self.get_console_type()
-        try:
-            graphic = root.find(f"devices/graphics[@type='{console_type}']")
-        except SyntaxError:
-            # Little fix for old version ElementTree
-            graphic = root.find("devices/graphics")
+        root = ElementTree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        graphic = root.find("devices/graphics")
         if graphic is None:
             return False
         if passwd:
@@ -1190,14 +1184,10 @@ class wvmInstance(wvmConnect):
         return self._defineXML(newxml)
 
     def set_console_keymap(self, keymap):
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        root = ElementTree.fromstring(xml)
-        console_type = self.get_console_type()
-        try:
-            graphic = root.find("devices/graphics[@type='%s']" % console_type)
-        except SyntaxError:
-            # Little fix for old version ElementTree
-            graphic = root.find("devices/graphics")
+        root = ElementTree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        graphic = root.find("devices/graphics")
+        if graphic is None:
+            return False
         if keymap != "auto":
             graphic.set("keymap", keymap)
         else:
@@ -1226,7 +1216,7 @@ class wvmInstance(wvmConnect):
 
     def set_video_model(self, model):
         """Changes only primary video card"""
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
+        xml = self._XMLDesc(PERSISTENT_XML)
         tree = etree.fromstring(xml)
         video_models = tree.xpath("/domain/devices/video/model")
         video_xml = "<model type='{}'/>".format(model)
@@ -1245,7 +1235,7 @@ class wvmInstance(wvmConnect):
         if is_vcpus_enabled:
             self.set_vcpu_hotplug(False)
 
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
+        xml = self._XMLDesc(PERSISTENT_XML)
         tree = etree.fromstring(xml)
 
         vcpu_elem = tree.find("vcpu")
@@ -1270,7 +1260,7 @@ class wvmInstance(wvmConnect):
             self.set_memory(cur_memory, VIR_DOMAIN_AFFECT_CONFIG)
             return
 
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
+        xml = self._XMLDesc(PERSISTENT_XML)
         tree = etree.fromstring(xml)
 
         mem_elem = tree.find("memory")
@@ -1282,19 +1272,16 @@ class wvmInstance(wvmConnect):
         self._defineXML(new_xml)
 
     def resize_disk(self, disks):
-        """
-        Function change disks on vds.
-        """
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        tree = etree.fromstring(xml)
-
+        """Grow disks. QEMU holds the lock of a running domain's image files and
+        grows them itself; block volumes (e.g. LVM) are grown by the storage
+        pool first, then QEMU is told the new size."""
+        active = self.instance.isActive()
         for disk in disks:
-            source_dev = disk["path"]
-            vol = self.get_volume_by_path(source_dev)
-            vol.resize(disk["size_new"])
-
-        new_xml = etree.tostring(tree).decode()
-        self._defineXML(new_xml)
+            vol = self.get_volume_by_path(disk["path"])
+            if not active or vol.info()[0] != VIR_STORAGE_VOL_FILE:
+                vol.resize(disk["size_new"])
+            if active:
+                self.instance.blockResize(disk["path"], disk["size_new"], VIR_DOMAIN_BLOCK_RESIZE_BYTES)
 
     def get_iso_media(self):
         iso = []
@@ -1852,7 +1839,7 @@ class wvmInstance(wvmConnect):
         """
         Function change description, title
         """
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
+        xml = self._XMLDesc(PERSISTENT_XML)
         tree = etree.fromstring(xml)
 
         self._set_options(tree, options)
@@ -1917,7 +1904,7 @@ class wvmInstance(wvmConnect):
         else:
             xml = f"<outbound average='{average}' peak='{peak}' burst='{burst}'/>"
 
-        tree = etree.fromstring(self._XMLDesc(0))
+        tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
 
         macs = tree.xpath("/domain/devices/interface/mac")
         for cur_mac in macs:
@@ -1940,7 +1927,7 @@ class wvmInstance(wvmConnect):
         self.wvm.defineXML(new_xml)
 
     def unset_qos(self, mac, direction):
-        tree = etree.fromstring(self._XMLDesc(0))
+        tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
         for direct in tree.xpath(
             "/domain/devices/interface/bandwidth/{}".format(direction)
         ):
