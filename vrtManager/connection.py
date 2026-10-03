@@ -301,7 +301,7 @@ class wvmConnectionManager(object):
             return connection.connection
         else:
             # raise libvirt error
-            raise libvirtError(connection.last_error)
+            raise util.OperationError(connection.last_error)
 
     def host_is_up(self, conn_type, hostname):
         """

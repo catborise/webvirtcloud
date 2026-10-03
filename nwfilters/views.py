@@ -185,7 +185,7 @@ def nwfilter(request, compute_id, nwfltr):
                         conn.create_nwfilter(new_xml)
                     except libvirtError as lib_err:
                         conn.create_nwfilter(xml)
-                        raise libvirtError(lib_err)
+                        raise util.OperationError(lib_err)
 
             if "del_nwfilter_rule" in request.POST:
                 action = request.POST.get("action", "")
@@ -198,7 +198,7 @@ def nwfilter(request, compute_id, nwfltr):
                     conn.create_nwfilter(new_xml)
                 except libvirtError as lib_err:
                     conn.create_nwfilter(xml)
-                    raise libvirtError(lib_err)
+                    raise util.OperationError(lib_err)
 
             if "del_nwfilter_ref" in request.POST:
                 ref_name = request.POST.get("ref")
@@ -208,7 +208,7 @@ def nwfilter(request, compute_id, nwfltr):
                     conn.create_nwfilter(new_xml)
                 except libvirtError as lib_err:
                     conn.create_nwfilter(xml)
-                    raise libvirtError(lib_err)
+                    raise util.OperationError(lib_err)
 
             if "add_nwfilter_rule" in request.POST:
                 rule_xml = request.POST.get("nwfilterrule_xml", "")
@@ -220,7 +220,7 @@ def nwfilter(request, compute_id, nwfltr):
                     conn.create_nwfilter(new_xml)
                 except libvirtError as lib_err:
                     conn.create_nwfilter(xml)
-                    raise libvirtError(lib_err)
+                    raise util.OperationError(lib_err)
 
             if "add_nwfilter_ref" in request.POST:
                 ref_name = request.POST.get("nwfilters_select", "")
@@ -232,7 +232,7 @@ def nwfilter(request, compute_id, nwfltr):
                     conn.create_nwfilter(new_xml)
                 except libvirtError as lib_err:
                     conn.create_nwfilter(xml)
-                    raise libvirtError(lib_err)
+                    raise util.OperationError(lib_err)
 
             return HttpResponseRedirect(request.get_full_path())
         conn.close()

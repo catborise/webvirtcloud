@@ -2100,9 +2100,9 @@ def create_instance(request, compute_id, arch, machine):
 
         if conn:
             if not storages:
-                raise libvirtError(_("You haven't defined any storage pools"))
+                raise util.OperationError(_("You haven't defined any storage pools"))
             if not networks:
-                raise libvirtError(_("You haven't defined any network pools"))
+                raise util.OperationError(_("You haven't defined any network pools"))
 
             if request.method == "POST":
                 if "create" in request.POST:
@@ -2117,11 +2117,11 @@ def create_instance(request, compute_id, arch, machine):
                             meta_prealloc = True
                         if instances:
                             if data["name"] in instances:
-                                raise libvirtError(
+                                raise util.OperationError(
                                     _("A virtual machine with this name already exists")
                                 )
                             if Instance.objects.filter(name__exact=data["name"]):
-                                raise libvirtError(
+                                raise util.OperationError(
                                     _(
                                         "There is an instance with same name. Remove it and try again!"
                                     )
@@ -2129,7 +2129,7 @@ def create_instance(request, compute_id, arch, machine):
 
                         if data["hdd_size"]:
                             if not data["mac"]:
-                                raise libvirtError(
+                                raise util.OperationError(
                                     _("No Virtual Machine MAC has been entered")
                                 )
                             else:
@@ -2163,7 +2163,7 @@ def create_instance(request, compute_id, arch, machine):
                                 data["name"] + ".img", data["storage"]
                             )
                             if dest_vol:
-                                raise libvirtError(
+                                raise util.OperationError(
                                     _(
                                         "Image has already exist. Please check volumes or change instance name"
                                     )
@@ -2193,7 +2193,7 @@ def create_instance(request, compute_id, arch, machine):
                                 is_disk_created = True
                         else:
                             if not data["images"]:
-                                raise libvirtError(
+                                raise util.OperationError(
                                     _("First you need to create or select an image")
                                 )
                             else:

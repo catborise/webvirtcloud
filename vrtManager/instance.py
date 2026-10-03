@@ -140,7 +140,7 @@ class wvmInstances(wvmConnect):
         dom_emulator = conn.get_dom_emulator()
 
         if dom_emulator != self.get_emulator(dom_arch):
-            raise libvirtError(
+            raise util.OperationError(
                 "Destination host emulator is different. Cannot be migrated"
             )
 
@@ -721,7 +721,7 @@ class wvmInstance(wvmConnect):
             tree = etree.fromstring(self._XMLDesc(xml_flags))
             found = tree.xpath("./devices/disk[@device='cdrom'][target/@dev=$dev]", dev=dev)
             if not found:
-                raise libvirtError(f"CD-ROM {dev} is not in the {label} definition")
+                raise util.OperationError(f"CD-ROM {dev} is not in the {label} definition")
             devices.append(found[0])
         for (label, _, affect), disk in zip(definitions, devices):
             for source in disk.findall("source"):
@@ -732,7 +732,7 @@ class wvmInstance(wvmConnect):
                 self.instance.updateDeviceFlags(etree.tostring(disk).decode(), affect)
             except libvirtError as err:
                 if label == "persistent" and len(definitions) == 2:
-                    raise libvirtError(f"Media of {dev} changed in the running VM only: {err}") from err
+                    raise util.OperationError(f"Media of {dev} changed in the running VM only: {err}") from err
                 raise
 
     def mount_iso(self, dev, image):
@@ -742,9 +742,9 @@ class wvmInstance(wvmConnect):
             if image in stg.listVolumes():
                 paths.append(stg.storageVolLookupByName(image).path())
         if not paths:
-            raise libvirtError(f"ISO image {image} was not found")
+            raise util.OperationError(f"ISO image {image} was not found")
         if len(paths) > 1:
-            raise libvirtError(f"ISO image {image} is in more than one storage pool")
+            raise util.OperationError(f"ISO image {image} is in more than one storage pool")
         self._set_cdrom_media(dev, paths[0])
 
     def umount_iso(self, dev, image=None):
@@ -986,7 +986,7 @@ class wvmInstance(wvmConnect):
                     parent.remove(vcpu)
                     self._defineXML(etree.tostring(tree).decode())
         else:
-            raise libvirtError(
+            raise util.OperationError(
                 "Please shutdown the instance then try to enable vCPU hotplug"
             )
 
@@ -1505,26 +1505,29 @@ class wvmInstance(wvmConnect):
         return ":".join(mac_tuples)
 
     def clone_instance(self, clone_data):
-        clone_dev_path = []
-
+        """Copy a shut-off VM. Inputs are checked before anything is allocated,
+        and on failure only the volumes this call created are removed (R-08)."""
+        if self.get_status() != 5:
+            # A running guest keeps writing while its disks are copied.
+            raise util.OperationError("Shut the VM down before cloning it")
         if clone_data["name"] in self.get_instances():
             raise ValueError("An instance with the clone name already exists")
 
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        tree = etree.fromstring(xml)
-        name = tree.find("name")
-        name.text = clone_data["name"]
+        tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        tree.find("name").text = clone_data["name"]
         uuid = tree.find("uuid")
         if uuid is None:
             uuid = etree.SubElement(tree, "uuid")
         uuid.text = util.randomUUID()
+        self._set_options(
+            tree,
+            {
+                "title": clone_data.get("clone-title", ""),
+                "description": clone_data.get("clone-description", ""),
+            },
+        )
 
-        options = {
-            "title": clone_data.get("clone-title", ""),
-            "description": clone_data.get("clone-description", ""),
-        }
-        self._set_options(tree, options)
-
+        disks = []
         for disk in list(tree.findall("devices/disk")):
             if disk.get("device") != "disk":
                 continue
@@ -1539,120 +1542,96 @@ class wvmInstance(wvmConnect):
             dev = target.get("dev") if target is not None else None
             if not supported or not dev or not clone_data.get("disk-" + dev):
                 raise ValueError("Cannot clone a disk without a supported source and destination")
-
-        src_nvram_path = self.get_nvram()
-        if src_nvram_path:
-            # Change XML for nvram
-            nvram = tree.find("os/nvram")
-            nvram.getparent().remove(nvram)
-
-            # NVRAM CLONE: create pool if nvram is not in a pool. then clone it
-            src_nvram_name = os.path.basename(src_nvram_path)
-            nvram_dir = os.path.dirname(src_nvram_path)
-            nvram_pool_name = os.path.basename(nvram_dir)
-            try:
-                self.get_volume_by_path(src_nvram_path)
-            except libvirtError:
-                stg_conn = self.get_wvmStorages()
-                stg_conn.create_storage("dir", nvram_pool_name, None, nvram_dir)
-
-            new_nvram_name = f"{clone_data['name']}_VARS"
-            nvram_stg = self.get_wvmStorage(nvram_pool_name)
-            nvram_stg.clone_volume(src_nvram_name, new_nvram_name, file_suffix="fd")
+            disks.append((source, dev))
 
         for num, net in enumerate(tree.findall("devices/interface")):
-            elm = net.find("mac")
-            mac_address = self.fix_mac(clone_data["clone-net-mac-" + str(num)])
-            elm.set("address", mac_address)
+            mac = clone_data.get(f"clone-net-mac-{num}")
+            if not mac:
+                raise ValueError(f"No MAC address for network interface {num}")
+            net.find("mac").set("address", self.fix_mac(mac))
 
-        for disk in tree.findall("devices/disk"):
-            if disk.get("device") == "disk":
-                elm = disk.find("target")
-                device_name = elm.get("dev")
-                if device_name:
-                    target_file = clone_data["disk-" + device_name]
-                    meta_prealloc = False
-                    with contextlib.suppress(Exception):
-                        meta_prealloc = clone_data["meta-" + device_name]
+        created = []  # paths of volumes this call created
+        try:
+            src_nvram_path = self.get_nvram()
+            if src_nvram_path:
+                nvram = tree.find("os/nvram")
+                nvram.getparent().remove(nvram)
 
-                    elm.set("dev", device_name)
+                # NVRAM CLONE: create pool if nvram is not in a pool. then clone it
+                src_nvram_name = os.path.basename(src_nvram_path)
+                nvram_dir = os.path.dirname(src_nvram_path)
+                nvram_pool_name = os.path.basename(nvram_dir)
+                try:
+                    self.get_volume_by_path(src_nvram_path)
+                except libvirtError:
+                    self.get_wvmStorages().create_storage("dir", nvram_pool_name, None, nvram_dir)
+                nvram_stg = self.get_wvmStorage(nvram_pool_name)
+                name = nvram_stg.clone_volume(src_nvram_name, f"{clone_data['name']}_VARS", file_suffix="fd")
+                created.append(os.path.join(nvram_dir, name))
 
-                elm = disk.find("source")
-                source_file = elm.get("file")
-                if source_file:
-                    clone_dev_path.append(source_file)
-                    clone_path = os.path.join(os.path.dirname(source_file), target_file)
-                    elm.set("file", clone_path)
-
-                    vol = self.get_volume_by_path(source_file)
-                    vol_format = util.get_xml_path(
-                        vol.XMLDesc(0), "/volume/target/format/@type"
+            for source, dev in disks:
+                target_file = clone_data["disk-" + dev]
+                meta_prealloc = bool(clone_data.get("meta-" + dev))
+                if source.get("file"):
+                    vol = self.get_volume_by_path(source.get("file"))
+                    vol_format = util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type")
+                    new_vol = vol.storagePoolLookupByVolume().createXMLFrom(
+                        f"""<volume>
+                              <name>{target_file}</name>
+                              <capacity>0</capacity>
+                              <allocation>0</allocation>
+                              <target>
+                                <format type='{vol_format}'/>
+                                <permissions>
+                                  <owner>{clone_data['disk_owner_uid']}</owner>
+                                  <group>{clone_data['disk_owner_gid']}</group>
+                                  <mode>0644</mode>
+                                  <label>virt_image_t</label>
+                                </permissions>
+                                <compat>1.1</compat>
+                                <features><lazy_refcounts/></features>
+                              </target>
+                            </volume>""",
+                        vol,
+                        meta_prealloc and vol_format == "qcow2",
                     )
-
-                    if vol_format == "qcow2" and meta_prealloc:
-                        meta_prealloc = True
-
-                    vol_clone_xml = f"""
-                                    <volume>
-                                        <name>{target_file}</name>
-                                        <capacity>0</capacity>
-                                        <allocation>0</allocation>
-                                        <target>
-                                            <format type='{vol_format}'/>
-                                            <permissions>
-                                                <owner>{clone_data['disk_owner_uid']}</owner>
-                                                <group>{clone_data['disk_owner_gid']}</group>
-                                                <mode>0644</mode>
-                                                <label>virt_image_t</label>
-                                            </permissions>
-                                            <compat>1.1</compat>
-                                            <features>
-                                                <lazy_refcounts/>
-                                            </features>
-                                        </target>
-                                    </volume>"""
-
-                    stg = vol.storagePoolLookupByVolume()
-                    stg.createXMLFrom(vol_clone_xml, vol, meta_prealloc)
-
-                source_protocol = elm.get("protocol")
-                if source_protocol == "rbd":
-                    source_name = elm.get("name")
-                    clone_name = "%s/%s" % (os.path.dirname(source_name), target_file)
-                    elm.set("name", clone_name)
-
-                    vol = self.get_volume_by_path(source_name)
-                    vol_format = util.get_xml_path(
-                        vol.XMLDesc(0), "/volume/target/format/@type"
+                    created.append(new_vol.path())
+                    source.set("file", new_vol.path())
+                elif source.get("protocol") == "rbd":
+                    vol = self.get_volume_by_path(source.get("name"))
+                    vol_format = util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type")
+                    new_vol = vol.storagePoolLookupByVolume().createXMLFrom(
+                        f"""<volume type='network'>
+                              <name>{target_file}</name>
+                              <capacity>0</capacity>
+                              <allocation>0</allocation>
+                              <target><format type='{vol_format}'/></target>
+                            </volume>""",
+                        vol,
+                        meta_prealloc,
                     )
-
-                    vol_clone_xml = f"""
-                                    <volume type='network'>
-                                        <name>{target_file}</name>
-                                        <capacity>0</capacity>
-                                        <allocation>0</allocation>
-                                        <target>
-                                            <format type='{vol_format}'/>
-                                        </target>
-                                    </volume>"""
-                    stg = vol.storagePoolLookupByVolume()
-                    stg.createXMLFrom(vol_clone_xml, vol, meta_prealloc)
-
-                source_dev = elm.get("dev")
-                if source_dev:
-                    clone_path = os.path.join(os.path.dirname(source_dev), target_file)
-                    elm.set("dev", clone_path)
-
-                    vol = self.get_volume_by_path(source_dev)
-                    stg = vol.storagePoolLookupByVolume()
-
-                    vol_name = util.get_xml_path(vol.XMLDesc(0), "/volume/name")
-                    pool_name = util.get_xml_path(stg.XMLDesc(0), "/pool/name")
-
+                    created.append(new_vol.path())
+                    source.set("name", f"{os.path.dirname(source.get('name'))}/{target_file}")
+                else:
+                    vol = self.get_volume_by_path(source.get("dev"))
+                    pool_name = util.get_xml_path(vol.storagePoolLookupByVolume().XMLDesc(0), "/pool/name")
                     storage = self.get_wvmStorage(pool_name)
-                    storage.clone_volume(vol_name, target_file)
+                    name = storage.clone_volume(vol.name(), target_file)
+                    new_path = storage.get_volume(name).path()
+                    created.append(new_path)
+                    source.set("dev", new_path)
 
-        self._defineXML(ElementTree.tostring(tree).decode())
+            self._defineXML(etree.tostring(tree).decode())
+        except Exception as err:
+            leftovers = []
+            for path in reversed(created):
+                try:
+                    self.get_volume_by_path(path).delete(0)
+                except libvirtError:
+                    leftovers.append(path)
+            if leftovers:
+                raise util.OperationError(f"Clone failed ({err}); remove these copies by hand: {', '.join(leftovers)}") from err
+            raise
 
         return self.get_instance(clone_data["name"]).UUIDString()
 
@@ -1720,7 +1699,7 @@ class wvmInstance(wvmConnect):
         """Replace the NIC with old_mac; put it back if the new one cannot be added."""
         old_xml = self.delete_network(old_mac)
         if old_xml is None:
-            raise libvirtError(f"No network interface with MAC {old_mac}")
+            raise util.OperationError(f"No network interface with MAC {old_mac}")
         try:
             self.add_network(mac, source, source_type, model, nwfilter)
         except libvirtError:
@@ -1757,11 +1736,11 @@ class wvmInstance(wvmConnect):
                 elif net_source_type == "iface":
                     source.set("dev", net_source)
                 else:
-                    raise libvirtError(
+                    raise util.OperationError(
                         "Unknown network type: {}".format(net_source_type)
                     )
             else:
-                raise libvirtError(
+                raise util.OperationError(
                     "Unknown network type: {}".format(interface.get("type"))
                 )
 
