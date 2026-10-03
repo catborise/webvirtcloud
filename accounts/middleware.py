@@ -1,6 +1,8 @@
 from django.shortcuts import redirect
 from django.urls import Resolver404, resolve
 
+from accounts.models import UserAttributes
+
 ALLOWED_VIEWS = {"accounts:change_password", "accounts:logout", "accounts:login"}
 
 
@@ -11,7 +13,9 @@ class ForcePasswordChangeMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if request.session.get("must_change_password"):
+        if request.user.is_authenticated and UserAttributes.objects.filter(
+            user=request.user, must_change_password=True
+        ).exists():
             try:
                 view_name = resolve(request.path_info).view_name
             except Resolver404:

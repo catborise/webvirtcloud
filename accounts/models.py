@@ -41,6 +41,7 @@ class UserSSHKey(models.Model):
 class UserAttributes(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     can_clone_instances = models.BooleanField(default=True)
+    must_change_password = models.BooleanField(default=False)
     max_instances = models.IntegerField(
         _("max instances"),
         default=2,
