@@ -1191,13 +1191,15 @@ def detach_cdrom(request, pk, dev):
 @serialize_instance_mutation
 def unmount_iso(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    image = request.POST.get("path", "")
     dev = request.POST.get("umount_iso", "")
-    instance.proxy.umount_iso(dev, image)
-    msg = _("Mount media: %(dev)s") % {"dev": dev}
-    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-
-    return redirect(request.META.get("HTTP_REFERER") + "#disks")
+    try:
+        instance.proxy.umount_iso(dev)
+    except libvirtError as err:
+        messages.error(request, err)
+    else:
+        msg = _("Unmount media: %(dev)s") % {"dev": dev}
+        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    return redirect(_same_origin_referer(request, reverse("instances:instance", args=[pk])) + "#disks")
 
 
 @require_POST
@@ -1207,11 +1209,14 @@ def mount_iso(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
     image = request.POST.get("media", "")
     dev = request.POST.get("mount_iso", "")
-    instance.proxy.mount_iso(dev, image)
-    msg = _("Unmount media: %(dev)s") % {"dev": dev}
-    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-
-    return redirect(request.META.get("HTTP_REFERER") + "#disks")
+    try:
+        instance.proxy.mount_iso(dev, image)
+    except libvirtError as err:
+        messages.error(request, err)
+    else:
+        msg = _("Mount media: %(dev)s") % {"dev": dev}
+        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    return redirect(_same_origin_referer(request, reverse("instances:instance", args=[pk])) + "#disks")
 
 
 @require_POST

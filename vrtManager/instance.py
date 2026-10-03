@@ -707,52 +707,48 @@ class wvmInstance(wvmConnect):
                 raise Exception("Invalid Device Type for boot order")
         self._defineXML(ElementTree.tostring(tree).decode())
 
+    def _set_cdrom_media(self, dev, path):
+        """Insert path into, or with None eject, CD-ROM dev.
+
+        The live and the persistent definition are updated separately from
+        their own device XML, so neither is rewritten from the other (R-12).
+        """
+        definitions = [("persistent", PERSISTENT_XML, VIR_DOMAIN_AFFECT_CONFIG)]
+        if self.instance.isActive():  # running or paused
+            definitions.insert(0, ("running", VIR_DOMAIN_XML_SECURE, VIR_DOMAIN_AFFECT_LIVE))
+        devices = []
+        for label, xml_flags, _ in definitions:
+            tree = etree.fromstring(self._XMLDesc(xml_flags))
+            found = tree.xpath("./devices/disk[@device='cdrom'][target/@dev=$dev]", dev=dev)
+            if not found:
+                raise libvirtError(f"CD-ROM {dev} is not in the {label} definition")
+            devices.append(found[0])
+        for (label, _, affect), disk in zip(definitions, devices):
+            for source in disk.findall("source"):
+                disk.remove(source)
+            if path:
+                disk.insert(1, etree.Element("source", file=path))
+            try:
+                self.instance.updateDeviceFlags(etree.tostring(disk).decode(), affect)
+            except libvirtError as err:
+                if label == "persistent" and len(definitions) == 2:
+                    raise libvirtError(f"Media of {dev} changed in the running VM only: {err}") from err
+                raise
+
     def mount_iso(self, dev, image):
-        def attach_iso(dev, disk, vol):
-            if disk.get("device") == "cdrom":
-                for elm in disk:
-                    if elm.tag == "target" and elm.get("dev") == dev:
-                        src_media = ElementTree.Element("source")
-                        src_media.set("file", vol.path())
-                        disk.insert(2, src_media)
-                        return True
-
-        vol = None
-        storages = self.get_storages(only_actives=True)
-        for storage in storages:
+        paths = []
+        for storage in self.get_storages(only_actives=True):
             stg = self.get_storage(storage)
-            if stg.info()[0] != 0:
-                for img in stg.listVolumes():
-                    if image == img:
-                        vol = stg.storageVolLookupByName(image)
-        tree = ElementTree.fromstring(self._XMLDesc(0))
-        for disk in tree.findall("devices/disk"):
-            if attach_iso(dev, disk, vol):
-                break
-        if self.get_status() == 1:
-            xml = ElementTree.tostring(disk).decode()
-            self.instance.attachDevice(xml)
-            xmldom = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        if self.get_status() == 5:
-            xmldom = ElementTree.tostring(tree).decode()
-        self._defineXML(xmldom)
+            if image in stg.listVolumes():
+                paths.append(stg.storageVolLookupByName(image).path())
+        if not paths:
+            raise libvirtError(f"ISO image {image} was not found")
+        if len(paths) > 1:
+            raise libvirtError(f"ISO image {image} is in more than one storage pool")
+        self._set_cdrom_media(dev, paths[0])
 
-    def umount_iso(self, dev, image):
-        tree = ElementTree.fromstring(self._XMLDesc(0))
-        for disk in tree.findall("devices/disk"):
-            if disk.get("device") == "cdrom":
-                for elm in disk:
-                    if elm.tag == "source" and elm.get("file") == image:
-                        src_media = elm
-                    if elm.tag == "target" and elm.get("dev") == dev:
-                        disk.remove(src_media)
-        if self.get_status() == 1:
-            xml_disk = ElementTree.tostring(disk).decode()
-            self.instance.attachDevice(xml_disk)
-            xmldom = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        if self.get_status() == 5:
-            xmldom = ElementTree.tostring(tree).decode()
-        self._defineXML(xmldom)
+    def umount_iso(self, dev, image=None):
+        self._set_cdrom_media(dev, None)
 
     def attach_disk(
         self,
