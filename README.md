@@ -1,7 +1,7 @@
 [![Gitpod ready-to-code](https://img.shields.io/badge/Gitpod-ready--to--code-blue?logo=gitpod)](https://gitpod.io/#https://github.com/retspen/webvirtcloud)
 
 # WebVirtCloud
-###### Python >=3.10 & Django 4.2 LTS (tested on Python 3.10 – 3.12)
+###### Python >=3.10 & Django 4.2 LTS (tested on Python 3.10 – 3.13)
 
 ## Purpose and Scope
 
@@ -436,13 +436,12 @@ Use the same virtualenv as in [Local Development Setup](#local-development-setup
 source .venv/bin/activate
 ```
 
-### 2. Run Test Suite
+### 2. Run Test Suite and Linter
 ```bash
-# Run Django test suite (accounts, admin, instances, logs, etc.):
+# All tests, including vrtManager:
 python manage.py test
 
-# Run vrtManager unit tests:
-python -m unittest discover -s vrtManager -p "test_*.py"
+ruff check .
 ```
 
 > **Live Hypervisor Testing (Optional):**
@@ -451,6 +450,10 @@ python -m unittest discover -s vrtManager -p "test_*.py"
 > export WEBVIRTCLOUD_TEST_LIBVIRT_URI="qemu+ssh://root@compute1/system"
 > python manage.py test
 > ```
+
+## Dependency Lock Files
+
+CI and the Docker image install from the hashed `conf/requirements.lock` and `dev/requirements.lock`. After changing `conf/requirements.txt` or `dev/requirements.txt`, regenerate both with the `uv pip compile` commands in their headers (conf first).
 
 ## Users, Roles and Permissions
 
