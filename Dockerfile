@@ -1,27 +1,3 @@
-# Build stage: compile the sdist-only bindings (libvirt-python, python-ldap)
-# from the hashed lock file, so the image needs no compiler or headers.
-FROM phusion/baseimage:noble-1.0.2 AS build
-
-# hadolint ignore=DL3008
-RUN apt-get update -qqy \
-    && DEBIAN_FRONTEND=noninteractive apt-get -qyy install \
-	--no-install-recommends \
-	python3-venv \
-	python3-dev \
-	libvirt-dev \
-	pkg-config \
-	gcc \
-	libldap2-dev \
-	libsasl2-dev \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-WORKDIR /srv/webvirtcloud
-COPY conf/requirements.lock conf/requirements.lock
-# hadolint ignore=DL3013,DL3042
-RUN python3 -m venv venv && \
-	venv/bin/pip install --no-cache-dir -U pip && \
-	venv/bin/pip install --no-cache-dir --require-hashes -r conf/requirements.lock
-
 FROM phusion/baseimage:noble-1.0.2
 
 EXPOSE 80
@@ -37,17 +13,30 @@ RUN apt-get update -qqy \
     && DEBIAN_FRONTEND=noninteractive apt-get -qyy install \
 	--no-install-recommends \
 	git \
-	python3 \
-	libvirt0 \
-	libldap2 \
-	libsasl2-2 \
-	libsasl2-modules \
+	python3-venv \
+	python3-pip \
+	python3-dev \
+	libvirt-dev \
+	zlib1g-dev \
 	nginx \
+	pkg-config \
+	gcc \
+	libldap2-dev \
+	libssl-dev \
+	libsasl2-dev \
+	libsasl2-modules \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Setup webvirtcloud
 WORKDIR /srv/webvirtcloud
-COPY --from=build /srv/webvirtcloud/venv venv
+
+# Install Python dependencies first; libvirt-python and python-ldap build from source
+COPY conf/requirements.txt conf/requirements.txt
+# hadolint ignore=DL3013,DL3042,SC1091
+RUN python3 -m venv venv && \
+	. venv/bin/activate && \
+	pip3 install --no-cache-dir -U pip wheel && \
+	pip3 install --no-cache-dir -r conf/requirements.txt
 
 # Copy application source
 COPY . /srv/webvirtcloud

@@ -451,10 +451,6 @@ ruff check .
 > python manage.py test
 > ```
 
-## Dependency Lock Files
-
-CI and the Docker image install from the hashed `conf/requirements.lock` and `dev/requirements.lock`. After changing `conf/requirements.txt` or `dev/requirements.txt`, regenerate both with the `uv pip compile` commands in their headers (conf first).
-
 ## Users, Roles and Permissions
 
 See [doc/permissions.md](doc/permissions.md).

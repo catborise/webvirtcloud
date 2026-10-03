@@ -24,7 +24,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
-          cache-dependency-path: 'dev/requirements.lock'
+          cache-dependency-path: |
+            conf/requirements.txt
+            dev/requirements.txt
 
       # Build headers for the sdist-only bindings (libvirt-python, python-ldap)
       - name: Install System Dependencies
@@ -39,8 +41,8 @@ jobs:
 
       - name: Install Python Dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install --require-hashes -r dev/requirements.lock
+          python -m pip install --upgrade pip setuptools
+          pip install -r dev/requirements.txt
 
       - name: Configure WebVirtCloud Settings
         run: |
@@ -66,12 +68,11 @@ jobs:
       - name: Deployment Checks
         run: python manage.py check --deploy --fail-level ERROR
 
-      # Audits the lock (what is installed), not the runner's own tooling.
       # The ignored IDs are Django 4.2.30 advisories, fixed in Django 5.2.17.
       # Remove them with the Django 5.2 upgrade.
-      - name: Audit Locked Packages
+      - name: Audit Installed Packages
         run: |
-          pip-audit -r dev/requirements.lock --require-hashes --disable-pip \
+          pip-audit \
             --ignore-vuln PYSEC-2026-198 \
             --ignore-vuln PYSEC-2026-199 \
             --ignore-vuln PYSEC-2026-201 \
