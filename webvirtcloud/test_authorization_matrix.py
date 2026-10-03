@@ -55,6 +55,18 @@ ALLOWED_FOR_ANY_USER = {
     "schema-swagger-ui": "API docs (SERVE_PERMISSIONS is S-21, Wave 3)",
 }
 
+# URL name -> why an anonymous visitor may reach it. Everything else must
+# redirect to the login page.
+ALLOWED_FOR_ANONYMOUS = {
+    "accounts:login": "login page",
+    "accounts:email_otp": "part of the login flow (S-12 tracks its own issues)",
+    "rest_framework:login": "DRF browsable API login page",
+    "schema": "OpenAPI schema (SERVE_PERMISSIONS is S-21, Wave 3)",
+    "schema-json": "OpenAPI schema (SERVE_PERMISSIONS is S-21, Wave 3)",
+    "schema-redoc": "API docs (SERVE_PERMISSIONS is S-21, Wave 3)",
+    "schema-swagger-ui": "API docs (SERVE_PERMISSIONS is S-21, Wave 3)",
+}
+
 # Endpoints that expose a VM's console (or its VNC password) and therefore
 # must follow the console rule: superuser or VM owner, not global view_instances.
 CONSOLE_ENDPOINTS = ["instances:getvvfile", "vdi_url"]
@@ -209,6 +221,25 @@ class AuthorizationMatrixTestCase(TestCase):
             [],
             "Reachable by a user without any VM/compute relation:\n" + "\n".join(reachable),
         )
+
+    def test_anonymous_visitor_is_sent_to_login_everywhere_else(self):
+        from django.conf import settings
+
+        reachable = []
+        for name, params in iter_patterns(get_resolver().url_patterns):
+            if name in ALLOWED_FOR_ANONYMOUS:
+                continue
+            url = self._url(name, params)
+            for method in (self.client.get, self.client.post):
+                self.client.logout()
+                response = method(url)
+                # DRF views opt out of login middleware and deny by their own
+                # permission classes.
+                api_denied = url.startswith("/api/") and response.status_code in (401, 403)
+                to_login = response.status_code == 302 and response["Location"].startswith(settings.LOGIN_URL)
+                if not (api_denied or to_login):
+                    reachable.append(f"{method.__name__.upper()} {name} ({url}) -> {response.status_code}")
+        self.assertEqual(reachable, [], "Reachable without logging in:\n" + "\n".join(reachable))
 
     def test_allowlist_only_names_existing_urls(self):
         names = {name for name, _ in iter_patterns(get_resolver().url_patterns)}

@@ -5,7 +5,7 @@ from admin.decorators import superuser_only
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model, update_session_auth_hash, login as auth_login
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth.decorators import login_not_required, login_required
 from django.contrib.auth.forms import PasswordChangeForm
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
@@ -201,6 +201,7 @@ def user_instance_delete(request, pk):
     )
 
 
+@login_not_required
 def email_otp(request):
     form = EmailOTPForm(request.POST or None)
     if form.is_valid():
