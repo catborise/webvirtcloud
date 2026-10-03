@@ -917,6 +917,7 @@ class InstancesTestCase(TestCase):
         response = self.client.post(
             reverse("instances:change_network", args=[self.instance.id]),
             {
+                "net-old-mac-0": "52:54:00:a2:3c:e7",
                 "net-mac-0": "52:54:00:a2:3c:e8",
                 "net-source-0": "net:default",
                 "net-nwfilter-0": "",
@@ -927,7 +928,48 @@ class InstancesTestCase(TestCase):
         self.assertEqual(response.status_code, 302)
 
         del self.instance.networks
+        self.assertEqual(len(self.instance.networks), 1)
         self.assertEqual(self.instance.networks[0]["mac"], "52:54:00:a2:3c:e8")
+
+        # The second NIC's form changes only the second NIC
+        self.client.post(
+            reverse("instances:add_network", args=[self.instance.id]),
+            {"add-net-mac": "52:54:00:a2:3c:e9", "add-net-network": "net:default"},
+            HTTP_REFERER=reverse("index"),
+        )
+        self.client.post(
+            reverse("instances:change_network", args=[self.instance.id]),
+            {
+                "net-old-mac-1": "52:54:00:a2:3c:e9",
+                "net-mac-1": "52:54:00:a2:3c:ea",
+                "net-source-1": "net:default",
+                "net-nwfilter-1": "",
+                "net-model-1": "e1000",
+            },
+            HTTP_REFERER=reverse("index"),
+        )
+        del self.instance.networks
+        self.assertEqual([n["mac"] for n in self.instance.networks], ["52:54:00:a2:3c:e8", "52:54:00:a2:3c:ea"])
+        self.assertEqual(self.instance.networks[1]["model"], "e1000")
+
+        # Restore the shared test VM
+        self.client.post(
+            reverse("instances:delete_network", args=[self.instance.id]),
+            {"delete_network": "52:54:00:a2:3c:ea"},
+            HTTP_REFERER=reverse("index"),
+        )
+        self.client.post(
+            reverse("instances:change_network", args=[self.instance.id]),
+            {
+                "net-old-mac-0": "52:54:00:a2:3c:e8",
+                "net-mac-0": "52:54:00:a2:3c:e7",
+                "net-source-0": "net:default",
+                "net-model-0": "virtio",
+            },
+            HTTP_REFERER=reverse("index"),
+        )
+        del self.instance.networks
+        self.assertEqual([n["mac"] for n in self.instance.networks], ["52:54:00:a2:3c:e7"])
 
     def test_add_delete_network(self):
         self.assertEqual(len(self.instance.networks), 1)

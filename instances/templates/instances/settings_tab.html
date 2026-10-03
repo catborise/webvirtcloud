@@ -412,7 +412,7 @@
                                                     <div class="row">
                                                         <label class="col-form-label">{% trans "MAC" %}</label>
                                                         <div class="input-group">
-                                                            <input class="form-control" type="text" value="{{ network.mac }}" readonly/>
+                                                            <input class="form-control" type="text" name="net-old-mac-{{ forloop.counter0 }}" value="{{ network.mac }}" readonly/>
                                                             <input class="form-control" type="text" name="net-mac-{{ forloop.counter0 }}" value="{{ network.mac }}"/>
                                                         </div>
                                                     </div>
