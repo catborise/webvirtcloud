@@ -15,16 +15,18 @@ from accounts.models import UserAttributes
 
 
 class GeneratedAdminPasswordTestCase(TestCase):
-    def _run_create_admin(self, base_dir):
+    def _run_create_admin(self, base_dir, plan=None):
         get_user_model().objects.all().delete()
-        migration = MagicMock(app_label="accounts")
-        migration.name = "0001_initial"
+        if plan is None:
+            migration = MagicMock(app_label="accounts")
+            migration.name = "0001_initial"
+            plan = [(migration, False)]
         out = io.StringIO()
         env = {k: v for k, v in os.environ.items() if k not in ("ADMIN_PASSWORD", "ADMIN_USERNAME")}
         with override_settings(BASE_DIR=Path(base_dir)), patch("sys.argv", ["manage.py", "migrate"]), patch.dict(
             os.environ, env, clear=True
         ), redirect_stdout(out):
-            create_admin(sender=None, plan=[(migration, False)])
+            create_admin(sender=None, plan=plan)
         return out.getvalue()
 
     def test_password_is_written_to_a_private_file_not_printed(self):
@@ -64,4 +66,19 @@ class GeneratedAdminPasswordTestCase(TestCase):
             with self.assertRaisesRegex(RuntimeError, "Cannot securely store"):
                 self._run_create_admin(tmp)
         self.assertNotIn(password, output.getvalue())
+        self.assertFalse(get_user_model().objects.exists())
+
+    def test_rerunning_migrate_after_a_storage_failure_creates_the_admin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("accounts.apps.os.open", side_effect=PermissionError("read-only")), redirect_stdout(io.StringIO()):
+                with self.assertRaises(RuntimeError):
+                    self._run_create_admin(tmp)
+            # The second migrate has nothing left to apply: an empty plan.
+            (Path(tmp) / "data").mkdir(exist_ok=True)
+            self._run_create_admin(tmp, plan=[])
+            self.assertTrue(get_user_model().objects.filter(username="admin").exists())
+
+    def test_flush_does_not_create_an_admin(self):
+        get_user_model().objects.all().delete()
+        create_admin(sender=None, plan=None)
         self.assertFalse(get_user_model().objects.exists())

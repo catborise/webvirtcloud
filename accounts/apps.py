@@ -71,38 +71,38 @@ def create_admin(sender, **kwargs):
 
     from accounts.models import UserAttributes
 
-    plan = kwargs.get("plan", [])
-    for migration, rolled_back in plan:
-        if (
-            migration.app_label == "accounts"
-            and migration.name == "0001_initial"
-            and not rolled_back
-        ):
-            if User.objects.count() == 0:
-                is_testing = "test" in sys.argv
-                admin_user = os.environ.get("ADMIN_USERNAME", "admin")
-                admin_pass = os.environ.get("ADMIN_PASSWORD")
-                generated_password = not admin_pass and not is_testing
+    plan = kwargs.get("plan")
+    # Any real migrate run provisions while no user exists, so a run that
+    # failed to store the password can simply be repeated. flush (used by
+    # tests) sends plan=None; a rollback of accounts drops its tables.
+    if plan is None or User.objects.exists():
+        return
+    if any(migration.app_label == "accounts" and rolled_back for migration, rolled_back in plan):
+        return
 
-                if not admin_pass:
-                    if is_testing:
-                        admin_pass = "admin"
-                    else:
-                        admin_pass = secrets.token_urlsafe(16)
-                        _store_generated_password(admin_pass)
+    is_testing = "test" in sys.argv
+    admin_user = os.environ.get("ADMIN_USERNAME", "admin")
+    admin_pass = os.environ.get("ADMIN_PASSWORD")
+    generated_password = not admin_pass and not is_testing
 
-                print(f"\033[1m* \033[92mCreating default admin user '{admin_user}'\033[0m")
-                with transaction.atomic():
-                    admin = User.objects.create_superuser(admin_user, None, admin_pass)
-                    UserAttributes.objects.create(
-                        user=admin,
-                        must_change_password=generated_password,
-                        max_instances=-1,
-                        max_cpus=-1,
-                        max_memory=-1,
-                        max_disk_size=-1,
-                    )
-            break
+    if not admin_pass:
+        if is_testing:
+            admin_pass = "admin"
+        else:
+            admin_pass = secrets.token_urlsafe(16)
+            _store_generated_password(admin_pass)
+
+    print(f"\033[1m* \033[92mCreating default admin user '{admin_user}'\033[0m")
+    with transaction.atomic():
+        admin = User.objects.create_superuser(admin_user, None, admin_pass)
+        UserAttributes.objects.create(
+            user=admin,
+            must_change_password=generated_password,
+            max_instances=-1,
+            max_cpus=-1,
+            max_memory=-1,
+            max_disk_size=-1,
+        )
 
 
 class AccountsConfig(AppConfig):
