@@ -838,14 +838,28 @@ class wvmInstance(wvmConnect):
             0
         ].getparent()
         xml_disk = etree.tostring(disk_el).decode()
-        devices = tree.find("devices")
-        devices.remove(disk_el)
 
-        if self.get_status() == 1:
+        # Paused and other active states need the live detach too.
+        if self.instance.isActive():
             self.instance.detachDeviceFlags(xml_disk, VIR_DOMAIN_AFFECT_LIVE)
-            self.instance.detachDeviceFlags(xml_disk, VIR_DOMAIN_AFFECT_CONFIG)
-        if self.get_status() == 5:
-            self.instance.detachDeviceFlags(xml_disk, VIR_DOMAIN_AFFECT_CONFIG)
+        self.instance.detachDeviceFlags(xml_disk, VIR_DOMAIN_AFFECT_CONFIG)
+
+    def has_disk(self, target_dev):
+        """True while the live or the persistent definition still has target_dev."""
+        for flags in (0, VIR_DOMAIN_XML_INACTIVE):
+            tree = etree.fromstring(self._XMLDesc(flags))
+            if tree.xpath("./devices/disk/target[@dev=$dev]", dev=target_dev):
+                return True
+        return False
+
+    def wait_disk_detached(self, target_dev, timeout=10):
+        """A live detach completes only when the guest releases the disk."""
+        deadline = time.monotonic() + timeout
+        while self.has_disk(target_dev):
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.5)
+        return True
 
     def edit_disk(
         self,
@@ -1293,6 +1307,23 @@ class wvmInstance(wvmConnect):
                     if img.lower().endswith(".iso"):
                         iso.append(img)
         return iso
+
+    def split_disk_paths_by_use(self):
+        """This VM's disk paths, split into (only this VM, also used by another domain)."""
+        self.refresh_instance_pools()
+        own = [disk["path"] for disk in self.get_disk_devices() if disk["path"]]
+        uuid = self.instance.UUIDString()
+        used_elsewhere = set()
+        for dom in self.wvm.listAllDomains():
+            if dom.UUIDString() == uuid:
+                continue
+            for flags in (0, VIR_DOMAIN_XML_INACTIVE):
+                tree = etree.fromstring(dom.XMLDesc(flags))
+                used_elsewhere.update(tree.xpath("./devices/disk/source/@file|./devices/disk/source/@dev"))
+        return (
+            [path for path in own if path not in used_elsewhere],
+            [path for path in own if path in used_elsewhere],
+        )
 
     def delete_all_disks(self):
         self.refresh_instance_pools()

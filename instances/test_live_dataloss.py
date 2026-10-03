@@ -138,17 +138,16 @@ class LiveDataLossTestCase(TestCase):
 
     # R-14: destroy
 
-    @unittest.expectedFailure
     def test_r14_destroy_keeps_a_volume_another_vm_uses(self):
         shared = livetest.create_volume(self.conn, P + "r14-shared")
         _, inst = self.vm("r14-a", [shared])
         self.vm("r14-b", [shared])
 
-        self.post("destroy", inst, {"delete_disk": "1"})
+        response = self.post("destroy", inst, {"delete_disk": "1"})
 
+        self.assertEqual(response.status_code, 302)
         self.assertTrue(livetest.volume_exists(self.conn, shared), "destroy deleted another VM's disk")
 
-    @unittest.expectedFailure
     def test_r14_destroy_with_managed_save_removes_the_vm(self):
         base = livetest.create_volume(self.conn, P + "r14-save")
         dom, inst = self.vm("r14-save", [base])
@@ -161,7 +160,6 @@ class LiveDataLossTestCase(TestCase):
         self.assertFalse(self.domain_exists(uuid), "VM is still defined")
         self.assertFalse(Instance.objects.filter(uuid=uuid).exists())
 
-    @unittest.expectedFailure
     def test_r14_destroy_of_a_paused_vm_removes_it(self):
         base = livetest.create_volume(self.conn, P + "r14-paused")
         dom, inst = self.vm("r14-paused", [base])
@@ -182,7 +180,9 @@ class LiveDataLossTestCase(TestCase):
         if pause:
             dom.suspend()
 
-        self.post("delete_vol", inst, {"dev": "vdb"})
+        response = self.post("delete_vol", inst, {"dev": "vdb"})
+
+        self.assertEqual(response.status_code, 302)
 
         still_attached = "vdb" in self.disk_sources(dom)
         self.assertFalse(
@@ -190,11 +190,9 @@ class LiveDataLossTestCase(TestCase):
             "volume deleted while the running VM still uses it",
         )
 
-    @unittest.expectedFailure
     def test_s02_delete_volume_of_a_paused_vm(self):
         self._delete_attached_volume(pause=True)
 
-    @unittest.expectedFailure
     def test_s02_delete_volume_of_a_running_vm_without_guest_ack(self):
         self._delete_attached_volume(pause=False)
 
