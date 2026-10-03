@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from unittest.mock import patch
 
 from computes.models import Compute
@@ -37,3 +38,17 @@ class DestroyOrderTestCase(TestCase):
         proxy.get_volume_by_path.assert_not_called()
         proxy.delete_all_disks.assert_not_called()
         self.assertTrue(Instance.objects.filter(pk=self.instance.pk).exists())
+
+    def test_destroy_and_delete_vol_hold_the_compute_exclusively(self):
+        calls = []
+
+        @contextmanager
+        def record(compute, timeout=15.0, *, shared=False):
+            calls.append(shared)
+            yield
+
+        with patch("instances.views.libvirt_compute_lock", record):
+            with patch("instances.models.wvmInstance"):
+                self.client.post(reverse("instances:delete_vol", args=[self.instance.id]), {"dev": "vda"})
+            self.destroy()
+        self.assertEqual(calls, [False, False])

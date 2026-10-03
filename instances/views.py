@@ -375,6 +375,13 @@ def get_instance(user, pk, perm_type="view"):
     return instance
 
 
+def _busy(request, pk):
+    if hasattr(request, "accepted_renderer"):
+        return JsonResponse({"detail": "Instance operation is busy. Please retry."}, status=409)
+    messages.error(request, _("Instance operation is busy. Please retry."))
+    return get_safe_redirect(request, default=reverse("instances:instance", args=[pk]))
+
+
 def serialize_instance_mutation(func):
     """Serialize one VM, after checking visibility, without blocking sibling VMs."""
     @functools.wraps(func)
@@ -384,10 +391,21 @@ def serialize_instance_mutation(func):
             with libvirt_instance_lock(inst):
                 return func(request, pk, *args, **kwargs)
         except TimeoutError:
-            if hasattr(request, "accepted_renderer"):
-                return JsonResponse({"detail": "Instance operation is busy. Please retry."}, status=409)
-            messages.error(request, _("Instance operation is busy. Please retry."))
-            return get_safe_redirect(request, default=reverse("instances:instance", args=[pk]))
+            return _busy(request, pk)
+
+    return wrapper
+
+
+def serialize_compute_mutation(func):
+    """Hold the whole compute: disk deletions must not race another VM attaching that disk."""
+    @functools.wraps(func)
+    def wrapper(request, pk, *args, **kwargs):
+        inst = get_instance(request.user, pk)
+        try:
+            with libvirt_compute_lock(inst.compute):
+                return func(request, pk, *args, **kwargs)
+        except TimeoutError:
+            return _busy(request, pk)
 
     return wrapper
 
@@ -522,7 +540,7 @@ def force_off(request, pk):
     )
 
 
-@serialize_instance_mutation
+@serialize_compute_mutation
 def destroy(request, pk):
     if request.method in ["POST", "DELETE"]:
         instance = get_instance(request.user, pk, perm_type="delete")
@@ -1038,7 +1056,7 @@ def edit_volume(request, pk):
 
 @require_POST
 @superuser_only
-@serialize_instance_mutation
+@serialize_compute_mutation
 def delete_vol(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
     dev = request.POST.get("dev", "")
@@ -1060,6 +1078,13 @@ def delete_vol(request, pk):
         instance.compute.type,
         disk["storage"],
     )
+
+    if disk["path"] in instance.proxy.paths_used_by_other_domains():
+        messages.error(
+            request,
+            _("Volume %(vol)s is used by another VM; detach it instead") % {"vol": disk["image"]},
+        )
+        return redirect(request.META.get("HTTP_REFERER") + "#disks")
 
     msg = _("Delete disk: %(dev)s") % {"dev": dev}
     instance.proxy.detach_disk(dev)

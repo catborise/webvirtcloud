@@ -1308,18 +1308,23 @@ class wvmInstance(wvmConnect):
                         iso.append(img)
         return iso
 
-    def split_disk_paths_by_use(self):
-        """This VM's disk paths, split into (only this VM, also used by another domain)."""
-        self.refresh_instance_pools()
-        own = [disk["path"] for disk in self.get_disk_devices() if disk["path"]]
+    def paths_used_by_other_domains(self):
+        """Disk sources referenced by any other domain's live or persistent definition."""
         uuid = self.instance.UUIDString()
-        used_elsewhere = set()
+        used = set()
         for dom in self.wvm.listAllDomains():
             if dom.UUIDString() == uuid:
                 continue
             for flags in (0, VIR_DOMAIN_XML_INACTIVE):
                 tree = etree.fromstring(dom.XMLDesc(flags))
-                used_elsewhere.update(tree.xpath("./devices/disk/source/@file|./devices/disk/source/@dev"))
+                used.update(tree.xpath("./devices/disk/source/@file|./devices/disk/source/@dev"))
+        return used
+
+    def split_disk_paths_by_use(self):
+        """This VM's disk paths, split into (only this VM, also used by another domain)."""
+        self.refresh_instance_pools()
+        own = [disk["path"] for disk in self.get_disk_devices() if disk["path"]]
+        used_elsewhere = self.paths_used_by_other_domains()
         return (
             [path for path in own if path not in used_elsewhere],
             [path for path in own if path in used_elsewhere],

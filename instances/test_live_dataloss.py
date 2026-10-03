@@ -196,6 +196,17 @@ class LiveDataLossTestCase(TestCase):
     def test_s02_delete_volume_of_a_running_vm_without_guest_ack(self):
         self._delete_attached_volume(pause=False)
 
+    def test_s02_delete_volume_another_vm_uses_is_refused(self):
+        base = livetest.create_volume(self.conn, P + "s02-own")
+        shared = livetest.create_volume(self.conn, P + "s02-shared")
+        _, inst = self.vm("s02-a", [base, shared])
+        self.vm("s02-b", [shared])
+
+        response = self.post("delete_vol", inst, {"dev": "vdb"})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(livetest.volume_exists(self.conn, shared), "deleted another VM's disk")
+
     # R-06: operations follow the VM's UUID, not its name
 
     @unittest.expectedFailure
