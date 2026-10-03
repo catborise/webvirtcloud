@@ -104,7 +104,7 @@ def get_vdi_url(request, compute_id, vname):
 
     try:
         conn = wvmInstance(
-            compute.hostname, compute.login, compute.password, compute.type, vname
+            compute.hostname, compute.login, compute.password, compute.type, vname, uuid=instance.uuid
         )
 
         fqdn = get_hostname_by_ip(compute.hostname)
