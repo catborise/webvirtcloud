@@ -94,6 +94,8 @@ Access the panel at `http://<server-ip>` and noVNC console at port `6080`.
 
 The steps below work inside `/srv/webvirtcloud`, which stays root-owned until the final `chown`. Run them from a root shell (`sudo -i`).
 
+The virtualenv is created with `--system-site-packages`: `libvirt-python` and `python-ldap` come from the distro packages when their version satisfies `conf/requirements.txt`; otherwise pip builds them, which needs the `-dev`/`-devel` packages listed below. Everything else, including `lxml`, comes from pip.
+
 ### Secret key
 
 `webvirtcloud/settings.py` reads `SECRET_KEY` from the `SECRET_KEY` environment variable, falling back to the `data/secret_key` file (the `data/` directory is gitignored). The steps below generate that file:
