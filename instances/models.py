@@ -273,9 +273,6 @@ class CreateInstance(models.Model):
     console_pass = models.CharField(max_length=64, blank=True)
     add_cdrom = models.CharField(max_length=16)
     add_input = models.CharField(max_length=16)
-    graphics = models.CharField(
-        max_length=16, error_messages={"required": _("Please select a graphics type")}
-    )
     video = models.CharField(
         max_length=16, error_messages={"required": _("Please select a video driver")}
     )

@@ -1130,19 +1130,6 @@ class wvmInstance(wvmConnect):
             )
         return console_type
 
-    def set_console_type(self, console_type):
-        if console_type == "":
-            return False
-        root = ElementTree.fromstring(self._XMLDesc(PERSISTENT_XML))
-        graphic = root.find("devices/graphics")
-        if graphic is None:
-            return False
-        if graphic.get("type") == console_type:
-            return True
-        graphic.set("type", console_type)
-        newxml = ElementTree.tostring(root).decode()
-        self._defineXML(newxml)
-
     def get_console_port(self, console_type=None):
         if console_type is None:
             console_type = self.get_console_type()

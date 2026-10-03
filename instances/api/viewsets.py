@@ -302,7 +302,6 @@ class CreateInstanceViewSet(viewsets.ViewSet):
                     volumes=volume_list,
                     networks=serializer.validated_data["networks"],
                     nwfilter=serializer.validated_data["nwfilter"],
-                    graphics=serializer.validated_data["graphics"],
                     virtio=serializer.validated_data["virtio"],
                     listener_addr=serializer.validated_data["listener_addr"],
                     video=serializer.validated_data["video"],

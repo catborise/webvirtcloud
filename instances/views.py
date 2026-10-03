@@ -78,9 +78,6 @@ def instance(request, pk):
     users = User.objects.all().order_by("username")
     publickeys = UserSSHKey.objects.filter(user_id=request.user.id)
     keymaps = settings.QEMU_KEYMAPS
-    console_types = AppSettings.objects.get(
-        key="QEMU_CONSOLE_DEFAULT_TYPE"
-    ).choices_as_list()
     # The console form renders the VNC password, so only users who may manage
     # console settings get the form (and the password) at all.
     can_manage_console = utils.can_manage_console(request.user, instance)
@@ -88,7 +85,6 @@ def instance(request, pk):
     if can_manage_console:
         console_form = ConsoleForm(
             initial={
-                "type": instance.console_type,
                 "listen_on": instance.console_listener_address,
                 "password": instance.console_passwd,
                 "keymap": instance.console_keymap,
@@ -1889,19 +1885,14 @@ def update_console(request, pk):
                     request.user.username, instance.compute.name, instance.name, msg
                 )
 
-            if "type" in form.changed_data:
-                instance.proxy.set_console_type(form.cleaned_data["type"])
-                msg = _("Set VNC type")
-                addlogmsg(
-                    request.user.username, instance.compute.name, instance.name, msg
-                )
-
             if "listen_on" in form.changed_data:
                 instance.proxy.set_console_listener_addr(form.cleaned_data["listen_on"])
                 msg = _("Set VNC listen address")
                 addlogmsg(
                     request.user.username, instance.compute.name, instance.name, msg
                 )
+        else:
+            messages.error(request, _("Console settings were not saved: %(errors)s") % {"errors": form.errors.as_text()})
 
     return get_safe_redirect(
         request, default=reverse("instances:instance", args=[instance.id]) + "#vncsettings"
@@ -2085,7 +2076,6 @@ def create_instance(request, compute_id, arch, machine):
         net_models_host = conn.get_network_models()
         default_nic_type = app_settings.INSTANCE_NIC_DEFAULT_TYPE
         storages = sorted(conn.get_storages(only_actives=True))
-        default_graphics = app_settings.QEMU_CONSOLE_DEFAULT_TYPE
         default_cdrom = app_settings.INSTANCE_CDROM_ADD
         input_device_buses = ["default", "virtio", "usb"]
         default_input_device_bus = app_settings.INSTANCE_INPUT_DEFAULT_DEVICE
@@ -2265,7 +2255,6 @@ def create_instance(request, compute_id, arch, machine):
                                     listener_addr=data["listener_addr"],
                                     nwfilter=data["nwfilter"],
                                     net_model=data["net_model"],
-                                    graphics=data["graphics"],
                                     video=data["video"],
                                     console_pass=data["console_pass"],
                                     mac=data["mac"],

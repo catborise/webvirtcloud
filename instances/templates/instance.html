@@ -267,13 +267,6 @@
         }
     });
     $(document).ready(function () {
-        // set current console type or fall back to default
-        var console_type = "{{ instance.console_type }}";
-        if (console_type != '') {
-            $("#console_select_type option[value='" + console_type + "']").prop('selected', true);
-        }
-    });
-    $(document).ready(function () {
         // set current console listen address or fall back to default
         var console_listener_address = "{{ instance.console_listener_address }}";
         if (console_listener_address != '') {

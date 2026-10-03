@@ -108,9 +108,10 @@ class ConsoleViewsTestCase(TestCase):
         self.assertEqual(response.context["ws_port"], 5900)
 
     @patch("console.views.wvmInstance")
-    def test_console_superuser_spice_deprecated(self, mock_wvm):
+    def test_console_unsupported_graphics_type(self, mock_wvm):
+        # Only VNC is supported; a VM defined elsewhere may use another type.
         mock_conn = MagicMock()
-        mock_conn.get_console_type.return_value = "spice"
+        mock_conn.get_console_type.return_value = "rdp"
         mock_conn.get_console_websocket_port.return_value = None
         mock_wvm.return_value = mock_conn
 
@@ -120,7 +121,7 @@ class ConsoleViewsTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "console-vnc-lite.html")
-        self.assertIn("SPICE", str(response.context["console_error"]))
+        self.assertIn("'rdp' is not supported", str(response.context["console_error"]))
 
     @override_settings(SERIAL_CONSOLE_ENABLED=True)
     @patch("console.views.wvmInstance")

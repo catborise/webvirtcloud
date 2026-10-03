@@ -14,7 +14,7 @@ import threading
 
 class _TunnelScheduler(object):
     """
-    If the user is using Spice + SSH URI + no SSH keys, we need to
+    If the user is using an SSH URI without SSH keys, we need to
     serialize connection opening otherwise ssh-askpass gets all angry.
     This handles the locking and scheduling.
     It's only instantiated once for the whole app, because we serialize
@@ -181,7 +181,7 @@ class SSHTunnels(object):
         self._tunnels.append(t)
 
         # socket FDs are closed when the object is garbage collected. This
-        # can close an FD behind spice/vnc's back which causes crashes.
+        # can close an FD behind the VNC client's back which causes crashes.
         #
         # Dup a bare FD for the viewer side of things, but keep the high
         # level socket object for the SSH side, since it simplifies things

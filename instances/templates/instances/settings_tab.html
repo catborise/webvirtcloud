@@ -723,7 +723,7 @@
                 {% bootstrap_form console_form layout='horizontal' %}
                 <div class="float-end">
                     {% if instance.status != 5 %}
-                        <button class="btn btn-success" name="set_console_type" disabled>{% trans "Update" %}</button>
+                        <button class="btn btn-success" disabled>{% trans "Update" %}</button>
                     {% else %}
                         <button type="submit" class="btn btn-success ">{% trans "Update" %}</button>
                     {% endif %}

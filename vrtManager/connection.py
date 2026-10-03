@@ -418,10 +418,6 @@ class wvmConnect(object):
             result["disk_devices"] = self.get_disk_device_types(arch, machine)
             result["disk_bus"] = self.get_disk_bus_types(arch, machine)
 
-        result["graphics_support"] = util.get_xml_path(xml, "/domainCapabilities/devices/graphics/@supported")
-        if result["graphics_support"] == "yes":
-            result["graphics_types"] = self.get_graphics_types(arch, machine)
-
         result["video_support"] = util.get_xml_path(xml, "/domainCapabilities/devices/video/@supported")
         if result["video_support"] == "yes":
             result["video_types"] = self.get_video_models(arch, machine)
@@ -676,18 +672,6 @@ class wvmConnect(object):
 
         # return [ 'disk', 'cdrom', 'floppy', 'lun' ]
         return util.get_xml_path(self.get_dom_cap_xml(arch, machine), func=get_device_list)
-
-    def get_graphics_types(self, arch, machine):
-        """
-        :param arch: architecture
-        :param machine:
-        :return: available graphics types
-        """
-
-        def get_graphics_list(ctx):
-            return [v.text for v in ctx.xpath("/domainCapabilities/devices/graphics/enum[@name='type']/value")]
-
-        return util.get_xml_path(self.get_dom_cap_xml(arch, machine), func=get_graphics_list)
 
     def get_cpu_modes(self, arch, machine):
         """
