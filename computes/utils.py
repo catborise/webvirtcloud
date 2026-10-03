@@ -51,7 +51,7 @@ def _get_lock_directory():
                 if (stat.S_IMODE(stat_info.st_mode) & 0o077) != 0:
                     continue
 
-            test_file = os.path.join(candidate, f".test_write_{os.getpid()}")
+            test_file = os.path.join(candidate, f".test_write_{os.getpid()}_{threading.get_ident()}")
             with open(test_file, "w") as tf:
                 tf.write("1")
             os.unlink(test_file)
@@ -71,85 +71,80 @@ def _get_thread_held_locks():
 
 
 @contextmanager
-def libvirt_compute_lock(compute, timeout=15.0):
-    """
-    Context manager providing multi-thread and multi-process synchronization
-    for libvirt compute operations and instance database synchronization.
-    Supports re-entrant locking within the same thread.
-    Fails closed on lock directory or permission errors.
-    """
+def _libvirt_lock(key, filename, timeout=15.0, shared=False):
+    """Use flock for both threads and processes; exclusive locks also use a mutex."""
+    held_locks = _get_thread_held_locks()
+    if key in held_locks:
+        if held_locks[key] and not shared:
+            raise RuntimeError("Cannot upgrade a shared compute lock inside a VM operation")
+        yield
+        return
+
+    thread_lock = None if shared else _get_compute_thread_lock(key)
+    start_time = time.monotonic()
+    if thread_lock is not None and not thread_lock.acquire(timeout=timeout):
+        raise TimeoutError(f"Timeout waiting for lock on {key}")
+    try:
+        lock_dir = _get_lock_directory()
+        if not lock_dir:
+            raise OSError(f"Could not acquire secure lock directory for {key}")
+        path = os.path.join(lock_dir, filename)
+        if os.path.islink(path):
+            raise PermissionError(f"Lock file {path} is a symlink")
+        fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        acquired = False
+        try:
+            mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+            while True:
+                try:
+                    fcntl.flock(fd, mode | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except BlockingIOError:
+                    if time.monotonic() - start_time >= timeout:
+                        raise TimeoutError(f"Timeout waiting for lock on {key}")
+                    time.sleep(0.05)
+            held_locks[key] = shared
+            try:
+                yield
+            finally:
+                held_locks.pop(key, None)
+        finally:
+            try:
+                if acquired:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
+    finally:
+        if thread_lock is not None:
+            thread_lock.release()
+
+
+@contextmanager
+def libvirt_compute_lock(compute, timeout=15.0, *, shared=False):
+    """Exclude reconciliation/migration while allowing independent VM operations."""
     compute_pk = getattr(compute, "pk", getattr(compute, "id", None))
     if not compute_pk:
         yield
         return
+    with _libvirt_lock(compute_pk, f"sync_compute_{compute_pk}.lock", timeout, shared):
+        yield
 
-    held_locks = _get_thread_held_locks()
-    if compute_pk in held_locks:
-        held_locks[compute_pk] += 1
-        try:
+
+@contextmanager
+def user_quota_lock(user, timeout=15.0):
+    """One user's quota check and the change it allows run one at a time, on every compute.
+    Take it before any compute or VM lock."""
+    with _libvirt_lock(("quota", user.pk), f"quota_user_{user.pk}.lock", timeout):
+        yield
+
+
+@contextmanager
+def libvirt_instance_lock(instance, timeout=15.0):
+    """Serialize one VM and share the compute barrier with other VM operations."""
+    with libvirt_compute_lock(instance.compute, timeout, shared=True):
+        with _libvirt_lock(("instance", instance.pk), f"instance_{instance.pk}.lock", timeout):
             yield
-        finally:
-            held_locks[compute_pk] -= 1
-            if held_locks[compute_pk] <= 0:
-                held_locks.pop(compute_pk, None)
-        return
-
-    thread_lock = _get_compute_thread_lock(compute_pk)
-    start_time = time.time()
-    acquired_thread = thread_lock.acquire(timeout=timeout)
-    if not acquired_thread:
-        logger.error("Timeout waiting for in-process thread lock on compute %s; aborting to fail closed", compute_pk)
-        raise TimeoutError(f"Timeout waiting for lock on compute {compute_pk}")
-
-    try:
-        lock_dir = _get_lock_directory()
-        if not lock_dir:
-            logger.error("Failed to acquire application lock directory for compute %s; aborting to fail closed", compute_pk)
-            raise OSError(f"Could not acquire secure lock directory for compute {compute_pk}")
-
-        lock_file_path = os.path.join(lock_dir, f"sync_compute_{compute_pk}.lock")
-        if os.path.islink(lock_file_path):
-            logger.error("Lock file %s is a symlink! Aborting to fail closed", lock_file_path)
-            raise PermissionError(f"Compute lock file {lock_file_path} is a symlink")
-
-        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
-        try:
-            lock_fd = os.open(lock_file_path, flags, 0o600)
-        except OSError as e:
-            logger.error("Could not open synchronization lock file for compute %s: %s; aborting to fail closed", compute_pk, e)
-            raise
-
-        lock_acquired = False
-        try:
-            while time.time() - start_time < timeout:
-                try:
-                    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    lock_acquired = True
-                    break
-                except (BlockingIOError, OSError):
-                    time.sleep(0.05)
-
-            if not lock_acquired:
-                logger.error("Timeout waiting for cross-process synchronization lock on compute %s; aborting to fail closed", compute_pk)
-                raise TimeoutError(f"Timeout waiting for lock on compute {compute_pk}")
-
-            held_locks[compute_pk] = 1
-            try:
-                yield
-            finally:
-                held_locks.pop(compute_pk, None)
-        finally:
-            if lock_acquired:
-                try:
-                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                except OSError:
-                    pass
-            try:
-                os.close(lock_fd)
-            except OSError:
-                pass
-    finally:
-        thread_lock.release()
 
 
 def refresh_instance_database(compute):

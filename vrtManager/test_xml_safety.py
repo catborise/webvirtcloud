@@ -185,6 +185,7 @@ class TestDiskXmlEscaping(unittest.TestCase):
         inst = wvmInstance.__new__(wvmInstance)
         inst.get_status = MagicMock(return_value=5)  # shutoff
         inst.instance = MagicMock()
+        inst._defineXML = MagicMock()
         return inst
 
     def test_attach_disk_escapes_source_and_serial(self):
@@ -225,8 +226,9 @@ class TestDiskXmlEscaping(unittest.TestCase):
             "default",
             "default",
         )
-        xml = inst.instance.updateDeviceFlags.call_args[0][0]
-        self.assertIn("file='/images/b&apos;/&gt;&lt;x y=&apos;'", xml)
+        xml = inst._defineXML.call_args.args[0]
+        from lxml import etree
+        self.assertEqual(etree.fromstring(xml).find("devices/disk/source").get("file"), "/images/b'/><x y='")
         self.assertNotIn("<evil/>", xml)
 
     def test_detach_disk_does_not_evaluate_dev_as_xpath(self):
@@ -244,82 +246,148 @@ class TestDiskXmlEscaping(unittest.TestCase):
         inst.instance.detachDeviceFlags.assert_not_called()
 
 
-class TestChangeDiskBus(unittest.TestCase):
-    RBD_DOMAIN = (
-        "<domain><devices>"
-        "<disk type='network' device='disk'>"
-        "<driver name='qemu' type='raw'/>"
-        "<auth username='libvirt'><secret type='ceph' uuid='aaaa'/></auth>"
-        "<source protocol='rbd' name='pool/vm-disk'><host name='mon1' port='6789'/></source>"
-        "<target dev='vda' bus='virtio'/>"
-        "<address type='pci' domain='0x0000' bus='0x00' slot='0x05' function='0x0'/>"
-        "</disk></devices></domain>"
-    )
-
-    def _instance(self):
-        inst = wvmInstance.__new__(wvmInstance)
-        inst.instance = MagicMock()
-        inst._XMLDesc = MagicMock(return_value=self.RBD_DOMAIN)
-        return inst
-
-    def test_keeps_disk_source_and_auth_and_only_changes_target(self):
+class TestPersistentDiskEditing(unittest.TestCase):
+    def setUp(self):
+        import libvirt
         from lxml import etree
 
-        inst = self._instance()
-        inst.change_disk_bus("vda", "sda", "sata")
+        self.conn = libvirt.open("test:///default")
+        self.addCleanup(self.conn.close)
+        self.domain = self.conn.lookupByName("test")
+        original = self.domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE | libvirt.VIR_DOMAIN_XML_SECURE)
+        self.addCleanup(self.conn.defineXML, original)
+        config = etree.fromstring(original)
+        disk = config.find("devices/disk")
+        disk.set("type", "file")
+        driver = disk.find("driver")
+        if driver is None:
+            driver = etree.SubElement(disk, "driver")
+        driver.set("name", "qemu")
+        driver.set("type", "qcow2")
+        driver.set("queues", "4")
+        etree.SubElement(disk, "address", type="pci", slot="0x05")
+        encryption = etree.SubElement(disk, "encryption", format="luks")
+        etree.SubElement(encryption, "secret", type="passphrase", uuid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+        etree.SubElement(etree.SubElement(disk, "iotune"), "total_bytes_sec").text = "1024"
+        # A pending change and a VNC password outside the edited disk must survive.
+        config.find("memory").text = "123456"
+        etree.SubElement(config.find("devices"), "graphics", type="vnc", passwd="keep-secret")
+        self.conn.defineXML(etree.tostring(config).decode())
+        self.inst = wvmInstance.__new__(wvmInstance)
+        self.inst.wvm = self.conn
+        self.inst.instance = self.domain
+        self.target = disk.find("target").get("dev")
 
-        new_xml = inst.instance.attachDeviceFlags.call_args[0][0]
-        disk = etree.fromstring(new_xml)
-        self.assertEqual(disk.get("type"), "network")
-        self.assertEqual(disk.find("source").get("name"), "pool/vm-disk")
-        self.assertEqual(disk.find("auth/secret").get("uuid"), "aaaa")
-        self.assertEqual(disk.find("target").get("dev"), "sda")
+    def config(self):
+        import libvirt
+        from lxml import etree
+        return etree.fromstring(self.domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE | libvirt.VIR_DOMAIN_XML_SECURE))
+
+    def edit(self, bus="virtio", format="qcow2"):
+        self.inst.edit_disk(
+            self.target, "/images/a'<new>&.qcow2", False, False, bus,
+            "serial<&", format, "none", "native", "unmap", "on",
+        )
+
+    def test_running_bus_change_preserves_disk_and_pending_domain_configuration(self):
+        from lxml import etree
+        self.assertTrue(self.domain.isActive())
+        live_before = self.domain.XMLDesc(0)
+        self.edit(bus="sata")
+        config = self.config()
+        disk = config.find("devices/disk")
         self.assertEqual(disk.find("target").get("bus"), "sata")
-        self.assertIsNone(disk.find("address"))
+        self.assertTrue(disk.find("target").get("dev").startswith("sd"))
+        self.assertNotEqual(disk.find("address").get("type"), "pci")
+        self.assertIsNone(disk.find("driver").get("queues"))
+        self.assertEqual(disk.find("driver").get("cache"), "none")
+        self.assertEqual(disk.findtext("iotune/total_bytes_sec"), "1024")
+        self.assertEqual(disk.find("encryption/secret").get("uuid"), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+        self.assertEqual(disk.find("source").get("file"), "/images/a'<new>&.qcow2")
+        self.assertEqual(disk.findtext("serial"), "serial<&")
+        self.assertEqual(config.findtext("memory"), "123456")
+        self.assertEqual(config.find("devices/graphics").get("passwd"), "keep-secret")
+        self.assertEqual(self.domain.XMLDesc(0), live_before)
+        # The resulting disk can be edited again before the VM restarts.
+        self.target = disk.find("target").get("dev")
+        self.edit(bus="sata")
+        self.assertEqual(self.config().find("devices/disk/target").get("dev"), self.target)
 
-    def test_reattaches_the_old_disk_when_attach_fails(self):
+    def test_failed_definition_leaves_the_original_configuration_intact(self):
         from libvirt import libvirtError
+        from unittest.mock import patch
+        before = self.domain.XMLDesc(2)
+        with patch.object(self.inst, "_defineXML", side_effect=libvirtError("definition failed")):
+            with self.assertRaises(libvirtError):
+                self.edit(bus="sata")
+        self.assertEqual(self.domain.XMLDesc(2), before)
 
-        inst = self._instance()
-        inst.instance.attachDeviceFlags.side_effect = [libvirtError("boom"), None]
+    def test_network_disk_keeps_auth_source_and_encryption(self):
+        from lxml import etree
+        config = self.config()
+        disk = config.find("devices/disk")
+        disk.set("type", "network")
+        disk.remove(disk.find("source"))
+        source = etree.SubElement(disk, "source", protocol="rbd", name="pool/vm-disk")
+        etree.SubElement(source, "host", name="mon1", port="6789")
+        auth = etree.SubElement(disk, "auth", username="libvirt")
+        etree.SubElement(auth, "secret", type="ceph", uuid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+        self.conn.defineXML(etree.tostring(config).decode())
+        self.edit(bus="sata")
+        result = self.config().find("devices/disk")
+        self.assertEqual(result.find("source").get("name"), "pool/vm-disk")
+        self.assertEqual(result.find("source/host").get("name"), "mon1")
+        self.assertEqual(result.find("auth").get("username"), "libvirt")
+        self.assertIsNotNone(result.find("encryption"))
 
-        with self.assertRaises(libvirtError):
-            inst.change_disk_bus("vda", "sda", "sata")
+    def test_empty_format_omits_driver_type(self):
+        self.edit(format="")
+        self.assertIsNone(self.config().find("devices/disk/driver").get("type"))
 
-        detached_xml = inst.instance.detachDeviceFlags.call_args[0][0]
-        restored_xml = inst.instance.attachDeviceFlags.call_args_list[1][0][0]
-        self.assertEqual(restored_xml, detached_xml)
+    def test_virtio_options_survive_editing_on_the_same_bus(self):
+        self.edit()
+        self.assertEqual(self.config().find("devices/disk/driver").get("queues"), "4")
 
-    def test_edit_disk_keeps_source_and_auth_of_a_network_disk(self):
+
+class TestEmptyDiskClone(unittest.TestCase):
+    def test_clone_omits_empty_disks_before_real_libvirt_definition(self):
+        import libvirt
         from lxml import etree
 
-        inst = self._instance()
-        inst.edit_disk(
-            "vda", "ignored-path", False, False, "virtio", "", "raw",
-            "default", "default", "default", "default",
-        )
-
-        disk = etree.fromstring(inst.instance.updateDeviceFlags.call_args[0][0])
-        self.assertEqual(disk.get("type"), "network")
-        self.assertEqual(disk.find("source").get("name"), "pool/vm-disk")
-        self.assertEqual(disk.find("source/host").get("name"), "mon1")
-        self.assertEqual(disk.find("auth/secret").get("uuid"), "aaaa")
-
-    def test_edit_disk_without_format_omits_the_driver_type(self):
-        from lxml import etree
-
+        conn = libvirt.open("test:///default")
+        self.addCleanup(conn.close)
+        domain = conn.lookupByName("test")
+        config = etree.fromstring(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
+        devices = config.find("devices")
+        for disk in devices.findall("disk"):
+            source = disk.find("source")
+            if source is not None:
+                disk.remove(source)
+        for interface in devices.findall("interface"):
+            devices.remove(interface)
         inst = wvmInstance.__new__(wvmInstance)
-        inst.instance = MagicMock()
-        inst._XMLDesc = MagicMock(
-            return_value=(
-                "<domain><devices><disk type='file' device='disk'>"
-                "<driver name='qemu'/><source file='/images/vm.img'/>"
-                "<target dev='vda' bus='virtio'/></disk></devices></domain>"
-            )
-        )
-        inst.edit_disk(
-            "vda", "/images/vm.img", False, False, "virtio", "", "",
-            "default", "default", "default", "default",
-        )
-        disk = etree.fromstring(inst.instance.updateDeviceFlags.call_args[0][0])
-        self.assertIsNone(disk.find("driver").get("type"))
+        inst.wvm = conn
+        inst.instance = domain
+        # Exercise defensive handling of incomplete disk metadata, while the
+        # clone is still defined and looked up through the real test driver.
+        inst._XMLDesc = MagicMock(return_value=etree.tostring(config).decode())
+        clone_uuid = inst.clone_instance({"name": "empty-disk-clone"})
+        clone = conn.lookupByUUIDString(clone_uuid)
+        self.addCleanup(clone.undefine)
+        clone_config = etree.fromstring(clone.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
+        self.assertEqual(clone_config.findtext("name"), "empty-disk-clone")
+        self.assertEqual(clone_config.findall("devices/disk"), [])
+        self.assertTrue(config.findall("devices/disk"))
+
+    def test_clone_rejects_existing_name_before_allocating_storage(self):
+        import libvirt
+
+        conn = libvirt.open("test:///default")
+        self.addCleanup(conn.close)
+        inst = wvmInstance.__new__(wvmInstance)
+        inst.wvm = conn
+        inst.instance = conn.lookupByName("test")
+        inst._XMLDesc = MagicMock()
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            inst.clone_instance({"name": "test"})
+        inst._XMLDesc.assert_not_called()

@@ -400,3 +400,12 @@ class InstanceSecurityMutationsTestCase(TestCase):
                 name="duplicate_vm",
                 uuid=self.instance.uuid,
             )
+
+    def test_busy_instance_redirects_without_executing_the_operation(self):
+        self.client.force_login(self.owner)
+        with patch("instances.views.libvirt_instance_lock", side_effect=TimeoutError("busy")), patch(
+            "instances.models.wvmInstance"
+        ) as proxy:
+            response = self.client.post(reverse("instances:poweron", args=[self.instance.pk]), {})
+        self.assertRedirects(response, reverse("instances:instance", args=[self.instance.pk]), fetch_redirect_response=False)
+        proxy.assert_not_called()

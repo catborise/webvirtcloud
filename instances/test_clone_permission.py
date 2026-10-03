@@ -156,6 +156,20 @@ class ClonePermissionTestCase(TestCase):
             )
         proxy.clone_instance.assert_not_called()
 
+    def test_clone_holds_the_compute_exclusively(self):
+        # Clones of different VMs must not race for the destination name.
+        calls = []
+
+        @contextmanager
+        def record(compute, timeout=15.0, *, shared=False):
+            calls.append(shared)
+            yield
+
+        with self.mocked_libvirt() as proxy, patch("instances.views.libvirt_compute_lock", record):
+            self._clone(self.superuser, self._valid_post())
+        proxy.clone_instance.assert_called_once()
+        self.assertEqual(calls, [False])
+
     def test_superuser_valid_clone_passes_posted_values(self):
         with self.mocked_libvirt() as proxy:
             self._clone(
@@ -170,7 +184,7 @@ class ClonePermissionTestCase(TestCase):
 
     def test_non_superuser_clone_skips_disks_without_a_volume(self):
         empty_disk = {"dev": "vdb", "image": None, "storage": None, "path": None,
-                      "size": 0, "format": None}
+                      "size": None, "format": None}
         with self.mocked_libvirt() as proxy:
             proxy.get_disk_devices.return_value = [SRC_DISK, empty_disk]
             self._clone(self.owner_change, self._valid_post())

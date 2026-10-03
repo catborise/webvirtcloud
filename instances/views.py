@@ -16,7 +16,7 @@ from admin.decorators import superuser_only
 from appsettings.models import AppSettings
 from appsettings.settings import app_settings
 from computes.models import Compute
-from computes.utils import libvirt_compute_lock
+from computes.utils import libvirt_compute_lock, libvirt_instance_lock, user_quota_lock
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import permission_required
@@ -373,20 +373,39 @@ def get_instance(user, pk, perm_type="view"):
     return instance
 
 
+def _busy(request, pk):
+    if hasattr(request, "accepted_renderer"):
+        return JsonResponse({"detail": "Instance operation is busy. Please retry."}, status=409)
+    messages.error(request, _("Instance operation is busy. Please retry."))
+    return get_safe_redirect(request, default=reverse("instances:instance", args=[pk]))
+
+
 def serialize_instance_mutation(func):
-    """
-    Decorator that ensures any view mutating an instance's libvirt state
-    acquires libvirt_compute_lock for the instance's compute.
-    Works re-entrantly with inner calls such as refresh_instance_database.
-    """
+    """Serialize one VM, after checking visibility, without blocking sibling VMs."""
     @functools.wraps(func)
     def wrapper(request, pk, *args, **kwargs):
+        inst = get_instance(request.user, pk)
         try:
-            inst = Instance.objects.only("compute_id").get(pk=pk)
-            with libvirt_compute_lock(inst.compute):
+            with libvirt_instance_lock(inst):
                 return func(request, pk, *args, **kwargs)
-        except Instance.DoesNotExist:
+        except TimeoutError:
+            return _busy(request, pk)
+
+    return wrapper
+
+
+def serialize_user_quota(func):
+    """Outermost lock for quota-checked changes: concurrent requests of one
+    user (also on different computes) must not pass the check together."""
+    @functools.wraps(func)
+    def wrapper(request, pk, *args, **kwargs):
+        if request.user.is_superuser:  # quotas do not apply
             return func(request, pk, *args, **kwargs)
+        try:
+            with user_quota_lock(request.user):
+                return func(request, pk, *args, **kwargs)
+        except TimeoutError:
+            return _busy(request, pk)
 
     return wrapper
 
@@ -436,7 +455,7 @@ def reject_disk_options(request, invalid):
         request,
         _("Invalid disk options: %(options)s") % {"options": ", ".join(invalid)},
     )
-    return redirect(request.META.get("HTTP_REFERER") + "#disks")
+    return get_safe_redirect(request)
 
 
 @require_POST
@@ -521,10 +540,11 @@ def force_off(request, pk):
     )
 
 
+@serialize_instance_mutation
 def destroy(request, pk):
     if request.method in ["POST", "DELETE"]:
         instance = get_instance(request.user, pk, perm_type="delete")
-        with libvirt_compute_lock(instance.compute):
+        with libvirt_instance_lock(instance):
             if instance.proxy.get_status() == 1:
                 instance.proxy.force_shutdown()
 
@@ -694,6 +714,7 @@ def add_public_key(request, pk):
 
 
 @require_POST
+@serialize_user_quota
 @serialize_instance_mutation
 def resizevm_cpu(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
@@ -729,6 +750,7 @@ def resizevm_cpu(request, pk):
 
 
 @require_POST
+@serialize_user_quota
 @serialize_instance_mutation
 def resize_memory(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
@@ -773,6 +795,7 @@ def resize_memory(request, pk):
 
 
 @require_POST
+@serialize_user_quota
 @serialize_instance_mutation
 def resize_disk(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
@@ -958,9 +981,9 @@ def edit_volume(request, pk):
         new_path = request.POST.get("vol_path", "")
         shareable = bool(request.POST.get("vol_shareable", False))
         readonly = bool(request.POST.get("vol_readonly", False))
-        disk_type = request.POST.get("vol_type", "")
-        bus = request.POST.get("vol_bus_old", "")
-        new_bus = request.POST.get("vol_bus", bus)
+        disks = instance.proxy.get_disk_devices(config=True)
+        current = next((disk for disk in disks if disk["dev"] == target_dev), {})
+        new_bus = request.POST.get("vol_bus", current.get("bus"))
         serial = request.POST.get("vol_serial", "")
         format = request.POST.get("vol_format", "")
         cache = request.POST.get(
@@ -975,7 +998,6 @@ def edit_volume(request, pk):
         )
         # The form shows "None" (or nothing) for a disk without driver type.
         if format in ("", "None"):
-            current = next((d for d in instance.disks if d["dev"] == target_dev), {})
             format = current.get("format") or ""
 
         invalid = invalid_disk_options(
@@ -989,16 +1011,11 @@ def edit_volume(request, pk):
             format=format or None,
             serial=serial,
         )
-        if target_dev not in [disk["dev"] for disk in instance.disks]:
+        if not current:
             invalid.append("dev")
         if invalid:
             return reject_disk_options(request, invalid)
 
-        new_target_dev = utils.get_new_disk_dev(instance.media, instance.disks, new_bus)
-
-        if new_bus != bus:
-            instance.proxy.change_disk_bus(target_dev, new_target_dev, new_bus)
-            target_dev = new_target_dev
         instance.proxy.edit_disk(
             target_dev,
             new_path,
@@ -1609,6 +1626,7 @@ CLONE_POST_KEY_RE = re.compile(r"^(clone-net-mac-\d+|disk-[a-z0-9]+|meta-[a-z0-9
 
 @require_POST
 @permission_required("instances.clone_instances", raise_exception=True)
+@serialize_user_quota
 def clone(request, pk):
     # Cloning copies the source disks, so it needs change permission on the
     # source VM. Templates are meant to be deployed from, so viewing is enough.
@@ -1621,7 +1639,7 @@ def clone(request, pk):
     clone_data["clone-title"] = request.POST.get("clone-title", "").strip()
     clone_data["clone-description"] = request.POST.get("clone-description", "").strip()
 
-    disk_sum = sum([disk["size"] >> 30 for disk in instance.disks])
+    disk_sum = sum(int(disk.get("size") or 0) >> 30 for disk in instance.disks)
     quota_msg = utils.check_user_quota(
         request.user, 1, instance.vcpu, instance.memory, disk_sum
     )
@@ -1702,6 +1720,8 @@ def clone(request, pk):
         messages.error(request, msg)
     else:
         try:
+            # The whole compute: the destination name and disk names must not be
+            # taken by a concurrent clone of another VM while volumes are copied.
             with libvirt_compute_lock(instance.compute):
                 new_uuid = instance.proxy.clone_instance(clone_data)
                 new_instance = Instance.objects.get_or_create(
@@ -1735,7 +1755,7 @@ def clone(request, pk):
         except Exception as e:
             messages.error(request, e)
 
-    return redirect(request.META.get("HTTP_REFERER") + "#clone")
+    return get_safe_redirect(request, default=reverse("instances:instance", args=[pk]))
 
 
 @require_POST

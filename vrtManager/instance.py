@@ -2,6 +2,7 @@ import contextlib
 import json
 import logging
 import os.path
+import string
 import time
 
 logger = logging.getLogger(__name__)
@@ -13,6 +14,7 @@ try:
         VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_AGENT,
         VIR_DOMAIN_RUNNING,
         VIR_DOMAIN_XML_SECURE,
+        VIR_DOMAIN_XML_INACTIVE,
         VIR_MIGRATE_AUTO_CONVERGE,
         VIR_MIGRATE_COMPRESSED,
         VIR_MIGRATE_LIVE,
@@ -450,7 +452,7 @@ class wvmInstance(wvmConnect):
 
         return util.get_xml_path(self._XMLDesc(0), func=networks)
 
-    def get_disk_devices(self):
+    def get_disk_devices(self, config=False):
         def disks(doc):
             result = []
 
@@ -537,7 +539,8 @@ class wvmInstance(wvmConnect):
                         )
             return result
 
-        return util.get_xml_path(self._XMLDesc(0), func=disks)
+        flags = VIR_DOMAIN_XML_INACTIVE | VIR_DOMAIN_XML_SECURE if config else 0
+        return util.get_xml_path(self._XMLDesc(flags), func=disks)
 
     def get_media_devices(self):
         def disks(doc):
@@ -844,32 +847,6 @@ class wvmInstance(wvmConnect):
         if self.get_status() == 5:
             self.instance.detachDeviceFlags(xml_disk, VIR_DOMAIN_AFFECT_CONFIG)
 
-    def change_disk_bus(self, target_dev, new_target_dev, new_bus):
-        """
-        Move a disk to another bus in the persistent config. The disk element
-        is reused as is (type, source, auth, driver), only <target> changes
-        and the old bus address is dropped. If attaching fails, the original
-        disk is attached again.
-        """
-        tree = etree.fromstring(self._XMLDesc(0))
-        disk_el = tree.xpath("./devices/disk/target[@dev=$dev]", dev=target_dev)[
-            0
-        ].getparent()
-        old_xml = etree.tostring(disk_el).decode()
-
-        disk_el.find("target").set("dev", new_target_dev)
-        disk_el.find("target").set("bus", new_bus)
-        for address in disk_el.findall("address"):
-            disk_el.remove(address)
-        new_xml = etree.tostring(disk_el).decode()
-
-        self.instance.detachDeviceFlags(old_xml, VIR_DOMAIN_AFFECT_CONFIG)
-        try:
-            self.instance.attachDeviceFlags(new_xml, VIR_DOMAIN_AFFECT_CONFIG)
-        except libvirtError:
-            self.instance.attachDeviceFlags(old_xml, VIR_DOMAIN_AFFECT_CONFIG)
-            raise
-
     def edit_disk(
         self,
         target_dev,
@@ -884,61 +861,70 @@ class wvmInstance(wvmConnect):
         discard_mode,
         detect_zeroes_mode,
     ):
-        tree = etree.fromstring(self._XMLDesc(0))
-        disk_el = tree.xpath("./devices/disk/target[@dev=$dev]", dev=target_dev)[
-            0
-        ].getparent()
-        old_disk_type = disk_el.get("type")
-        old_disk_device = disk_el.get("device")
-        old_driver_name = disk_el.xpath("driver/@name")[0]
-        old_target_bus = disk_el.xpath("target/@bus")[0]
+        """Edit the persistent disk in place and commit its domain XML once."""
+        tree = etree.fromstring(
+            self._XMLDesc(VIR_DOMAIN_XML_INACTIVE | VIR_DOMAIN_XML_SECURE)
+        )
+        matches = tree.xpath("./devices/disk/target[@dev=$dev]", dev=target_dev)
+        if not matches:
+            raise ValueError(f"Disk {target_dev} is not in the persistent configuration")
+        target = matches[0]
+        disk = target.getparent()
 
-        # Values below are interpolated into disk XML; escape them all.
-        esc = util.xml_escape
-        target_dev, source, target_bus = esc(target_dev), esc(source), esc(target_bus)
-        serial, format = esc(serial), esc(format)
-        cache_mode, io_mode = esc(cache_mode), esc(io_mode)
-        discard_mode, detect_zeroes_mode = esc(discard_mode), esc(detect_zeroes_mode)
-        old_disk_type, old_disk_device = esc(old_disk_type), esc(old_disk_device)
-        old_driver_name = esc(old_driver_name)
+        if target.get("bus") != target_bus:
+            prefix = {"virtio": "vd", "ide": "hd", "fdc": "fd"}.get(target_bus, "sd")
+            used = set(tree.xpath("./devices/disk/target/@dev")) - {target_dev}
+            new_dev = target_dev if target_dev.startswith(prefix) else next(
+                (prefix + letter for letter in string.ascii_lowercase if prefix + letter not in used),
+                None,
+            )
+            if new_dev is None:
+                raise ValueError("No available device name for the requested disk bus")
+            target.set("dev", new_dev)
+            target.set("bus", target_bus)
+            for address in disk.findall("address"):
+                disk.remove(address)
 
-        additionals = ""
-        if cache_mode is not None and cache_mode != "default":
-            additionals += f"cache='{cache_mode}' "
-        if io_mode is not None and io_mode != "default":
-            additionals += f"io='{io_mode}' "
-        if discard_mode is not None and discard_mode != "default":
-            additionals += f"discard='{discard_mode}' "
-        if detect_zeroes_mode is not None and detect_zeroes_mode != "default":
-            additionals += f"detect_zeroes='{detect_zeroes_mode}' "
+        driver = disk.find("driver")
+        if driver is None:
+            driver = etree.Element("driver", name="qemu")
+            disk.insert(0, driver)
+        if target_bus != "virtio":
+            for key in ("queues", "queue_size", "iothread", "iommu", "ats", "packed", "page_per_vq"):
+                driver.attrib.pop(key, None)
+            for iothreads in driver.findall("iothreads"):
+                driver.remove(iothreads)
+            disk.attrib.pop("model", None)
+        for key, value in (
+            ("type", format), ("cache", cache_mode), ("io", io_mode),
+            ("discard", discard_mode), ("detect_zeroes", detect_zeroes_mode),
+        ):
+            if value and value != "default":
+                driver.set(key, value)
+            else:
+                driver.attrib.pop(key, None)
 
-        xml_disk = f"<disk type='{old_disk_type}' device='{old_disk_device}'>"
-        # A disk without a driver type keeps having none.
-        type_attr = f"type='{format}' " if format else ""
-        if old_disk_device == "cdrom":
-            xml_disk += f"<driver name='{old_driver_name}' {type_attr}/>"
-        elif old_disk_device == "disk":
-            xml_disk += f"<driver name='{old_driver_name}' {type_attr}{additionals}/>"
+        if disk.get("type") == "file":
+            source_el = disk.find("source")
+            if source_el is None:
+                source_el = etree.SubElement(disk, "source")
+            source_el.set("file", source)
 
-        if disk_el.get("type") == "file":
-            xml_disk += f"<source file='{source}'/>"
-        else:
-            # Block/network disks: keep their source (and auth) untouched;
-            # the form only edits the path of file disks.
-            for name in ("auth", "source"):
-                el = disk_el.find(name)
-                if el is not None:
-                    xml_disk += etree.tostring(el).decode()
-        xml_disk += f"<target dev='{target_dev}' bus='{target_bus}'/>"
-        if readonly:
-            xml_disk += """<readonly/>"""
-        if shareable:
-            xml_disk += """<shareable/>"""
-        if serial is not None and serial != "None" and serial != "":
-            xml_disk += f"""<serial>{serial}</serial>"""
-        xml_disk += """</disk>"""
+        for tag, enabled in (("readonly", readonly), ("shareable", shareable)):
+            element = disk.find(tag)
+            if enabled and element is None:
+                etree.SubElement(disk, tag)
+            elif not enabled and element is not None:
+                disk.remove(element)
+        serial_el = disk.find("serial")
+        if serial and serial != "None":
+            if serial_el is None:
+                serial_el = etree.SubElement(disk, "serial")
+            serial_el.text = serial
+        elif serial_el is not None:
+            disk.remove(serial_el)
 
-        self.instance.updateDeviceFlags(xml_disk, VIR_DOMAIN_AFFECT_CONFIG)
+        self._defineXML(etree.tostring(tree).decode())
 
     def cpu_usage(self):
         cpu_usage = {}
@@ -1510,18 +1496,38 @@ class wvmInstance(wvmConnect):
     def clone_instance(self, clone_data):
         clone_dev_path = []
 
+        if clone_data["name"] in self.get_instances():
+            raise ValueError("An instance with the clone name already exists")
+
         xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
         tree = etree.fromstring(xml)
         name = tree.find("name")
         name.text = clone_data["name"]
         uuid = tree.find("uuid")
-        tree.remove(uuid)
+        if uuid is None:
+            uuid = etree.SubElement(tree, "uuid")
+        uuid.text = util.randomUUID()
 
         options = {
             "title": clone_data.get("clone-title", ""),
             "description": clone_data.get("clone-description", ""),
         }
         self._set_options(tree, options)
+
+        for disk in list(tree.findall("devices/disk")):
+            if disk.get("device") != "disk":
+                continue
+            source = disk.find("source")
+            if source is None or not any(source.get(key) for key in ("file", "dev", "name", "volume")):
+                disk.getparent().remove(disk)
+                continue
+            supported = source.get("file") or source.get("dev") or (
+                source.get("protocol") == "rbd" and source.get("name")
+            )
+            target = disk.find("target")
+            dev = target.get("dev") if target is not None else None
+            if not supported or not dev or not clone_data.get("disk-" + dev):
+                raise ValueError("Cannot clone a disk without a supported source and destination")
 
         src_nvram_path = self.get_nvram()
         if src_nvram_path:

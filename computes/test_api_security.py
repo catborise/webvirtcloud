@@ -175,3 +175,15 @@ class APISecurityTestCase(TestCase):
         self.client.force_login(self.staff_user)
         res = self.client.get(f"/api/v1/computes/{self.compute.id}/storages/")
         self.assertEqual(res.status_code, 403)
+
+    def test_busy_instance_api_does_not_report_success(self):
+        self.client.force_login(self.regular_user)
+        with patch("instances.views.libvirt_instance_lock", side_effect=TimeoutError("busy")), patch(
+            "instances.models.wvmInstance"
+        ) as proxy:
+            response = self.client.post(
+                f"/api/v1/computes/{self.compute.pk}/instances/{self.instance1.pk}/poweron/", {}
+            )
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("busy", response.json()["detail"])
+        proxy.assert_not_called()
