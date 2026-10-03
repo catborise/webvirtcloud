@@ -5,8 +5,10 @@ Walks every named URL pattern and checks that an authenticated user without
 any relation to a VM or compute cannot reach it, unless the URL is in the
 explicit allowlist below. It then checks, per role (global view_instances,
 staff, owners with no flags / is_change / is_delete / is_vnc), that exactly
-the expected set of VM URLs is reachable. A new endpoint added without an authorization check
-makes this test fail, so the allowlist must be extended deliberately.
+the expected set of VM URLs passes authorization. A new endpoint added without an authorization check
+makes this test fail, so the allowlist must be extended deliberately. This
+is an authorization test, not an operation-success test; the real test-driver
+regressions separately assert successful disk edits, cloning and power actions.
 
 Limitation: the compute points at a closed port, so a view that turns a
 libvirt connection error into 404 looks "denied" here even without an
@@ -21,7 +23,7 @@ from django.db import transaction
 from django.test import Client, TestCase
 from django.urls import NoReverseMatch, URLPattern, URLResolver, get_resolver, reverse
 
-from accounts.models import UserInstance
+from accounts.models import UserInstance, UserSSHKey
 from computes.models import Compute
 from instances.models import Instance
 
@@ -145,7 +147,7 @@ class AuthorizationMatrixTestCase(TestCase):
             name="matrix-vm",
             uuid="22222222-3333-4444-5555-666666666666",
         )
-        self.client = Client(raise_request_exception=False)
+        self.client = Client(raise_request_exception=True)
 
     def _kwargs(self, params):
         kwargs = {}
@@ -169,10 +171,21 @@ class AuthorizationMatrixTestCase(TestCase):
 
     def _request(self, user, url):
         self.client.force_login(user)
-        response = self.client.get(url)
+        response = self.client.get(url, HTTP_REFERER=f"/instances/{self.instance.pk}/")
         if response.status_code == 405:
             self.client.force_login(user)
-            response = self.client.post(url, {})
+            data = {}
+            if url.endswith("/add_public_key/"):
+                key, _ = UserSSHKey.objects.get_or_create(
+                    user=user, keyname="matrix-key", defaults={"keypublic": "ssh-ed25519 TEST matrix"}
+                )
+                data["sshkeyid"] = key.pk
+            response = self.client.post(url, data, HTTP_REFERER=f"/instances/{self.instance.pk}/")
+        if response.status_code >= 500:
+            # Only the fixture's explicit libvirt failure is an acceptable
+            # authorization outcome. Unexpected failures must fail the test.
+            self.assertEqual(response.status_code, 500)
+            self.assertTrue(response.context and response.context.get("libvirt_error"))
         return response
 
     def _url(self, name, params):
@@ -255,3 +268,36 @@ class AuthorizationMatrixTestCase(TestCase):
                     ([], []),
                     f"{role}: (unexpectedly reachable, unexpectedly denied)",
                 )
+
+    def test_owner_power_actions_succeed_through_web_and_api_with_real_test_driver(self):
+        import libvirt
+        from vrtManager.instance import wvmInstance
+
+        conn = libvirt.open("test:///default")
+        self.addCleanup(conn.close)
+        proxy = wvmInstance.__new__(wvmInstance)
+        proxy.wvm = conn
+        proxy.instance = conn.lookupByName("test")
+        was_active = proxy.instance.isActive()
+
+        def restore_power_state():
+            if was_active and not proxy.instance.isActive():
+                proxy.instance.create()
+            elif not was_active and proxy.instance.isActive():
+                proxy.instance.destroy()
+
+        self.addCleanup(restore_power_state)
+        UserInstance.objects.create(instance=self.instance, user=self.user)
+        self.client.force_login(self.user)
+        with patch("instances.models.wvmInstance", return_value=proxy):
+            response = self.client.post(reverse("instances:poweroff", args=[self.instance.pk]), {})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(proxy.get_status(), libvirt.VIR_DOMAIN_SHUTOFF)
+            response = self.client.post(reverse("instances:poweron", args=[self.instance.pk]), {})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(proxy.get_status(), libvirt.VIR_DOMAIN_RUNNING)
+            response = self.client.post(
+                reverse("compute-instance-poweroff", kwargs={"compute_pk": self.compute.pk, "pk": self.instance.pk}), {}
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(proxy.get_status(), libvirt.VIR_DOMAIN_SHUTOFF)
