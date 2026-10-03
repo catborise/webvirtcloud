@@ -7,6 +7,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.contrib.auth import authenticate, get_user_model
 from django.test import TestCase, override_settings
 
@@ -26,7 +27,7 @@ class GeneratedAdminPasswordTestCase(TestCase):
         with override_settings(BASE_DIR=Path(base_dir)), patch("sys.argv", ["manage.py", "migrate"]), patch.dict(
             os.environ, env, clear=True
         ), redirect_stdout(out):
-            create_admin(sender=None, plan=plan)
+            create_admin(sender=None, plan=plan, apps=apps)
         return out.getvalue()
 
     def test_password_is_written_to_a_private_file_not_printed(self):
@@ -80,5 +81,12 @@ class GeneratedAdminPasswordTestCase(TestCase):
 
     def test_flush_does_not_create_an_admin(self):
         get_user_model().objects.all().delete()
-        create_admin(sender=None, plan=None)
+        create_admin(sender=None, plan=None, apps=apps)
+        self.assertFalse(get_user_model().objects.exists())
+
+    def test_migrating_another_app_before_auth_creates_nothing(self):
+        get_user_model().objects.all().delete()
+        state_without_auth = MagicMock()
+        state_without_auth.get_model.side_effect = LookupError
+        create_admin(sender=None, plan=[], apps=state_without_auth)
         self.assertFalse(get_user_model().objects.exists())

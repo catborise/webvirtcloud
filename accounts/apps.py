@@ -11,6 +11,18 @@ def admin_password_path():
     return os.path.join(str(settings.BASE_DIR), "data", "admin_password")
 
 
+def _migrated(state_apps, model, field=None):
+    """post_migrate follows every migrate, also targeted ones and rollbacks:
+    act only once the post-migration state has the model (and field)."""
+    if state_apps is None:
+        return False
+    try:
+        fields = state_apps.get_model(model)._meta.get_fields()
+    except LookupError:
+        return False
+    return field is None or any(f.name == field for f in fields)
+
+
 def apply_change_password(sender, **kwargs):
     """
     Apply new change_password permission for all users
@@ -19,6 +31,8 @@ def apply_change_password(sender, **kwargs):
     from django.conf import settings
     from django.contrib.auth.models import Permission, User
 
+    if not (_migrated(kwargs.get("apps"), "auth.Permission") and _migrated(kwargs.get("apps"), "auth.User")):
+        return
     if hasattr(settings, "SHOW_PROFILE_EDIT_PASSWORD"):
         print("\033[1m! \033[92mSHOW_PROFILE_EDIT_PASSWORD is found inside settings.py\033[0m")
         print("\033[1m* \033[92mApplying permission can_change_password for all users\033[0m")
@@ -71,13 +85,15 @@ def create_admin(sender, **kwargs):
 
     from accounts.models import UserAttributes
 
-    plan = kwargs.get("plan")
     # Any real migrate run provisions while no user exists, so a run that
     # failed to store the password can simply be repeated. flush (used by
-    # tests) sends plan=None; a rollback of accounts drops its tables.
-    if plan is None or User.objects.exists():
+    # tests) sends plan=None.
+    if kwargs.get("plan") is None:
         return
-    if any(migration.app_label == "accounts" and rolled_back for migration, rolled_back in plan):
+    state_apps = kwargs.get("apps")
+    if not (_migrated(state_apps, "auth.User") and _migrated(state_apps, "accounts.UserAttributes", "must_change_password")):
+        return
+    if User.objects.exists():
         return
 
     is_testing = "test" in sys.argv
