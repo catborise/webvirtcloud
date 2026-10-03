@@ -1,7 +1,7 @@
 [![Gitpod ready-to-code](https://img.shields.io/badge/Gitpod-ready--to--code-blue?logo=gitpod)](https://gitpod.io/#https://github.com/retspen/webvirtcloud)
 
 # WebVirtCloud
-###### Python >=3.10 & Django 4.2 LTS (tested on Python 3.10 – 3.13)
+###### Python >=3.10 & Django 5.2 LTS (tested on Python 3.10 – 3.13)
 
 ## Purpose and Scope
 
@@ -393,6 +393,10 @@ environment=CSRF_TRUSTED_ORIGINS="https://webvirtcloud.example.com"
 ```
 
 ## How To Update
+
+Back up `db.sqlite3` before updating (in Docker it lives in the `data` volume).
+
+Upgrading from Django 4.2: delete `USE_L10N` from `webvirtcloud/settings.py` (Django 5 ignores it). Logging out now needs a POST; links or scripts that call `/accounts/logout/` with GET get 405.
 
 Before running migrations, add `accounts.middleware.ForcePasswordChangeMiddleware`
 to `MIDDLEWARE` in your existing `webvirtcloud/settings.py`, after

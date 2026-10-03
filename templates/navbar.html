@@ -44,7 +44,10 @@
             </a>
             <a class="dropdown-item {% view_active request 'accounts:profile' %}" href="{% url 'accounts:profile' %}">{% bs_icon 'person-vcard' %} {% trans "Profile" %}</a>
             <div class="dropdown-divider"></div>
-            <a class="dropdown-item" href="{% url 'accounts:logout' %}">{% bs_icon 'power' %}  {% trans "Log Out" %}</a>
+            <form method="post" action="{% url 'accounts:logout' %}">
+              {% csrf_token %}
+              <button type="submit" class="dropdown-item">{% bs_icon 'power' %}  {% trans "Log Out" %}</button>
+            </form>
           </div>
         </li>
       </ul>

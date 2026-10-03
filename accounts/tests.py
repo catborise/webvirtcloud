@@ -76,7 +76,7 @@ class AccountsTestCase(TestCase):
         )
         self.assertRedirects(response, settings.LOGIN_REDIRECT_URL)
 
-        response = client.get(reverse("accounts:logout"))
+        response = client.post(reverse("accounts:logout"))
         self.assertRedirects(response, reverse("accounts:login"))
 
     def test_change_password(self):
