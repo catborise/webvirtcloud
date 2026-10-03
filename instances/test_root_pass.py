@@ -26,6 +26,8 @@ class SetRootPassTestCase(TestCase):
     @patch("socket.socket")
     @patch.object(Instance, "proxy")
     def test_set_root_pass_post(self, mock_proxy, mock_socket_cls):
+        # Renamed on the host: gstfsd must get the name of this UUID's domain (R-06)
+        mock_proxy.instance.name.return_value = "renamed-on-host"
         mock_proxy.get_status.return_value = 5  # status: running
         mock_sock = MagicMock()
         mock_socket_cls.return_value = mock_sock
@@ -43,7 +45,7 @@ class SetRootPassTestCase(TestCase):
         sent_bytes = mock_sock.send.call_args[0][0]
         data = json.loads(sent_bytes.decode())
         self.assertEqual(data["action"], "password")
-        self.assertEqual(data["vname"], "root-pass-vm")
+        self.assertEqual(data["vname"], "renamed-on-host")
         # SHA-512 crypt with a random salt (ROADMAP S-08), not the old fixed one
         self.assertTrue(data["passwd"].startswith("$6$"))
         self.assertFalse(data["passwd"].startswith("$6$kgPoiREy$"))
@@ -59,6 +61,7 @@ class SetRootPassTestCase(TestCase):
     @patch("socket.socket")
     @patch.object(Instance, "proxy")
     def test_same_password_gets_a_different_salt_each_time(self, mock_proxy, mock_socket_cls):
+        mock_proxy.instance.name.return_value = "root-pass-vm"
         mock_proxy.get_status.return_value = 5
         mock_sock = MagicMock()
         mock_socket_cls.return_value = mock_sock
@@ -75,6 +78,7 @@ class SetRootPassTestCase(TestCase):
     @patch("socket.socket")
     @patch.object(Instance, "proxy")
     def test_unreachable_gstfsd_is_an_error_message_not_a_crash(self, mock_proxy, mock_socket_cls):
+        mock_proxy.instance.name.return_value = "root-pass-vm"
         mock_proxy.get_status.return_value = 5
         mock_sock = MagicMock()
         mock_socket_cls.return_value = mock_sock
@@ -95,6 +99,7 @@ class SetRootPassTestCase(TestCase):
 
         admin = get_user_model().objects.get(username="admin")
         key = UserSSHKey.objects.create(user=admin, keyname="k", keypublic="ssh-ed25519 AAAA k")
+        mock_proxy.instance.name.return_value = "root-pass-vm"
         mock_proxy.get_status.return_value = 5
         mock_sock = MagicMock()
         mock_socket_cls.return_value = mock_sock

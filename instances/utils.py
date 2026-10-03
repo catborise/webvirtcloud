@@ -64,6 +64,7 @@ def check_user_quota(user, instance, cpu, memory, disk_size):
                 usr_inst.instance.compute.password,
                 usr_inst.instance.compute.type,
                 usr_inst.instance.name,
+                uuid=usr_inst.instance.uuid,
             )
             cpu += int(conn.get_vcpu())
             memory += int(conn.get_memory())
@@ -181,6 +182,7 @@ def migrate_instance(
                     new_compute.password,
                     new_compute.type,
                     instance.name,
+                    uuid=instance.uuid,
                 )
 
                 if autostart:

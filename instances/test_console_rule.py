@@ -52,7 +52,8 @@ class CanOpenConsoleTestCase(TestCase):
 
     def test_owner_can_download_vv_file(self):
         self.client.force_login(self.owner)
-        with patch("instances.views.wvmInstances") as mock_conn_cls:
+        with patch("instances.views.wvmInstances") as mock_conn_cls, patch("instances.models.wvmInstance") as wvm:
+            wvm.return_value.instance.name.return_value = "cons-vm"
             conn = mock_conn_cls.return_value
             conn.graphics_type.return_value = "vnc"
             conn.graphics_listen.return_value = "127.0.0.1"

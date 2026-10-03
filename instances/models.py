@@ -48,6 +48,7 @@ class Instance(models.Model):
             self.compute.password,
             self.compute.type,
             self.name,
+            uuid=self.uuid,
         )
 
     @cached_property

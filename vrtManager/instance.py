@@ -126,7 +126,7 @@ class wvmInstances(wvmConnect):
         if undefine:
             flags |= VIR_MIGRATE_UNDEFINE_SOURCE
 
-        dom = conn.get_instance(name)
+        dom = conn.instance
 
         dom_arch = conn.get_arch()
         dom_emulator = conn.get_dom_emulator()
@@ -177,10 +177,12 @@ class wvmInstances(wvmConnect):
 
 
 class wvmInstance(wvmConnect):
-    def __init__(self, host, login, passwd, conn, vname):
+    def __init__(self, host, login, passwd, conn, vname, uuid=None):
         wvmConnect.__init__(self, host, login, passwd, conn)
         self._ip_cache = None
-        self.instance = self.get_instance(vname)
+        # A known VM is found by UUID: a name can be renamed or swapped
+        # outside WebVirtCloud. No fallback to the name.
+        self.instance = self.wvm.lookupByUUIDString(uuid) if uuid else self.get_instance(vname)
 
     def osinfo(self):
         info_results = qemuAgentCommand(

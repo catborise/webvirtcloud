@@ -215,3 +215,26 @@ class LiveDataLossTestCase(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertTrue(livetest.volume_exists(self.conn, shared), "deleted another VM's disk")
+
+    # R-06: operations follow the VM's UUID, not its name
+
+    def test_r06_mutation_follows_uuid_after_names_are_swapped(self):
+        dom_a, inst_a = self.vm("r06-a", [])
+        dom_b, _ = self.vm("r06-b", [])
+        dom_a.rename(P + "r06-tmp", 0)
+        dom_b.rename(P + "r06-a", 0)
+        dom_a.rename(P + "r06-b", 0)
+
+        self.post("change_options", inst_a, {"title": "for-a", "description": ""})
+
+        self.assertIn("<title>for-a</title>", dom_a.XMLDesc(0))
+        self.assertNotIn("<title>for-a</title>", dom_b.XMLDesc(0))
+
+    def test_r06_vm_replaced_under_the_same_name_is_not_touched(self):
+        dom_old, inst = self.vm("r06-c", [])
+        dom_old.undefine()
+        dom_new = livetest.define_vm(self.conn, P + "r06-c", [])
+
+        self.post("change_options", inst, {"title": "for-old", "description": ""})
+
+        self.assertNotIn("<title>for-old</title>", dom_new.XMLDesc(0))

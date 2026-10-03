@@ -696,7 +696,8 @@ def set_root_pass(request, pk):
         passwd = request.POST.get("passwd", None)
         if passwd:
             passwd_hash = crypt.crypt(passwd, crypt.mksalt(crypt.METHOD_SHA512))
-            data = {"action": "password", "passwd": passwd_hash, "vname": instance.name}
+            # gstfsd opens the domain by name: send the host's current one.
+            data = {"action": "password", "passwd": passwd_hash, "vname": instance.proxy.instance.name()}
 
             if instance.proxy.get_status() == 5:
                 result = gstfsd_request(instance.compute.hostname, data)
@@ -727,7 +728,7 @@ def add_public_key(request, pk):
         data = {
             "action": "publickey",
             "key": publickey.keypublic,
-            "vname": instance.name,
+            "vname": instance.proxy.instance.name(),
         }
 
         if instance.proxy.get_status() == 5:
@@ -1935,6 +1936,8 @@ def getvvfile(request, pk):
         instance.compute.type,
     )
 
+    # The host's current name for this UUID; the stored name may be stale.
+    name = instance.proxy.instance.name()
     msg = _("Send console.vv file")
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     response = HttpResponse(
@@ -1945,14 +1948,14 @@ def getvvfile(request, pk):
         charset="utf-8",
     )
     response.writelines("[virt-viewer]\n")
-    response.writelines("type=" + conn.graphics_type(instance.name) + "\n")
-    if conn.graphics_listen(instance.name) == "0.0.0.0":
+    response.writelines("type=" + conn.graphics_type(name) + "\n")
+    if conn.graphics_listen(name) == "0.0.0.0":
         response.writelines("host=" + conn.host + "\n")
     else:
-        response.writelines("host=" + conn.graphics_listen(instance.name) + "\n")
-    response.writelines("port=" + conn.graphics_port(instance.name) + "\n")
-    response.writelines("title=" + conn.domain_name(instance.name) + "\n")
-    response.writelines("password=" + conn.graphics_passwd(instance.name) + "\n")
+        response.writelines("host=" + conn.graphics_listen(name) + "\n")
+    response.writelines("port=" + conn.graphics_port(name) + "\n")
+    response.writelines("title=" + conn.domain_name(name) + "\n")
+    response.writelines("password=" + conn.graphics_passwd(name) + "\n")
     response.writelines("enable-usbredir=1\n")
     response.writelines("disable-effects=all\n")
     response.writelines("secure-attention=ctrl+alt+ins\n")

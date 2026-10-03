@@ -99,6 +99,7 @@ def console(request):
             instance.compute.password,
             instance.compute.type,
             instance.name,
+            uuid=instance.uuid,
         )
         console_type = conn.get_console_type()
         console_websocket_port = conn.get_console_websocket_port()
