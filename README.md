@@ -396,7 +396,12 @@ environment=CSRF_TRUSTED_ORIGINS="https://webvirtcloud.example.com"
 
 Back up `db.sqlite3` before updating (in Docker it lives in the `data` volume).
 
-Upgrading from Django 4.2: delete `USE_L10N` from `webvirtcloud/settings.py` (Django 5 ignores it). Logging out now needs a POST; links or scripts that call `/accounts/logout/` with GET get 405.
+Upgrading from Django 4.2, edit `webvirtcloud/settings.py`:
+
+- in `MIDDLEWARE`, replace `"login_required.middleware.LoginRequiredMiddleware"` with `"django.contrib.auth.middleware.LoginRequiredMiddleware"` (the old package is no longer a dependency; `migrate` refuses to run until this is done);
+- delete `LOGIN_REQUIRED_IGNORE_VIEW_NAMES` and `USE_L10N`.
+
+Logging out now needs a POST; links or scripts that call `/accounts/logout/` with GET get 405.
 
 Before running migrations, add `accounts.middleware.ForcePasswordChangeMiddleware`
 to `MIDDLEWARE` in your existing `webvirtcloud/settings.py`, after

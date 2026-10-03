@@ -78,7 +78,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django_otp.middleware.OTPMiddleware",
-    "login_required.middleware.LoginRequiredMiddleware",
+    "django.contrib.auth.middleware.LoginRequiredMiddleware",
     "accounts.middleware.ForcePasswordChangeMiddleware",
     "django.contrib.auth.middleware.RemoteUserMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -293,7 +293,6 @@ SHOW_PROFILE_EDIT_PASSWORD = True
 # OTP Config
 OTP_ENABLED = False
 
-LOGIN_REQUIRED_IGNORE_VIEW_NAMES = ["accounts:login", "accounts:email_otp"]
 
 # REST Framework & OpenAPI (drf-spectacular)
 REST_FRAMEWORK = {
