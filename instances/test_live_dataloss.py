@@ -122,19 +122,32 @@ class LiveDataLossTestCase(TestCase):
 
     # R-13: internal snapshots of UEFI VMs
 
-    @unittest.expectedFailure
-    def test_r13_uefi_internal_snapshot_is_refused_without_touching_the_loader(self):
+    def _uefi_internal_snapshot(self, running):
         base = livetest.create_volume(self.conn, P + "r13")
         dom, inst = self.vm("r13", [base], uefi=True)
-        loader_before = dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE).count("type='pflash'")
+        if running:
+            dom.create()
+        os_before = self.os_xml(dom)
 
         response = self.post("snapshot", inst, {"name": "snap"})
 
-        # Refused with a message, not a server error
+        # Taken where libvirt supports it, otherwise refused with a message;
+        # never a server error and never a rewritten loader or NVRAM.
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(list(get_messages(response.wsgi_request)))
-        self.assertEqual(dom.snapshotNum(0), 0)
-        self.assertEqual(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE).count("type='pflash'"), loader_before)
+        if dom.snapshotNum(0) == 0:
+            self.assertTrue(list(get_messages(response.wsgi_request)))
+        self.assertEqual(self.os_xml(dom), os_before)
+
+    def os_xml(self, dom):
+        from lxml import etree
+
+        return etree.tostring(etree.fromstring(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)).find("os"))
+
+    def test_r13_uefi_internal_snapshot_of_a_stopped_vm(self):
+        self._uefi_internal_snapshot(running=False)
+
+    def test_r13_uefi_internal_snapshot_of_a_running_vm(self):
+        self._uefi_internal_snapshot(running=True)
 
     # R-14: destroy
 

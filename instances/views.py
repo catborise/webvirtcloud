@@ -1196,9 +1196,14 @@ def snapshot(request, pk):
     ):
         name = request.POST.get("name", "")
         desc = request.POST.get("description", "")
-        instance.proxy.create_snapshot(name, desc)
-        msg = _("Create snapshot: %(snap)s") % {"snap": name}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+        try:
+            instance.proxy.create_snapshot(name, desc)
+        except libvirtError as err:
+            # e.g. UEFI firmware whose NVRAM format does not allow internal snapshots
+            messages.error(request, _("Snapshot was not created: %(err)s") % {"err": err})
+        else:
+            msg = _("Create snapshot: %(snap)s") % {"snap": name}
+            addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     return redirect(request.META.get("HTTP_REFERER") + "#managesnapshot")
 
 
@@ -1230,7 +1235,11 @@ def revert_snapshot(request, pk):
         "instances.snapshot_instances"
     ):
         snap_name = request.POST.get("name", "")
-        instance.proxy.snapshot_revert(snap_name)
+        try:
+            instance.proxy.snapshot_revert(snap_name)
+        except libvirtError as err:
+            messages.error(request, _("Snapshot was not reverted: %(err)s") % {"err": err})
+            return redirect(request.META.get("HTTP_REFERER") + "#managesnapshot")
         msg = _("Successful revert snapshot: ")
         msg += snap_name
         messages.success(request, msg)
