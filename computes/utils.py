@@ -132,6 +132,14 @@ def libvirt_compute_lock(compute, timeout=15.0, *, shared=False):
 
 
 @contextmanager
+def user_quota_lock(user, timeout=15.0):
+    """One user's quota check and the change it allows run one at a time, on every compute.
+    Take it before any compute or VM lock."""
+    with _libvirt_lock(("quota", user.pk), f"quota_user_{user.pk}.lock", timeout):
+        yield
+
+
+@contextmanager
 def libvirt_instance_lock(instance, timeout=15.0):
     """Serialize one VM and share the compute barrier with other VM operations."""
     with libvirt_compute_lock(instance.compute, timeout, shared=True):

@@ -16,7 +16,7 @@ from admin.decorators import superuser_only
 from appsettings.models import AppSettings
 from appsettings.settings import app_settings
 from computes.models import Compute
-from computes.utils import libvirt_compute_lock, libvirt_instance_lock
+from computes.utils import libvirt_compute_lock, libvirt_instance_lock, user_quota_lock
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import permission_required
@@ -406,6 +406,22 @@ def serialize_instance_mutation(func):
     return wrapper
 
 
+def serialize_user_quota(func):
+    """Outermost lock for quota-checked changes: concurrent requests of one
+    user (also on different computes) must not pass the check together."""
+    @functools.wraps(func)
+    def wrapper(request, pk, *args, **kwargs):
+        if request.user.is_superuser:  # quotas do not apply
+            return func(request, pk, *args, **kwargs)
+        try:
+            with user_quota_lock(request.user):
+                return func(request, pk, *args, **kwargs)
+        except TimeoutError:
+            return _busy(request, pk)
+
+    return wrapper
+
+
 def serialize_compute_mutation(func):
     """Hold the whole compute: disk deletions must not race another VM attaching that disk."""
     @functools.wraps(func)
@@ -738,6 +754,7 @@ def add_public_key(request, pk):
 
 
 @require_POST
+@serialize_user_quota
 @serialize_instance_mutation
 def resizevm_cpu(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
@@ -773,6 +790,7 @@ def resizevm_cpu(request, pk):
 
 
 @require_POST
+@serialize_user_quota
 @serialize_instance_mutation
 def resize_memory(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
@@ -817,6 +835,7 @@ def resize_memory(request, pk):
 
 
 @require_POST
+@serialize_user_quota
 @serialize_instance_mutation
 def resize_disk(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
@@ -1690,6 +1709,7 @@ CLONE_POST_KEY_RE = re.compile(r"^(clone-net-mac-\d+|disk-[a-z0-9]+|meta-[a-z0-9
 
 @require_POST
 @permission_required("instances.clone_instances", raise_exception=True)
+@serialize_user_quota
 def clone(request, pk):
     # Cloning copies the source disks, so it needs change permission on the
     # source VM. Templates are meant to be deployed from, so viewing is enough.
