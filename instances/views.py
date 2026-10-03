@@ -317,6 +317,16 @@ def sshkeys(request, pk):
     return JsonResponse(instance_keys, safe=False)
 
 
+def _same_origin_referer(request, default):
+    """The Referer without its fragment if it is on this site, else default."""
+    referer = request.META.get("HTTP_REFERER")
+    if referer and url_has_allowed_host_and_scheme(
+        url=referer, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return referer.split("#")[0]
+    return default
+
+
 def get_safe_redirect(request, default=None):
     referer = request.META.get("HTTP_REFERER")
     if referer and url_has_allowed_host_and_scheme(
@@ -1441,34 +1451,52 @@ def set_video_model(request, pk):
 @serialize_instance_mutation
 def change_network(request, pk):
     instance = get_instance(request.user, pk)
+    back = _same_origin_referer(request, reverse("instances:instance", args=[pk])) + "#network"
 
-    msg = _("Change network")
-    network_data = {}
+    # Each NIC has its own form; its fields end with that NIC's index.
+    nums = [key[len("net-old-mac-"):] for key in request.POST if key.startswith("net-old-mac-")]
+    if len(nums) != 1:
+        messages.error(request, _("Select one network interface to change"))
+        return redirect(back)
+    num = nums[0]
+    old_mac = request.POST[f"net-old-mac-{num}"]
+    mac = request.POST.get(f"net-mac-{num}", "").strip() or old_mac
+    try:
+        util.validate_macaddr(mac)
+    except ValueError as err:
+        messages.error(request, err)
+        return redirect(back)
 
-    for post in request.POST:
-        if post.startswith("net-source-"):
-            (source, source_type) = utils.get_network_tuple(request.POST.get(post))
-            network_data[post] = source
-            network_data[post + "-type"] = source_type
+    (source, source_type) = utils.get_network_tuple(request.POST.get(f"net-source-{num}", ""))
+    if source_type == "iface":
+        iface = wvmInterface(
+            instance.compute.hostname,
+            instance.compute.login,
+            instance.compute.password,
+            instance.compute.type,
+            source,
+        )
+        source_type = iface.get_type()
 
-            if source_type == "iface":
-                iface = wvmInterface(
-                    instance.compute.hostname,
-                    instance.compute.login,
-                    instance.compute.password,
-                    instance.compute.type,
-                    source,
-                )
-                network_data[post + "-type"] = iface.get_type()
-        elif post.startswith("net-"):
-            network_data[post] = request.POST.get(post, "")
+    try:
+        instance.proxy.change_network(
+            old_mac,
+            mac,
+            source,
+            source_type,
+            request.POST.get(f"net-model-{num}"),
+            request.POST.get(f"net-nwfilter-{num}", ""),
+        )
+    except libvirtError as err:
+        messages.error(request, err)
+        return redirect(back)
 
-    instance.proxy.change_network(network_data)
+    msg = _("Change network: %(mac)s") % {"mac": old_mac}
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     msg = _("Network Device Config is changed. Please shutdown instance to activate.")
     if instance.proxy.get_status() != 5:
         messages.success(request, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#network")
+    return redirect(back)
 
 
 @require_POST

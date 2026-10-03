@@ -1707,27 +1707,20 @@ class wvmInstance(wvmConnect):
                 return new_xml
         return None
 
-    def change_network(self, network_data):
-        net_mac = network_data.get("net-mac-0")
-        net_source = network_data.get("net-source-0")
-        net_source_type = network_data.get("net-source-0-type")
-        net_filter = network_data.get("net-nwfilter-0")
-        net_model = network_data.get("net-model-0")
-
-        # Remove interface first, but keep network interface XML definition
-        # If there is an error happened while adding changed one, then add removed one to back.
-        status = self.delete_network(net_mac)
+    def change_network(self, old_mac, mac, source, source_type, model, nwfilter):
+        """Replace the NIC with old_mac; put it back if the new one cannot be added."""
+        old_xml = self.delete_network(old_mac)
+        if old_xml is None:
+            raise libvirtError(f"No network interface with MAC {old_mac}")
         try:
-            self.add_network(
-                net_mac, net_source, net_source_type, net_model, net_filter
-            )
+            self.add_network(mac, source, source_type, model, nwfilter)
         except libvirtError:
-            if status is not None:
-                if self.get_status() == 1:
-                    self.instance.attachDeviceFlags(status, VIR_DOMAIN_AFFECT_LIVE)
-                    self.instance.attachDeviceFlags(status, VIR_DOMAIN_AFFECT_CONFIG)
-                if self.get_status() == 5:
-                    self.instance.attachDeviceFlags(status, VIR_DOMAIN_AFFECT_CONFIG)
+            if self.get_status() == 1:
+                self.instance.attachDeviceFlags(old_xml, VIR_DOMAIN_AFFECT_LIVE)
+                self.instance.attachDeviceFlags(old_xml, VIR_DOMAIN_AFFECT_CONFIG)
+            if self.get_status() == 5:
+                self.instance.attachDeviceFlags(old_xml, VIR_DOMAIN_AFFECT_CONFIG)
+            raise
 
     def change_network_oldway(self, network_data):
         """
