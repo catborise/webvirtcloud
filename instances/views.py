@@ -30,6 +30,8 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_noop as _
 from django.views.decorators.http import require_POST
 from libvirt import (VIR_DOMAIN_UNDEFINE_KEEP_NVRAM,
+                     VIR_DOMAIN_UNDEFINE_MANAGED_SAVE,
+                     VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA,
                      VIR_DOMAIN_UNDEFINE_NVRAM,
                      VIR_DOMAIN_START_PAUSED,
                      libvirtError)
@@ -420,6 +422,22 @@ def serialize_user_quota(func):
     return wrapper
 
 
+def serialize_compute_mutation(func):
+    """Hold the whole compute: disk deletions must not race another VM attaching that disk."""
+    @functools.wraps(func)
+    def wrapper(request, pk, *args, **kwargs):
+        inst = get_instance(request.user, pk)
+        if request.method in ("GET", "HEAD"):  # e.g. the destroy confirmation page
+            return func(request, pk, *args, **kwargs)
+        try:
+            with libvirt_compute_lock(inst.compute):
+                return func(request, pk, *args, **kwargs)
+        except TimeoutError:
+            return _busy(request, pk)
+
+    return wrapper
+
+
 DISK_FORMAT_RE = re.compile(r"^[a-z0-9]+$")
 DISK_SERIAL_RE = re.compile(r"^[A-Za-z0-9_.+-]*$")
 VOLUME_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]*$")
@@ -550,28 +568,39 @@ def force_off(request, pk):
     )
 
 
-@serialize_instance_mutation
+@serialize_compute_mutation
 def destroy(request, pk):
     if request.method in ["POST", "DELETE"]:
         instance = get_instance(request.user, pk, perm_type="delete")
         with libvirt_instance_lock(instance):
-            if instance.proxy.get_status() == 1:
-                instance.proxy.force_shutdown()
+            proxy = instance.proxy
+            # Paused and other active states must stop too, or the VM keeps
+            # running as a transient domain after the undefine.
+            if proxy.instance.isActive():
+                proxy.force_shutdown()
 
+            to_delete, shared = [], []
             if request.POST.get("delete_disk", ""):
-                snapshots = sorted(
-                    instance.proxy.get_snapshot(), reverse=True, key=lambda k: k["date"]
-                )
-                for snapshot in snapshots:
-                    instance.proxy.snapshot_delete(snapshot["name"])
-                instance.proxy.delete_all_disks()
+                to_delete, shared = proxy.split_disk_paths_by_use()
 
+            # Undefine before deleting any disk: if it fails, nothing is lost.
+            # Snapshot metadata goes with the domain; internal snapshot data
+            # stays in the disk images that are kept.
+            flags = VIR_DOMAIN_UNDEFINE_MANAGED_SAVE | VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA
             if request.POST.get("delete_nvram", ""):
-                instance.proxy.delete(VIR_DOMAIN_UNDEFINE_NVRAM)
+                flags |= VIR_DOMAIN_UNDEFINE_NVRAM
             else:
-                instance.proxy.delete(VIR_DOMAIN_UNDEFINE_KEEP_NVRAM)
-
+                flags |= VIR_DOMAIN_UNDEFINE_KEEP_NVRAM
+            proxy.delete(flags)
             instance.delete()
+
+            for path in to_delete:
+                try:
+                    proxy.get_volume_by_path(path).delete(0)
+                except libvirtError as err:
+                    messages.error(request, _("Disk %(path)s was not deleted: %(err)s") % {"path": path, "err": err})
+            for path in shared:
+                messages.warning(request, _("Disk %(path)s is used by another VM and was kept") % {"path": path})
         addlogmsg(
             request.user.username, instance.compute.name, instance.name, _("Destroy")
         )
@@ -1058,7 +1087,7 @@ def edit_volume(request, pk):
 
 @require_POST
 @superuser_only
-@serialize_instance_mutation
+@serialize_compute_mutation
 def delete_vol(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
     dev = request.POST.get("dev", "")
@@ -1081,8 +1110,24 @@ def delete_vol(request, pk):
         disk["storage"],
     )
 
+    if disk["path"] in instance.proxy.paths_used_by_other_domains():
+        messages.error(
+            request,
+            _("Volume %(vol)s is used by another VM; detach it instead") % {"vol": disk["image"]},
+        )
+        return redirect(request.META.get("HTTP_REFERER") + "#disks")
+
     msg = _("Delete disk: %(dev)s") % {"dev": dev}
     instance.proxy.detach_disk(dev)
+    # Never delete a volume the guest may still be writing to.
+    if not instance.proxy.wait_disk_detached(dev):
+        messages.warning(
+            request,
+            _("The guest has not released disk %(dev)s yet; volume %(vol)s was kept. "
+              "Delete it from the storage pool once the VM is shut down.")
+            % {"dev": dev, "vol": disk["image"]},
+        )
+        return redirect(request.META.get("HTTP_REFERER") + "#disks")
     conn_delete.del_volume(disk["image"])
 
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
