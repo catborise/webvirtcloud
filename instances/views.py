@@ -1771,7 +1771,9 @@ def clone(request, pk):
         messages.error(request, msg)
     else:
         try:
-            with libvirt_instance_lock(instance):
+            # The whole compute: the destination name and disk names must not be
+            # taken by a concurrent clone of another VM while volumes are copied.
+            with libvirt_compute_lock(instance.compute):
                 new_uuid = instance.proxy.clone_instance(clone_data)
                 new_instance = Instance.objects.get_or_create(
                     compute=instance.compute,
