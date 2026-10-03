@@ -2,10 +2,12 @@ from admin.permissions import IsSuperUser
 from appsettings.settings import app_settings
 from computes.models import Compute
 from django.shortcuts import get_object_or_404
-from rest_framework import status, viewsets
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from vrtManager.storage import wvmStorage, wvmStorages
+from webvirtcloud.serializers import StatusSerializer
 
 from .serializers import StorageSerializer, StoragesSerializer, VolumeSerializer
 
@@ -16,6 +18,8 @@ class StorageViewSet(viewsets.ViewSet):
     """
 
     permission_classes = [IsSuperUser]
+    serializer_class = StoragesSerializer
+    lookup_value_converter = "str"
 
     def list(self, request, compute_pk=None):
 
@@ -32,6 +36,7 @@ class StorageViewSet(viewsets.ViewSet):
 
         return Response(serializer.data)
 
+    @extend_schema(responses=StorageSerializer)
     def retrieve(self, request, pk=None, compute_pk=None):
         compute = get_object_or_404(Compute, pk=compute_pk)
 
@@ -55,6 +60,7 @@ class StorageViewSet(viewsets.ViewSet):
         )
         return Response(serializer.data)
 
+    @extend_schema(request=None, responses=StatusSerializer)
     @action(detail=True, methods=["post"])
     def start(self, request, pk=None, compute_pk=None):
         compute = get_object_or_404(Compute, pk=compute_pk)
@@ -66,6 +72,7 @@ class StorageViewSet(viewsets.ViewSet):
         conn.close()
         return Response({"status": "Pool start command send: " + str(ret)})
 
+    @extend_schema(request=None, responses=StatusSerializer)
     @action(detail=True, methods=["post"])
     def stop(self, request, pk=None, compute_pk=None):
         compute = get_object_or_404(Compute, pk=compute_pk)
@@ -77,6 +84,7 @@ class StorageViewSet(viewsets.ViewSet):
         conn.close()
         return Response({"status": "Pool stop command send: " + str(ret)})
 
+    @extend_schema(request=None, responses=StatusSerializer)
     @action(detail=True, methods=["post"])
     def refresh(self, request, pk=None, compute_pk=None):
         compute = get_object_or_404(Compute, pk=compute_pk)
@@ -88,6 +96,10 @@ class StorageViewSet(viewsets.ViewSet):
         conn.close()
         return Response({"status": "Pool refresh command send: " + str(ret)})
 
+    @extend_schema(
+        request=None,
+        responses=inline_serializer("PoolXML", {"return": serializers.CharField()}),
+    )
     @action(detail=True, methods=["post"])
     def XML_description(self, request, pk=None, compute_pk=None):
         compute = get_object_or_404(Compute, pk=compute_pk)
@@ -108,7 +120,7 @@ class VolumeViewSet(viewsets.ViewSet):
 
     permission_classes = [IsSuperUser]
     serializer_class = VolumeSerializer
-    lookup_value_regex = "[^/]+"
+    lookup_value_converter = "str"
 
     def list(self, request, storage_pk=None, compute_pk=None):
 
@@ -147,6 +159,7 @@ class VolumeViewSet(viewsets.ViewSet):
 
         return Response(serializer.data)
 
+    @extend_schema(responses=StatusSerializer)
     def create(self, request, storage_pk=None, compute_pk=None):
         compute = get_object_or_404(Compute, pk=compute_pk)
 
@@ -174,6 +187,7 @@ class VolumeViewSet(viewsets.ViewSet):
         else:
             return Response({"status": "Data is not right for create volume"})
 
+    @extend_schema(responses=StatusSerializer)
     def destroy(self, request, storage_pk=None, compute_pk=None, pk=None):
         compute = get_object_or_404(Compute, pk=compute_pk)
 

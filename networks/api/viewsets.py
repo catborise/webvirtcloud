@@ -14,6 +14,7 @@ class NetworkViewSet(viewsets.ViewSet):
     """
 
     permission_classes = [IsSuperUser]
+    serializer_class = NetworksSerializer
 
     def list(self, request, compute_pk=None):
 

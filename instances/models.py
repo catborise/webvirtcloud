@@ -51,51 +51,51 @@ class Instance(models.Model):
         )
 
     @cached_property
-    def media(self):
+    def media(self) -> list[dict]:
         return self.proxy.get_media_devices()
 
     @cached_property
-    def media_iso(self):
+    def media_iso(self) -> list[str]:
         return sorted(self.proxy.get_iso_media())
 
     @cached_property
-    def disks(self):
+    def disks(self) -> list[dict]:
         return self.proxy.get_disk_devices()
 
     @cached_property
-    def status(self):
+    def status(self) -> int:
         return self.proxy.get_status()
 
     @cached_property
-    def autostart(self):
+    def autostart(self) -> int:
         return self.proxy.get_autostart()
 
     @cached_property
-    def bootmenu(self):
+    def bootmenu(self) -> bool:
         return self.proxy.get_bootmenu()
 
     @cached_property
-    def boot_order(self):
+    def boot_order(self) -> dict:
         return self.proxy.get_bootorder()
 
     @cached_property
-    def arch(self):
+    def arch(self) -> str:
         return self.proxy.get_arch()
 
     @cached_property
-    def machine(self):
+    def machine(self) -> str:
         return self.proxy.get_machine_type()
 
     @cached_property
-    def firmware(self):
+    def firmware(self) -> dict:
         return self.proxy.get_loader()
 
     @cached_property
-    def nvram(self):
+    def nvram(self) -> str | None:
         return self.proxy.get_nvram()
 
     @cached_property
-    def vcpu(self):
+    def vcpu(self) -> int:
         return self.proxy.get_vcpu()
 
     @cached_property
@@ -115,7 +115,7 @@ class Instance(models.Model):
         return self.proxy.get_uuid()
 
     @cached_property
-    def memory(self):
+    def memory(self) -> int:
         return self.proxy.get_memory()
 
     @cached_property
@@ -123,15 +123,15 @@ class Instance(models.Model):
         return self.proxy.get_cur_memory()
 
     @cached_property
-    def title(self):
+    def title(self) -> str:
         return self.proxy.get_title()
 
     @cached_property
-    def description(self):
+    def description(self) -> str:
         return self.proxy.get_description()
 
     @cached_property
-    def networks(self):
+    def networks(self) -> list[dict]:
         return self.proxy.get_net_devices()
 
     @cached_property
@@ -143,19 +143,19 @@ class Instance(models.Model):
         return self.proxy.get_telnet_port()
 
     @cached_property
-    def console_type(self):
+    def console_type(self) -> str | None:
         return self.proxy.get_console_type()
 
     @cached_property
-    def console_port(self):
+    def console_port(self) -> str | None:
         return self.proxy.get_console_port()
 
     @cached_property
-    def console_keymap(self):
+    def console_keymap(self) -> str:
         return self.proxy.get_console_keymap()
 
     @cached_property
-    def console_listener_address(self):
+    def console_listener_address(self) -> str:
         return self.proxy.get_console_listener_addr()
 
     @cached_property
@@ -163,11 +163,11 @@ class Instance(models.Model):
         return False if self.proxy.get_guest_agent() is None else True
 
     @cached_property
-    def guest_agent_ready(self):
+    def guest_agent_ready(self) -> bool:
         return self.proxy.is_agent_ready()
 
     @cached_property
-    def video_model(self):
+    def video_model(self) -> str | None:
         return self.proxy.get_video_model()
 
     @cached_property
@@ -175,7 +175,7 @@ class Instance(models.Model):
         return self.proxy.get_video_models(self.arch, self.machine)
 
     @cached_property
-    def snapshots(self):
+    def snapshots(self) -> list[dict]:
         return sorted(self.proxy.get_snapshot(), reverse=True, key=lambda k: k["date"])
 
     @cached_property
