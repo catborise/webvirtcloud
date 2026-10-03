@@ -20,7 +20,7 @@ from accounts.apps import admin_password_path
 from instances.models import Instance
 
 from accounts.forms import EmailOTPForm, ProfileForm, UserSSHKeyForm
-from accounts.models import *
+from accounts.models import User, UserAttributes, UserInstance, UserSSHKey
 
 from . import forms
 from .utils import get_user_totp_device, send_email_with_otp

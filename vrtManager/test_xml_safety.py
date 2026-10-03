@@ -290,7 +290,6 @@ class TestPersistentDiskEditing(unittest.TestCase):
         )
 
     def test_running_bus_change_preserves_disk_and_pending_domain_configuration(self):
-        from lxml import etree
         self.assertTrue(self.domain.isActive())
         live_before = self.domain.XMLDesc(0)
         self.edit(bus="sata")

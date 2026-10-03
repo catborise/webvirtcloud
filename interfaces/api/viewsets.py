@@ -1,7 +1,7 @@
 from admin.permissions import IsSuperUser
 from django.shortcuts import get_object_or_404
 from computes.models import Compute
-from rest_framework import status, viewsets
+from rest_framework import viewsets
 from rest_framework.response import Response
 from vrtManager.interface import wvmInterfaces, wvmInterface
 

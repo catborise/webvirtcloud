@@ -271,7 +271,7 @@ class InstanceSecurityMutationsTestCase(TestCase):
 
         with patch("instances.utils.connection_manager.host_is_up", return_value=True), \
              patch("instances.utils.wvmInstances") as mock_instances_cls, \
-             patch("instances.utils.wvmInstance") as mock_instance_cls, \
+             patch("instances.utils.wvmInstance"), \
              patch("instances.utils.transaction.atomic"), \
              patch("instances.utils.Instance") as mock_instance_model:
 

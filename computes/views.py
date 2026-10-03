@@ -8,10 +8,6 @@ from django.utils import timezone
 from instances.models import Instance
 from libvirt import libvirtError
 from vrtManager.connection import (
-    CONN_SOCKET,
-    CONN_SSH,
-    CONN_TCP,
-    CONN_TLS,
     connection_manager,
     wvmConnect,
 )
