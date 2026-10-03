@@ -658,11 +658,14 @@ def handle_uploaded_file(
                     "file_name": clean_name, "total_chunks": total_chunks,
                     "expected_chunk": 0, "current_size": 0,
                     "created_at": time.time(), "user_id": user_id,
-                    "compute_id": compute_id, "pool": pool,
+                    "compute_id": compute_id, "pool": pool, "upload_id": upload_id,
                 }
+                # Record ownership before creating the part file, so an interrupted
+                # first write can be retried without adopting an unrelated file.
+                target.write_meta(meta)
             else:
                 _matches_session(meta, clean_name, total_chunks, user_id, compute_id, pool)
-                if target.info(target.part) is None:
+                if meta["expected_chunk"] > 0 and target.info(target.part) is None:
                     raise ValueError(_("Upload session not found or expired"))
 
             expected = meta["expected_chunk"]
@@ -679,7 +682,9 @@ def handle_uploaded_file(
                     % {"exp": expected, "got": chunk_index}
                 )
 
-            meta["current_size"] = target.write_chunk(file_chunk, meta["current_size"], new=expected == 0)
+            meta["current_size"] = target.write_chunk(
+                file_chunk, meta["current_size"], new=target.info(target.part) is None
+            )
             meta["expected_chunk"] = expected + 1
             meta["updated_at"] = time.time()
             target.write_meta(meta)
