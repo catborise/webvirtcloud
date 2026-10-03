@@ -1748,11 +1748,11 @@ def clone(request, pk):
             clone_data[disk_dev] = disk_name
 
     if not request.user.is_superuser:
-        for disk in instance.disks:
+        for disk in instance.config_disks:
             clone_data[f"disk-{disk['dev']}"] = utils.get_clone_disk_name(
                 disk, instance.name, clone_data["name"]
             )
-        for num in range(max(1, len(instance.networks))):
+        for num in range(max(1, len(instance.config_networks))):
             key = f"clone-net-mac-{num}"
             if not clone_data.get(key):
                 clone_data[key] = (

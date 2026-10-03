@@ -42,5 +42,41 @@ class PersistentEditsTestCase(unittest.TestCase):
                 self.assertIn("secret", str(defined))
 
 
+class XmlFidelityTestCase(unittest.TestCase):
+    def test_edits_keep_metadata_namespace_prefixes(self):
+        xml = (
+            "<domain><metadata><app:info xmlns:app='http://example.com/x'>v</app:info></metadata>"
+            "<os><type>hvm</type></os><devices><graphics type='vnc'><listen type='address'/></graphics>"
+            "<disk type='file' device='disk'><target dev='vda'/></disk></devices></domain>"
+        )
+        edits = {
+            "set_bootmenu": lambda vm: vm.set_bootmenu(1),
+            "set_bootorder": lambda vm: vm.set_bootorder({0: {"type": "disk", "dev": "vda"}}),
+            "set_console_keymap": lambda vm: vm.set_console_keymap("de"),
+            "set_console_passwd": lambda vm: vm.set_console_passwd("x"),
+            "set_console_listener_addr": lambda vm: vm.set_console_listener_addr("127.0.0.1"),
+        }
+        for name, edit in edits.items():
+            with self.subTest(name):
+                vm = wvmInstance.__new__(wvmInstance)
+                vm.wvm = MagicMock()
+                vm._XMLDesc = MagicMock(return_value=xml)
+                edit(vm)
+                self.assertIn("<app:info", vm.wvm.defineXML.call_args[0][0])
+
+    def test_paused_vm_gets_nic_changes_live_and_persistent(self):
+        from libvirt import VIR_DOMAIN_AFFECT_CONFIG, VIR_DOMAIN_AFFECT_LIVE
+
+        vm = wvmInstance.__new__(wvmInstance)
+        vm.instance = MagicMock()
+        vm.instance.isActive.return_value = True
+        vm.get_status = MagicMock(return_value=3)  # paused
+        vm.add_network("52:54:00:00:00:09", "default", "net", "virtio")
+        self.assertEqual(
+            [c.args[1] for c in vm.instance.attachDeviceFlags.call_args_list],
+            [VIR_DOMAIN_AFFECT_LIVE, VIR_DOMAIN_AFFECT_CONFIG],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

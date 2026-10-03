@@ -136,6 +136,21 @@ class Instance(models.Model):
         return self.proxy.get_net_devices()
 
     @cached_property
+    def config_networks(self) -> list[dict]:
+        """NICs of the persistent definition, which the edit and clone forms
+        change; target is the running VM's device name, if any."""
+        live_targets = {net["mac"]: net.get("target", "") for net in self.networks}
+        networks = self.proxy.get_net_devices(config=True)
+        for net in networks:
+            net["target"] = live_targets.get(net["mac"], "")
+        return networks
+
+    @cached_property
+    def config_disks(self) -> list[dict]:
+        """Disks of the persistent definition, which a clone copies."""
+        return self.proxy.get_disk_devices(config=True)
+
+    @cached_property
     def qos(self):
         return self.proxy.get_all_qos()
 

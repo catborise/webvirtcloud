@@ -413,7 +413,7 @@ class wvmInstance(wvmConnect):
         arp_flag = 3  # libvirt."VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_ARP"
         self._ip_cache["arp"] = self._get_interface_addresses(arp_flag)
 
-    def get_net_devices(self):
+    def get_net_devices(self, config=False):
         def networks(ctx):
             result = []
             inbound = outbound = []
@@ -460,7 +460,7 @@ class wvmInstance(wvmConnect):
                 )
             return result
 
-        return util.get_xml_path(self._XMLDesc(0), func=networks)
+        return util.get_xml_path(self._XMLDesc(PERSISTENT_XML if config else 0), func=networks)
 
     def get_disk_devices(self, config=False):
         def disks(doc):
@@ -592,12 +592,12 @@ class wvmInstance(wvmConnect):
         return menu == "yes"
 
     def set_bootmenu(self, flag):
-        tree = ElementTree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
         os = tree.find("os")
         menu = os.find("bootmenu")
 
         if menu is None:
-            bootmenu = ElementTree.fromstring("<bootmenu enable='yes'/>")
+            bootmenu = etree.fromstring("<bootmenu enable='yes'/>")
             os.append(bootmenu)
             menu = os.find("bootmenu")
 
@@ -612,7 +612,7 @@ class wvmInstance(wvmConnect):
                 "Unknown boot menu option, please choose one of 0:disable, 1:enable, -1:remove"
             )
 
-        xmldom = ElementTree.tostring(tree).decode()
+        xmldom = etree.tostring(tree).decode()
         self._defineXML(xmldom)
 
     def get_bootorder(self):
@@ -668,7 +668,7 @@ class wvmInstance(wvmConnect):
             return
 
         def remove_bootorder():
-            tree = ElementTree.fromstring(self._XMLDesc(PERSISTENT_XML))
+            tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
             os = tree.find("os")
             boot = os.findall("boot")
             # Remove old style boot order
@@ -684,7 +684,7 @@ class wvmInstance(wvmConnect):
         tree = remove_bootorder()
 
         for idx, dev in devorder.items():
-            order = ElementTree.fromstring("<boot order='{}'/>".format(idx + 1))
+            order = etree.fromstring("<boot order='{}'/>".format(idx + 1))
             if dev["type"] == "disk":
                 devices = tree.findall("./devices/disk[@device='disk']")
                 for d in devices:
@@ -705,7 +705,7 @@ class wvmInstance(wvmConnect):
                         d.append(order)
             else:
                 raise Exception("Invalid Device Type for boot order")
-        self._defineXML(ElementTree.tostring(tree).decode())
+        self._defineXML(etree.tostring(tree).decode())
 
     def _set_cdrom_media(self, dev, path):
         """Insert path into, or with None eject, CD-ROM dev.
@@ -1096,7 +1096,7 @@ class wvmInstance(wvmConnect):
         return listener_addr
 
     def set_console_listener_addr(self, listener_addr):
-        root = ElementTree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        root = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
         # The console is the first graphics device of the definition being
         # edited; the running VM may still have another type.
         graphic = root.find("devices/graphics")
@@ -1113,7 +1113,7 @@ class wvmInstance(wvmConnect):
                 graphic.attrib.pop("listen")
                 listen.attrib.pop("address")
 
-        newxml = ElementTree.tostring(root).decode()
+        newxml = etree.tostring(root).decode()
         return self._defineXML(newxml)
 
     def get_console_socket(self):
@@ -1153,7 +1153,7 @@ class wvmInstance(wvmConnect):
         )
 
     def set_console_passwd(self, passwd):
-        root = ElementTree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        root = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
         graphic = root.find("devices/graphics")
         if graphic is None:
             return False
@@ -1163,11 +1163,11 @@ class wvmInstance(wvmConnect):
             with contextlib.suppress(Exception):
                 graphic.attrib.pop("passwd")
 
-        newxml = ElementTree.tostring(root).decode()
+        newxml = etree.tostring(root).decode()
         return self._defineXML(newxml)
 
     def set_console_keymap(self, keymap):
-        root = ElementTree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        root = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
         graphic = root.find("devices/graphics")
         if graphic is None:
             return False
@@ -1177,7 +1177,7 @@ class wvmInstance(wvmConnect):
             with contextlib.suppress(Exception):
                 graphic.attrib.pop("keymap")
 
-        newxml = ElementTree.tostring(root).decode()
+        newxml = etree.tostring(root).decode()
         self._defineXML(newxml)
 
     def get_console_keymap(self):
@@ -1674,41 +1674,67 @@ class wvmInstance(wvmConnect):
             etree.SubElement(iface, "filterref", filter=nwfilter)
         xml_iface = etree.tostring(iface).decode()
 
-        if self.get_status() == 1:
+        if self.instance.isActive():  # running or paused
             self.instance.attachDeviceFlags(xml_iface, VIR_DOMAIN_AFFECT_LIVE)
-            self.instance.attachDeviceFlags(xml_iface, VIR_DOMAIN_AFFECT_CONFIG)
-        if self.get_status() == 5:
-            self.instance.attachDeviceFlags(xml_iface, VIR_DOMAIN_AFFECT_CONFIG)
+        self.instance.attachDeviceFlags(xml_iface, VIR_DOMAIN_AFFECT_CONFIG)
+
+    def _definitions(self):
+        """(XMLDesc flags, affect flag) of the definitions a device edit applies to:
+        the running one when the VM is active (running or paused), and the
+        persistent one. Each is edited from its own XML."""
+        definitions = [(PERSISTENT_XML, VIR_DOMAIN_AFFECT_CONFIG)]
+        if self.instance.isActive():
+            definitions.insert(0, (VIR_DOMAIN_XML_SECURE, VIR_DOMAIN_AFFECT_LIVE))
+        return definitions
+
+    def _nic(self, xml_flags, mac_address):
+        found = etree.fromstring(self._XMLDesc(xml_flags)).xpath(
+            "./devices/interface[mac/@address=$mac]", mac=mac_address
+        )
+        return found[0] if found else None
 
     def delete_network(self, mac_address):
-        tree = ElementTree.fromstring(self._XMLDesc(0))
-        for interface in tree.findall("devices/interface"):
-            source = interface.find("mac")
-            if source.get("address", "") == mac_address:
-                new_xml = ElementTree.tostring(interface).decode()
-
-                if self.get_status() == 1:
-                    self.instance.detachDeviceFlags(new_xml, VIR_DOMAIN_AFFECT_LIVE)
-                    self.instance.detachDeviceFlags(new_xml, VIR_DOMAIN_AFFECT_CONFIG)
-                if self.get_status() == 5:
-                    self.instance.detachDeviceFlags(new_xml, VIR_DOMAIN_AFFECT_CONFIG)
-                return new_xml
-        return None
+        """Detach the NIC; returns its persistent XML, or None if there is none."""
+        removed = None
+        for xml_flags, affect in self._definitions():
+            nic = self._nic(xml_flags, mac_address)
+            if nic is not None:
+                removed = etree.tostring(nic).decode()
+                self.instance.detachDeviceFlags(removed, affect)
+        return removed
 
     def change_network(self, old_mac, mac, source, source_type, model, nwfilter):
-        """Replace the NIC with old_mac; put it back if the new one cannot be added."""
-        old_xml = self.delete_network(old_mac)
-        if old_xml is None:
+        """Edit the NIC with old_mac in the persistent definition, in place.
+
+        Settings this form does not edit (QoS, link state, driver, PCI address)
+        stay. A running VM gets the change at its next start.
+        """
+        tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        found = tree.xpath("./devices/interface[mac/@address=$mac]", mac=old_mac)
+        if not found:
             raise util.OperationError(f"No network interface with MAC {old_mac}")
-        try:
-            self.add_network(mac, source, source_type, model, nwfilter)
-        except libvirtError:
-            if self.get_status() == 1:
-                self.instance.attachDeviceFlags(old_xml, VIR_DOMAIN_AFFECT_LIVE)
-                self.instance.attachDeviceFlags(old_xml, VIR_DOMAIN_AFFECT_CONFIG)
-            if self.get_status() == 5:
-                self.instance.attachDeviceFlags(old_xml, VIR_DOMAIN_AFFECT_CONFIG)
-            raise
+        iface = found[0]
+
+        iface_type = {"net": "network", "bridge": "bridge"}.get(source_type, "direct")
+        iface.set("type", iface_type)
+        for old_source in iface.findall("source"):
+            iface.remove(old_source)
+        source_attrs = {"network": {"network": source}, "bridge": {"bridge": source}}.get(
+            iface_type, {"dev": source, "mode": "bridge"}
+        )
+        iface.insert(1, etree.Element("source", **source_attrs))
+
+        iface.find("mac").set("address", mac)
+        for old_model in iface.findall("model"):
+            iface.remove(old_model)
+        if model:
+            etree.SubElement(iface, "model", type=model)
+        for old_filter in iface.findall("filterref"):
+            iface.remove(old_filter)
+        if nwfilter:
+            etree.SubElement(iface, "filterref", filter=nwfilter)
+
+        self._defineXML(etree.tostring(tree).decode())
 
     def change_network_oldway(self, network_data):
         """
@@ -1768,22 +1794,14 @@ class wvmInstance(wvmConnect):
         self._defineXML(new_xml)
 
     def set_link_state(self, mac_address, state):
-        tree = etree.fromstring(self._XMLDesc(0))
-        for interface in tree.findall("devices/interface"):
-            source = interface.find("mac")
-            if source.get("address") == mac_address:
-                link = interface.find("link")
-                if link is not None:
-                    interface.remove(link)
-                link_el = etree.Element("link")
-                link_el.attrib["state"] = state
-                interface.append(link_el)
-                new_xml = etree.tostring(interface).decode()
-                if self.get_status() == 1:
-                    self.instance.updateDeviceFlags(new_xml, VIR_DOMAIN_AFFECT_LIVE)
-                    self.instance.updateDeviceFlags(new_xml, VIR_DOMAIN_AFFECT_CONFIG)
-                if self.get_status() == 5:
-                    self.instance.updateDeviceFlags(new_xml, VIR_DOMAIN_AFFECT_CONFIG)
+        for xml_flags, affect in self._definitions():
+            nic = self._nic(xml_flags, mac_address)
+            if nic is None:
+                continue
+            for link in nic.findall("link"):
+                nic.remove(link)
+            etree.SubElement(nic, "link", state=state)
+            self.instance.updateDeviceFlags(etree.tostring(nic).decode(), affect)
 
     def _set_options(self, tree, options):
         for o in ["title", "description"]:
