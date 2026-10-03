@@ -56,9 +56,11 @@ jobs:
       - name: Run Django Migrations
         run: python manage.py migrate --noinput
 
-      # Includes the vrtManager tests
+      # Includes the vrtManager tests; fails below the coverage floor in pyproject.toml
       - name: Run Test Suite
-        run: python manage.py test
+        run: |
+          coverage run manage.py test
+          coverage report --skip-covered
 
       - name: Validate OpenAPI Schema
         run: python manage.py spectacular --validate --fail-on-warn --file /dev/null
