@@ -170,7 +170,7 @@ class ClonePermissionTestCase(TestCase):
 
     def test_non_superuser_clone_skips_disks_without_a_volume(self):
         empty_disk = {"dev": "vdb", "image": None, "storage": None, "path": None,
-                      "size": 0, "format": None}
+                      "size": None, "format": None}
         with self.mocked_libvirt() as proxy:
             proxy.get_disk_devices.return_value = [SRC_DISK, empty_disk]
             self._clone(self.owner_change, self._valid_post())

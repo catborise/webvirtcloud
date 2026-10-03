@@ -276,7 +276,7 @@ class ComputeConcurrencyTestCase(TransactionTestCase):
             return curr_time[0]
 
         with patch("fcntl.flock", side_effect=BlockingIOError("Resource temporarily unavailable")):
-            with patch("time.time", side_effect=advance_time):
+            with patch("time.monotonic", side_effect=advance_time):
                 refresh_instance_database(compute)
                 self.assertEqual(Instance.objects.filter(compute=compute).count(), 1)
 

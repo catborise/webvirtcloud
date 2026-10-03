@@ -33,6 +33,13 @@ from .serializers import (
 )
 
 
+def instance_action_response(action, request, pk, message):
+    response = action(request, pk)
+    if response.status_code >= 400:
+        return response
+    return Response({"status": message})
+
+
 class InstancesViewSet(viewsets.ViewSet):
     """
     A simple ViewSet for listing or retrieving ALL/Compute Instances.
@@ -117,8 +124,7 @@ class InstanceViewSet(viewsets.ViewSet):
         queryset = get_instance(request.user, pk, perm_type="delete")
         if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
             raise Http404()
-        instance_destroy(request, pk)
-        return Response({"status": "Instance is destroyed"})
+        return instance_action_response(instance_destroy, request, pk, "Instance is destroyed")
 
     @extend_schema(request=None, responses=StatusSerializer)
     @action(detail=True, methods=["post"])
@@ -126,8 +132,7 @@ class InstanceViewSet(viewsets.ViewSet):
         queryset = get_instance(request.user, pk, perm_type="power")
         if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
             raise Http404()
-        poweron(request, pk)
-        return Response({"status": "poweron command send"})
+        return instance_action_response(poweron, request, pk, "poweron command send")
 
     @extend_schema(request=None, responses=StatusSerializer)
     @action(detail=True, methods=["post"])
@@ -135,8 +140,7 @@ class InstanceViewSet(viewsets.ViewSet):
         queryset = get_instance(request.user, pk, perm_type="power")
         if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
             raise Http404()
-        poweroff(request, pk)
-        return Response({"status": "poweroff command send"})
+        return instance_action_response(poweroff, request, pk, "poweroff command send")
 
     @extend_schema(request=None, responses=StatusSerializer)
     @action(detail=True, methods=["post"])
@@ -144,8 +148,7 @@ class InstanceViewSet(viewsets.ViewSet):
         queryset = get_instance(request.user, pk, perm_type="power")
         if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
             raise Http404()
-        powercycle(request, pk)
-        return Response({"status": "powercycle command send"})
+        return instance_action_response(powercycle, request, pk, "powercycle command send")
 
     @extend_schema(request=None, responses=StatusSerializer)
     @action(detail=True, methods=["post"])
@@ -153,8 +156,7 @@ class InstanceViewSet(viewsets.ViewSet):
         queryset = get_instance(request.user, pk, perm_type="power")
         if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
             raise Http404()
-        force_off(request, pk)
-        return Response({"status": "force off command send"})
+        return instance_action_response(force_off, request, pk, "force off command send")
 
     @extend_schema(request=None, responses=StatusSerializer)
     @action(detail=True, methods=["post"])
@@ -162,8 +164,7 @@ class InstanceViewSet(viewsets.ViewSet):
         queryset = get_instance(request.user, pk)
         if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
             raise Http404()
-        suspend(request, pk)
-        return Response({"status": "suspend command send"})
+        return instance_action_response(suspend, request, pk, "suspend command send")
 
     @extend_schema(request=None, responses=StatusSerializer)
     @action(detail=True, methods=["post"])
@@ -171,8 +172,7 @@ class InstanceViewSet(viewsets.ViewSet):
         queryset = get_instance(request.user, pk)
         if compute_pk is not None and str(queryset.compute_id) != str(compute_pk):
             raise Http404()
-        resume(request, pk)
-        return Response({"status": "resume command send"})
+        return instance_action_response(resume, request, pk, "resume command send")
 
 
 class MigrateViewSet(viewsets.ViewSet):
