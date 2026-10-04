@@ -2,6 +2,7 @@ import socket
 
 from accounts.models import UserInstance, UserSSHKey
 from computes.models import Compute
+from django.contrib.auth.decorators import login_not_required
 from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
@@ -14,6 +15,11 @@ OS_VERSIONS = ["latest", ""]
 OS_UUID = "iid-dswebvirtcloud"
 
 
+# The cloud-init endpoints are fetched by booting VMs, which do not log in.
+# They expose only a hostname and the public SSH keys of a VM's owners.
+
+
+@login_not_required
 def os_index(request):
     """
     :param request:
@@ -23,6 +29,7 @@ def os_index(request):
     return HttpResponse(response)
 
 
+@login_not_required
 def os_metadata_json(request, version):
     """
     :param request:
@@ -40,6 +47,7 @@ def os_metadata_json(request, version):
         raise Http404(err)
 
 
+@login_not_required
 def os_userdata(request, version):
     """
     :param request:
@@ -52,12 +60,12 @@ def os_userdata(request, version):
         vname = hostname.split(".")[0]
 
         instance_keys = []
-        userinstances = UserInstance.objects.filter(instance__name=vname)
-
-        for ui in userinstances:
-            keys = UserSSHKey.objects.filter(user=ui.user)
-            for k in keys:
-                instance_keys.append(k.keypublic)
+        # VM names are not unique: with two VMs of this name, a user could put
+        # their key into the other VM by naming theirs the same. No keys then.
+        instances = list(Instance.objects.filter(name=vname)[:2])
+        if len(instances) == 1:
+            for ui in UserInstance.objects.filter(instance=instances[0]):
+                instance_keys += UserSSHKey.objects.filter(user=ui.user).values_list("keypublic", flat=True)
 
         return render(request, "user_data", locals())
     else:
@@ -85,7 +93,7 @@ def get_hostname_by_ip(ip):
     """
     try:
         addrs = socket.gethostbyaddr(ip)
-    except:
+    except OSError:  # no reverse DNS entry or an invalid address
         addrs = [ip]
     return addrs[0]
 
