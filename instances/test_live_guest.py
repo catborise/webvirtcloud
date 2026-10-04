@@ -88,6 +88,11 @@ class LiveGuestTestCase(TestCase):
 
     def boot(self, name, data_disk=False):
         """A running copy of the guest image; returns the domain and its Instance."""
+        dom, _ = self.define(name, data_disk)
+        return self.start(dom)
+
+    def define(self, name, data_disk=False):
+        """A stopped copy of the guest image; returns the domain and its Instance."""
         pool = self.conn.storagePoolLookupByName(livetest.POOL)
         root = pool.createXML(
             f"<volume><name>{P}{name}.qcow2</name><capacity unit='bytes'>{self.image_bytes}</capacity>"
@@ -97,10 +102,10 @@ class LiveGuestTestCase(TestCase):
         ).path()
         data = livetest.create_volume(self.conn, P + name + "-data") if data_disk else None
         disks = f"<disk type='file' device='disk'><driver name='qemu' type='qcow2'/><source file='{root}'/>" \
-                "<target dev='vda' bus='virtio'/></disk>"
+                "<target dev='vda' bus='virtio'/><serial>wvc-root</serial></disk>"
         if data:
             disks += f"<disk type='file' device='disk'><driver name='qemu' type='qcow2'/><source file='{data}'/>" \
-                     "<target dev='vdb' bus='virtio'/></disk>"
+                     "<target dev='vdb' bus='virtio'/><serial>wvc-data</serial></disk>"
         # No PCI controllers: libvirt then adds the root ports the devices need
         # plus one free port, which the NIC hotplug test uses. With explicit
         # controllers it adds no free port.
@@ -123,10 +128,17 @@ class LiveGuestTestCase(TestCase):
     <serial type='pty'/>
   </devices>
 </domain>""")
-        dom.create()
-        self.assertTrue(wait_for(lambda: self.agent(dom, "guest-ping") is not None, BOOT_TIMEOUT), "guest agent never answered")
         refr(self.compute)
         return dom, Instance.objects.get(compute=self.compute, uuid=dom.UUIDString())
+
+    def start(self, dom):
+        if not dom.isActive():
+            dom.create()
+        self.wait_agent(dom)
+        return dom, Instance.objects.get(compute=self.compute, uuid=dom.UUIDString())
+
+    def wait_agent(self, dom):
+        self.assertTrue(wait_for(lambda: self.agent(dom, "guest-ping") is not None, BOOT_TIMEOUT), "guest agent never answered")
 
     def agent(self, dom, command):
         try:
@@ -134,12 +146,56 @@ class LiveGuestTestCase(TestCase):
         except libvirt.libvirtError:
             return None
 
+    def guest_view(self, dom):
+        """Hardware as the guest agent reports it."""
+        blocks = self.agent(dom, "guest-get-memory-blocks") or []
+        block_size = (self.agent(dom, "guest-get-memory-block-info") or {}).get("size", 0)
+        disks = sorted(
+            # SATA disks report their serial as QEMU_HARDDISK_<serial>
+            ((d["address"].get("serial") or "").removeprefix("QEMU_HARDDISK_"), d["address"]["bus-type"])
+            for d in self.agent(dom, "guest-get-disks") or []
+            if not d["partition"] and "address" in d
+        )
+        # Emulated NICs have QEMU's 52:54: prefix; guest-made interfaces (docker0,
+        # veth) do not, and a bridge repeats its member's MAC.
+        macs = {
+            i["hardware-address"]
+            for i in self.agent(dom, "guest-network-get-interfaces") or []
+            if i.get("hardware-address", "").startswith("52:54:")
+        }
+        return {
+            "vcpus": sum(1 for cpu in self.agent(dom, "guest-get-vcpus") or [] if cpu["online"]),
+            "memory_mib": block_size * sum(1 for b in blocks if b["online"]) >> 20,
+            "disks": disks,
+            "macs": macs,
+        }
+
+    def config_view(self, dom):
+        """The same hardware in the persistent definition."""
+        tree = etree.fromstring(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
+        vcpu = tree.find("vcpu")
+        return {
+            "vcpus": int(vcpu.get("current", vcpu.text)),
+            "memory_mib": int(tree.findtext("memory")) >> 10,
+            "disks": sorted(
+                (d.findtext("serial") or "", d.find("target").get("bus")) for d in tree.xpath("devices/disk[@device='disk']")
+            ),
+            "macs": set(tree.xpath("devices/interface/mac/@address")),
+        }
+
+    def assert_guest_matches_config(self, dom, timeout=60):
+        """The guest sees what the persistent definition says (hotplugged devices may take a moment)."""
+        wait_for(lambda: self.guest_view(dom) == self.config_view(dom), timeout)
+        self.assertEqual(self.guest_view(dom), self.config_view(dom))
+
     def post(self, view, instance, data=None):
-        return self.client.post(
+        response = self.client.post(
             reverse(f"instances:{view}", args=[instance.id]),
             data or {},
             HTTP_REFERER=reverse("instances:instance", args=[instance.id]),
         )
+        self.assertEqual(response.status_code, 302, f"{view} failed")
+        return response
 
     def live(self, dom):
         return etree.fromstring(dom.XMLDesc(0))
@@ -221,3 +277,106 @@ class LiveGuestTestCase(TestCase):
             if wait_for(lambda: not dom.isActive(), 30):
                 break
         self.assertFalse(dom.isActive(), "guest did not shut down on ACPI")
+
+    # The guest sees the hardware WebVirtCloud configures
+
+    def test_guest_sees_the_configured_hardware(self):
+        dom, _ = self.boot("ghw", data_disk=True)
+
+        self.assert_guest_matches_config(dom)
+
+    def test_cpu_and_memory_resize_reach_the_guest_after_a_restart(self):
+        dom, inst = self.boot("gres")
+
+        self.post("force_off", inst)
+        self.assertFalse(dom.isActive(), "force off left the VM running")
+        self.post("resizevm_cpu", inst, {"vcpu": "2", "cur_vcpu": "2"})
+        self.post("resize_memory", inst, {"memory": "3072", "cur_memory": "3072"})
+        self.post("poweron", inst)
+        self.wait_agent(dom)
+
+        self.assert_guest_matches_config(dom)
+        self.assertEqual(self.guest_view(dom)["vcpus"], 2)
+        self.assertEqual(self.guest_view(dom)["memory_mib"], 3072)
+
+    def test_disk_changes_reach_the_guest(self):
+        dom, inst = self.boot("gdisk", data_disk=True)
+        data = self.live(dom).xpath("devices/disk[target/@dev='vdb']/source/@file")[0]
+
+        # Hotplugged at once
+        self.post("add_new_vol", inst, {"storage": livetest.POOL, "name": P + "gdisk-new", "size": "1", "format": "qcow2", "bus": "virtio"})
+        self.assertEqual(len(self.config_view(dom)["disks"]), 3, "disk was not added")
+        self.assert_guest_matches_config(dom)
+
+        # Persistent only: bus and serial change at the next start
+        self.post("edit_volume", inst, {
+            "edit_volume": "1", "dev": "vdb", "vol_path": data, "vol_bus": "sata",
+            "vol_serial": "wvc-edited", "vol_format": "qcow2",
+        })
+        self.assertNotIn(("wvc-edited", "sata"), self.guest_view(dom)["disks"])
+        self.post("powercycle", inst)
+        self.wait_agent(dom)
+
+        self.assert_guest_matches_config(dom)
+        self.assertIn(("wvc-edited", "sata"), self.guest_view(dom)["disks"])
+
+    def test_nic_mac_change_reaches_the_guest_after_a_restart(self):
+        dom, inst = self.boot("gmac")
+        old, new = self.live(dom).xpath("devices/interface/mac/@address")[0], "52:54:00:aa:05:01"
+
+        self.post("change_network", inst, {
+            "net-old-mac-0": old, "net-mac-0": new, "net-source-0": "net:default",
+            "net-model-0": "virtio", "net-nwfilter-0": "",
+        })
+        self.assertEqual(self.guest_view(dom)["macs"], {old})  # pending until the next start
+        self.post("powercycle", inst)
+        self.wait_agent(dom)
+
+        self.assert_guest_matches_config(dom)
+        self.assertEqual(self.guest_view(dom)["macs"], {new})
+
+    def test_clone_guest_sees_its_own_nic_and_disk(self):
+        source, inst = self.define("gsrc")
+        mac = "52:54:00:aa:06:01"
+
+        self.post("clone", inst, {"name": P + "gclone", "disk-vda": P + "gclone.qcow2", "clone-net-mac-0": mac})
+        clone = self.conn.lookupByName(P + "gclone")
+        self.start(clone)
+
+        self.assert_guest_matches_config(clone)
+        self.assertEqual(self.guest_view(clone)["macs"], {mac})
+        self.assertNotIn(
+            source.XMLDesc(0).split("<source file='")[1].split("'")[0],
+            clone.XMLDesc(0),
+            "the clone uses the source's disk",
+        )
+
+    # Power and state operations seen from the guest
+
+    def test_snapshot_revert_restores_the_running_guest(self):
+        dom, inst = self.boot("gsnap")
+        mac = "52:54:00:aa:07:01"
+
+        self.post("snapshot", inst, {"name": "before"})
+        self.assertEqual(dom.snapshotNum(0), 1, "snapshot was not taken")
+        self.post("add_network", inst, {"add-net-mac": mac, "add-net-network": "net:default", "add-net-model": "virtio"})
+        self.assertTrue(wait_for(lambda: mac in self.guest_view(dom)["macs"], 60), "guest does not see the new NIC")
+
+        self.post("revert_snapshot", inst, {"name": "before"})
+        self.wait_agent(dom)
+
+        self.assertTrue(dom.isActive(), "reverting a running snapshot left the VM stopped")
+        self.assertNotIn(mac, self.config_view(dom)["macs"])
+        self.assert_guest_matches_config(dom)
+
+    def test_suspend_and_resume(self):
+        dom, inst = self.boot("gsus")
+
+        self.post("suspend", inst)
+        self.assertEqual(dom.state()[0], libvirt.VIR_DOMAIN_PAUSED)
+        self.assertIsNone(self.agent(dom, "guest-ping"), "a paused guest answered")
+
+        self.post("resume", inst)
+        self.assertEqual(dom.state()[0], libvirt.VIR_DOMAIN_RUNNING)
+        self.wait_agent(dom)
+        self.assert_guest_matches_config(dom)
