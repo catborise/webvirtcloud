@@ -2,18 +2,21 @@
 Cloning another user's VM must require change permission on it (templates
 excepted), and the clone data must not be taken blindly from the POST body.
 """
+import tempfile
 from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from accounts.models import UserInstance
 from appsettings.settings import app_settings
 from computes.models import Compute
 from instances.models import Instance
+from instances.utils import get_dhcp_mac_address
 
 SRC_DISK = {
     "dev": "vda",
@@ -201,3 +204,19 @@ class ClonePermissionTestCase(TestCase):
         self.assertEqual(
             proxy.clone_instance.call_args[0][0]["disk-vda"], "my-disk-2-clone.qcow2"
         )
+
+
+class DhcpdConfTestCase(TestCase):
+    """Clone name and MAC come from the same dhcpd.conf, next to the app."""
+
+    def test_guess_clone_name_and_mac_read_the_app_directory(self):
+        self.client.force_login(get_user_model().objects.create_superuser("dhcp_admin", "d@example.com", "pw"))
+        with tempfile.TemporaryDirectory() as tmp, override_settings(BASE_DIR=Path(tmp)):
+            Path(tmp, "dhcpd.conf").write_text(
+                "host clone7.example.com {\n  hardware ethernet 52:54:00:00:07:07;\n}\n"
+            )
+            with patch("instances.views.app_settings") as app_settings:
+                app_settings.CLONE_INSTANCE_DEFAULT_PREFIX = "clone"
+                response = self.client.get(reverse("instances:guess_clone_name"))
+            self.assertEqual(response.json(), {"name": "clone7"})
+            self.assertEqual(get_dhcp_mac_address("clone7"), "52:54:00:00:07:07")

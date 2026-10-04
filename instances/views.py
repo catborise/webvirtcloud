@@ -273,7 +273,7 @@ def random_mac_address(request):
 
 @superuser_only
 def guess_clone_name(request):
-    dhcp_file = "/srv/webvirtcloud/dhcpd.conf"
+    dhcp_file = utils.dhcpd_conf()
     prefix = app_settings.CLONE_INSTANCE_DEFAULT_PREFIX
     if os.path.isfile(dhcp_file):
         instance_names = [

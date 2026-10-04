@@ -231,8 +231,14 @@ def refr(compute):
     refresh_instance_database(compute)
 
 
+def dhcpd_conf():
+    """Optional dhcpd.conf in the application directory; clone names and MAC
+    addresses are taken from its host entries when it exists."""
+    return os.path.join(str(settings.BASE_DIR), "dhcpd.conf")
+
+
 def get_dhcp_mac_address(vname):
-    dhcp_file = str(settings.BASE_DIR) + "/dhcpd.conf"
+    dhcp_file = dhcpd_conf()
     mac = ""
     if os.path.isfile(dhcp_file):
         with open(dhcp_file, "r") as f:
