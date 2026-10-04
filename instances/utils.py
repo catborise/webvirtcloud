@@ -246,6 +246,20 @@ def get_dhcp_mac_address(vname):
     return mac
 
 
+MAC_ADDRESS_RE = re.compile(r"^([0-9A-F]{2})(:?[0-9A-F]{2}){5}$", re.IGNORECASE)
+
+
+def nic_macs(mac, networks):
+    """The MAC addresses given for a new VM's NICs, in network order. NICs
+    without one get theirs from libvirt."""
+    macs = [m.strip() for m in mac.split(",")] if mac else []
+    if not all(MAC_ADDRESS_RE.fullmatch(m) for m in macs):
+        raise ValueError(_("Invalid MAC address"))
+    if len(macs) > len(networks.split(",")):
+        raise ValueError(_("More MAC addresses than networks"))
+    return macs
+
+
 def get_random_mac_address():
     mac = settings.MAC_OUI + ":%02x:%02x:%02x" % (
         random.randint(0x00, 0xFF),

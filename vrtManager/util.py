@@ -208,6 +208,6 @@ def vol_dev_type(vol_bus):
         return "fd"
     elif vol_bus == "virtio":
         return "vd"
-    elif vol_bus in ["scsi", "sata"]:
+    elif vol_bus in ["scsi", "sata", "usb"]:
         return "sd"
 

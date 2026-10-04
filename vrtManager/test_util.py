@@ -123,6 +123,7 @@ class TestVrtManagerUtil(unittest.TestCase):
         self.assertEqual(vol_dev_type("ide"), "hd")
         self.assertEqual(vol_dev_type("fdc"), "fd")
         self.assertEqual(vol_dev_type("virtio"), "vd")
+        self.assertEqual(vol_dev_type("usb"), "sd")
         self.assertEqual(vol_dev_type("scsi"), "sd")
         self.assertEqual(vol_dev_type("sata"), "sd")
         self.assertIsNone(vol_dev_type("unknown_bus"))

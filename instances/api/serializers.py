@@ -1,4 +1,5 @@
 from instances.models import CreateInstance, Flavor, Instance, MigrateInstance
+from instances.utils import nic_macs
 from rest_framework import serializers
 
 
@@ -57,6 +58,13 @@ class CreateInstanceSerializer(serializers.ModelSerializer):
     cache_mode = serializers.CharField(initial="none")
     virtio = serializers.BooleanField(initial=True)
     qemu_ga = serializers.BooleanField(initial=True)
+
+    def validate(self, attrs):
+        try:
+            nic_macs(attrs.get("mac"), attrs.get("networks", ""))
+        except ValueError as err:
+            raise serializers.ValidationError({"mac": str(err)})
+        return attrs
 
     class Meta:
         model = CreateInstance

@@ -1704,7 +1704,9 @@ def del_owner(request, pk):
     return _back(request, pk, "users")
 
 
-MAC_ADDRESS_RE = re.compile(r"^([0-9A-F]{2})(:?[0-9A-F]{2}){5}$", re.IGNORECASE)
+# Buses for the empty CD-ROM of a new VM: fdc and virtio have no ejectable
+# media, and libvirt refuses an empty usb disk.
+CDROM_BUSES = ("ide", "sata", "scsi")
 CLONE_POST_KEY_RE = re.compile(r"^(clone-net-mac-\d+|disk-[a-z0-9]+|meta-[a-z0-9]+)$")
 
 
@@ -1763,7 +1765,7 @@ def clone(request, pk):
     invalid_macs = [
         value
         for key, value in clone_data.items()
-        if key.startswith("clone-net-mac-") and not MAC_ADDRESS_RE.fullmatch(value)
+        if key.startswith("clone-net-mac-") and not utils.MAC_ADDRESS_RE.fullmatch(value)
     ]
     invalid_disks = [
         value
@@ -2071,6 +2073,7 @@ def create_instance(request, compute_id, arch, machine):
         mac_auto = util.randomMAC()
         disk_devices = conn.get_disk_device_types(arch, machine)
         disk_buses = conn.get_disk_bus_types(arch, machine)
+        cdrom_buses = [bus for bus in disk_buses if bus in CDROM_BUSES]
         default_bus = app_settings.INSTANCE_VOLUME_DEFAULT_BUS
         networks = sorted(conn.get_networks())
         nwfilters = conn.get_nwfilters()
@@ -2132,6 +2135,14 @@ def create_instance(request, compute_id, arch, machine):
                             )
                         if data["cache_mode"] not in conn.get_cache_modes():
                             raise util.OperationError(_("Invalid cache mode"))
+                        if data["add_cdrom"] != "None" and data["add_cdrom"] not in cdrom_buses:
+                            raise util.OperationError(
+                                _("A CD-ROM cannot use the %(bus)s bus") % {"bus": data["add_cdrom"]}
+                            )
+                        try:
+                            utils.nic_macs(data["mac"], data["networks"])
+                        except ValueError as err:
+                            raise util.OperationError(str(err))
 
                         firmware = dict()
                         if "UEFI" in data["firmware"]:

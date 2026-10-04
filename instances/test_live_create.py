@@ -143,6 +143,30 @@ class LiveCreateTestCase(TestCase):
         dom.create()
         self.assertTrue(dom.isActive())
 
+    def test_every_offered_cdrom_bus_creates_a_vm_that_starts(self):
+        page = self.client.get(reverse("instances:create_instance", args=[self.compute.id, "x86_64", "q35"]))
+        buses = page.context["cdrom_buses"]
+        self.assertTrue(buses)
+        for i, bus in enumerate(buses):
+            with self.subTest(bus=bus):
+                self.create(f"cr-cd-{bus}", add_cdrom=bus, mac=f"52:54:00:aa:03:1{i}")
+                dom = self.conn.lookupByName(P + f"cr-cd-{bus}")
+                self.assertEqual(etree.fromstring(dom.XMLDesc(0)).xpath("devices/disk[@device='cdrom']/target/@bus"), [bus])
+                dom.create()
+                self.assertTrue(dom.isActive())
+
+    def test_input_device_keeps_the_machine_usb_controller(self):
+        self.create("cr-input", add_input="usb")
+        tree = etree.fromstring(self.conn.lookupByName(P + "cr-input").XMLDesc(0))
+        self.assertEqual(tree.xpath("devices/controller[@type='usb']/@model"), ["qemu-xhci"])
+        self.assertTrue(tree.xpath("devices/input[@type='tablet' and @bus='usb']"))
+
+    def test_networks_without_a_mac_of_their_own(self):
+        self.create("cr-macs", networks="default,default")
+        macs = etree.fromstring(self.conn.lookupByName(P + "cr-macs").XMLDesc(0)).xpath("devices/interface/mac/@address")
+        self.assertEqual(len(macs), 2)
+        self.assertEqual(macs[0], "52:54:00:aa:03:01")
+
     def test_api_rejected_definition_removes_the_new_disk(self):
         response = self.client.post(
             f"/api/v1/computes/{self.compute.id}/instances/create/x86_64/q35/",

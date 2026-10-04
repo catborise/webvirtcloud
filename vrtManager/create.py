@@ -306,12 +306,12 @@ class wvmCreate(wvmConnect):
                 xml += """<target dev='%s%s' bus='%s'/>""" % (dev_prefix, get_letter(add_cdrom), add_cdrom)
             xml += """</disk>"""
 
-        if mac:
-            macs = mac.split(',')
+        # NICs without a given MAC get one from libvirt
+        macs = mac.split(",") if mac else []
         for idx, net in enumerate(networks.split(",")):
             xml += """<interface type='network'>"""
-            if mac:
-                xml += f"""<mac address='{macs[idx]}'/>"""
+            if idx < len(macs):
+                xml += f"""<mac address='{macs[idx].strip()}'/>"""
             xml += f"""<source network='{net}'/>"""
             if nwfilter:
                 xml += f"""<filterref filter='{nwfilter}'/>"""
@@ -324,8 +324,9 @@ class wvmCreate(wvmConnect):
         elif console_pass != "":
             console_pass = "passwd='" + console_pass + "'"
 
+        # No bare USB controller: libvirt adds the machine's default
+        # (qemu-xhci on q35) for USB inputs; a bare one is piix3-uhci.
         if add_input != "None":
-            xml += """<controller type='usb'/>"""
             if add_input in dom_caps["disk_bus"]:
                 xml += f"""<input type='mouse' bus='{add_input}'/>"""
                 xml += f"""<input type='keyboard' bus='{add_input}'/>"""

@@ -251,7 +251,7 @@
                                                                         <div class="col-sm-7">
                                                                             <select class="form-select" id="add_cdrom" name="add_cdrom">
                                                                                 <option value="None" {% if bus == default_cdrom %}selected{% endif %}>--{% trans "False" %}--</option>
-                                                                                {% for bus in disk_buses %}
+                                                                                {% for bus in cdrom_buses %}
                                                                                     <option value="{{ bus }}" {% if bus == default_cdrom %}selected {% endif %}>
                                                                                         {% trans bus %}
                                                                                     </option>
@@ -504,7 +504,7 @@
                             <div class="col-sm-7">
                                 <select class="form-select" id="add_cdrom" name="add_cdrom">
                                     <option value="None" {% if bus == default_cdrom %}selected{% endif %} >--{% trans "False" %}--</option>
-                                    {% for bus in disk_buses %}
+                                    {% for bus in cdrom_buses %}
                                         <option value="{{ bus }}" {% if bus == default_cdrom %}selected {% endif %}>
                                             {% trans bus %}
                                         </option>
@@ -744,7 +744,7 @@
                                 <div class="col-sm-7">
                                     <select class="form-select" id="add_cdrom" name="add_cdrom">
                                         <option value="None" {% if bus == default_cdrom %}selected{% endif %}>--{% trans "False" %}--</option>
-                                        {% for bus in disk_buses %}
+                                        {% for bus in cdrom_buses %}
                                             <option value="{{ bus }}" {% if bus == default_cdrom %}selected {% endif %}>
                                                 {% trans bus %}
                                             </option>
