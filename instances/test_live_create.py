@@ -11,6 +11,7 @@ from computes.models import Compute
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from lxml import etree
 from vrtManager.connection import connection_manager
 
 from . import livetest
@@ -110,6 +111,22 @@ class LiveCreateTestCase(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(self.domain_exists(P + "cr-ok"))
         self.assertEqual(len(self.volumes()), 1)
+
+    def test_offered_uefi_firmware_boots_on_q35(self):
+        page = self.client.get(reverse("instances:create_instance", args=[self.compute.id, "x86_64", "q35"]))
+        uefi = [f for f in page.context["firmwares"] if f.startswith("UEFI")]
+        self.assertTrue(uefi, "no UEFI firmware offered for q35")
+
+        self.create("cr-uefi-ok", firmware=uefi[0])
+
+        dom = self.conn.lookupByName(P + "cr-uefi-ok")
+        loader = etree.fromstring(dom.XMLDesc(0)).findtext("os/loader")
+        self.assertEqual(loader, uefi[0].split(":", 1)[1].strip())
+        # Listed by libvirt for q35, so the domain starts with it
+        caps = etree.fromstring(self.conn.getDomainCapabilities(None, "x86_64", "q35", "kvm"))
+        self.assertIn(loader, caps.xpath("os/loader/value/text()"))
+        dom.create()
+        self.assertTrue(dom.isActive())
 
     def test_api_rejected_definition_removes_the_new_disk(self):
         response = self.client.post(

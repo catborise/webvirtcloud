@@ -62,3 +62,30 @@ class CreateInstanceViewTests(TestCase):
             fetch_redirect_response=False,
         )
         conn.create_instance.assert_called_once()
+
+    @patch("instances.views.wvmCreate")
+    def test_firmware_list_uses_the_chosen_machine_type(self, connection_class):
+        user = get_user_model().objects.create_superuser(
+            username="create-fw-admin", password="password", email="fw@example.com"
+        )
+        self.client.force_login(user)
+        compute = Compute.objects.create(
+            name="create-fw-compute", hostname="localhost", type=4, login="", password="",
+        )
+        conn = connection_class.return_value
+        conn.get_instances.return_value = []
+        conn.get_storages.return_value = []
+        conn.get_networks.return_value = []
+        conn.get_nwfilters.return_value = []
+        conn.get_cache_modes.return_value = {}
+        # A host without loader support has no "loaders"/"loader_enums" keys
+        conn.get_dom_capabilities.return_value = {"loader_support": "no"}
+        conn.get_capabilities.return_value = {}
+        conn.label_for_firmware_path.return_value = None
+        conn.find_uefi_path_for_arch.return_value = None
+
+        response = self.client.get(reverse("instances:create_instance", args=[compute.id, "x86_64", "q35"]))
+
+        self.assertEqual(response.status_code, 200)
+        conn.find_uefi_path_for_arch.assert_called_once_with("x86_64", "q35")
+

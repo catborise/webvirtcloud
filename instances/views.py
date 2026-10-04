@@ -2085,13 +2085,12 @@ def create_instance(request, compute_id, arch, machine):
         caps = conn.get_capabilities(arch)
 
         virtio_support = conn.is_supports_virtio(arch, machine)
-        hv_supports_uefi = conn.supports_uefi_xml(dom_caps["loader_enums"])
         # Add BIOS
         label = conn.label_for_firmware_path(arch, None)
         if label:
             firmwares.append(label)
         # Add UEFI
-        loader_path = conn.find_uefi_path_for_arch(arch, dom_caps["loaders"])
+        loader_path = conn.find_uefi_path_for_arch(arch, machine)
         label = conn.label_for_firmware_path(arch, loader_path)
         if label:
             firmwares.append(label)
