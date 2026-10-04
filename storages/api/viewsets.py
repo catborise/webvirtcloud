@@ -3,7 +3,7 @@ from appsettings.settings import app_settings
 from computes.models import Compute
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, inline_serializer
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from vrtManager.storage import wvmStorage, wvmStorages
@@ -159,7 +159,7 @@ class VolumeViewSet(viewsets.ViewSet):
 
         return Response(serializer.data)
 
-    @extend_schema(responses=StatusSerializer)
+    @extend_schema(responses={200: StatusSerializer, 400: dict, 409: StatusSerializer})
     def create(self, request, storage_pk=None, compute_pk=None):
         compute = get_object_or_404(Compute, pk=compute_pk)
 
@@ -183,11 +183,11 @@ class VolumeViewSet(viewsets.ViewSet):
                 conn.close()
                 return Response({"status": "Volume: " + ret + " is created"})
             else:
-                return Response({"status": "Pool is not active"})
+                return Response({"status": "Pool is not active"}, status=status.HTTP_409_CONFLICT)
         else:
-            return Response({"status": "Data is not right for create volume"})
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @extend_schema(responses=StatusSerializer)
+    @extend_schema(responses={200: StatusSerializer, 409: StatusSerializer})
     def destroy(self, request, storage_pk=None, compute_pk=None, pk=None):
         compute = get_object_or_404(Compute, pk=compute_pk)
 
@@ -200,4 +200,4 @@ class VolumeViewSet(viewsets.ViewSet):
             conn.close()
             return Response({"status": "Volume: " + pk + " is deleted"})
         else:
-            return Response({"status": "Pool is not active"})
+            return Response({"status": "Pool is not active"}, status=status.HTTP_409_CONFLICT)

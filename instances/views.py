@@ -177,37 +177,33 @@ def drbd_status(request, pk):
         )
 
         if remoteDrbdStatus.stdout:
-            try:
-                instanceFindDrbd = re.compile(
-                    instance.name + "[_]*[A-Z]* role:(.+?)\n  disk:(.+?)\n",
-                    re.IGNORECASE,
-                )
-                instanceDrbd = instanceFindDrbd.findall(remoteDrbdStatus.stdout)
+            instanceFindDrbd = re.compile(
+                re.escape(instance.name) + "[_]*[A-Z]* role:(.+?)\n  disk:(.+?)\n",
+                re.IGNORECASE,
+            )
+            instanceDrbd = instanceFindDrbd.findall(remoteDrbdStatus.stdout)
 
-                primaryCount = 0
-                secondaryCount = 0
-                statusDisk = "OK"
+            primaryCount = 0
+            secondaryCount = 0
+            statusDisk = "OK"
 
-                for disk in instanceDrbd:
-                    if disk[0] == "Primary":
-                        primaryCount = primaryCount + 1
-                    elif disk[0] == "Secondary":
-                        secondaryCount = secondaryCount + 1
-                    if disk[1] != "UpToDate":
-                        statusDisk = "NOK"
+            for disk in instanceDrbd:
+                if disk[0] == "Primary":
+                    primaryCount = primaryCount + 1
+                elif disk[0] == "Secondary":
+                    secondaryCount = secondaryCount + 1
+                if disk[1] != "UpToDate":
+                    statusDisk = "NOK"
 
-                if primaryCount > 0 and secondaryCount > 0:
-                    statusRole = "NOK"
+            if primaryCount > 0 and secondaryCount > 0:
+                statusRole = "NOK"
+            else:
+                if primaryCount > secondaryCount:
+                    statusRole = "Primary"
                 else:
-                    if primaryCount > secondaryCount:
-                        statusRole = "Primary"
-                    else:
-                        statusRole = "Secondary"
+                    statusRole = "Secondary"
 
-                result = statusRole + "/" + statusDisk
-
-            except:
-                print("Error to get drbd role and status")
+            result = statusRole + "/" + statusDisk
 
     return result
 
@@ -326,16 +322,13 @@ def _same_origin_referer(request, default):
 
 
 def get_safe_redirect(request, default=None):
-    referer = request.META.get("HTTP_REFERER")
-    if referer and url_has_allowed_host_and_scheme(
-        url=referer,
-        allowed_hosts={request.get_host()},
-        require_https=request.is_secure(),
-    ):
-        return redirect(referer)
-    if default:
-        return redirect(default)
-    return redirect("instances:index")
+    return redirect(_same_origin_referer(request, default or reverse("instances:index")))
+
+
+def _back(request, pk, tab):
+    """Back to the page the form was on, at the given tab; the VM page if
+    the Referer is missing or from another site."""
+    return redirect(_same_origin_referer(request, reverse("instances:instance", args=[pk])) + "#" + tab)
 
 
 def get_instance(user, pk, perm_type="view"):
@@ -474,12 +467,12 @@ def invalid_disk_options(
     ]
 
 
-def reject_disk_options(request, invalid):
+def reject_disk_options(request, pk, invalid):
     messages.error(
         request,
         _("Invalid disk options: %(options)s") % {"options": ", ".join(invalid)},
     )
-    return get_safe_redirect(request)
+    return _back(request, pk, "disks")
 
 
 @require_POST
@@ -605,7 +598,7 @@ def destroy(request, pk):
     instance = get_instance(request.user, pk, perm_type="delete")
     try:
         userinstance = instance.userinstance_set.get(user=request.user)
-    except Exception:
+    except UserInstance.DoesNotExist:
         userinstance = UserInstance(
             is_delete=request.user.is_superuser
         )
@@ -635,7 +628,9 @@ def migrate(request, pk):
     postcopy = request.POST.get("postcopy", False)
 
     current_host = instance.compute.hostname
-    target_host = Compute.objects.get(id=compute_id)
+    if not compute_id.isdigit():
+        raise Http404
+    target_host = get_object_or_404(Compute, pk=compute_id)
 
     try:
         utils.migrate_instance(
@@ -650,15 +645,15 @@ def migrate(request, pk):
             compress,
             postcopy,
         )
-    except libvirtError as err:
+    except (libvirtError, OSError) as err:  # OSError includes a lock timeout
         messages.error(request, err)
-
-    migration_method = "live" if live is True else "offline"
-    msg = _("Instance is migrated(%(method)s) to %(hostname)s") % {
-        "hostname": target_host.hostname,
-        "method": migration_method,
-    }
-    addlogmsg(request.user.username, current_host, instance.name, msg)
+    else:
+        migration_method = "live" if live else "offline"
+        msg = _("Instance is migrated(%(method)s) to %(hostname)s") % {
+            "hostname": target_host.hostname,
+            "method": migration_method,
+        }
+        addlogmsg(request.user.username, current_host, instance.name, msg)
 
     return get_safe_redirect(
         request, default=reverse("instances:instance", args=[instance.id])
@@ -894,7 +889,7 @@ def add_new_vol(request, pk):
     if not VOLUME_NAME_RE.fullmatch(name):
         invalid.append("name")
     if invalid:
-        return reject_disk_options(request, invalid)
+        return reject_disk_options(request, pk, invalid)
 
     conn_create = wvmCreate(
         instance.compute.hostname,
@@ -945,7 +940,7 @@ def add_new_vol(request, pk):
         "format": format,
     }
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#disks")
+    return _back(request, pk, "disks")
 
 
 @require_POST
@@ -960,7 +955,7 @@ def add_existing_vol(request, pk):
 
     invalid = invalid_disk_options(instance, bus=bus, cache=cache)
     if invalid:
-        return reject_disk_options(request, invalid)
+        return reject_disk_options(request, pk, invalid)
 
     media = instance.proxy.get_media_devices()
     disks = instance.proxy.get_disk_devices()
@@ -976,7 +971,7 @@ def add_existing_vol(request, pk):
     # Only volumes that really exist in the selected pool; this also rules
     # out path traversal through the volume name.
     if name not in conn_create.get_volumes():
-        return reject_disk_options(request, ["vols"])
+        return reject_disk_options(request, pk, ["vols"])
 
     format_type = conn_create.get_volume_format_type(name)
     disk_type = conn_create.get_volume_type(name)
@@ -1003,7 +998,7 @@ def add_existing_vol(request, pk):
     )
     msg = _("Attach Existing disk: %(target_dev)s") % {"target_dev": target_dev}
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#disks")
+    return _back(request, pk, "disks")
 
 
 @require_POST
@@ -1050,7 +1045,7 @@ def edit_volume(request, pk):
         if not current:
             invalid.append("dev")
         if invalid:
-            return reject_disk_options(request, invalid)
+            return reject_disk_options(request, pk, invalid)
 
         instance.proxy.edit_disk(
             target_dev,
@@ -1079,7 +1074,7 @@ def edit_volume(request, pk):
         msg = _("Edit disk: %(target_dev)s") % {"target_dev": target_dev}
         addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
 
-    return redirect(request.META.get("HTTP_REFERER") + "#disks")
+    return _back(request, pk, "disks")
 
 
 @require_POST
@@ -1097,7 +1092,7 @@ def delete_vol(request, pk):
             request,
             _("Disk %(dev)s is not a storage volume of this instance") % {"dev": dev},
         )
-        return redirect(request.META.get("HTTP_REFERER") + "#disks")
+        return _back(request, pk, "disks")
 
     conn_delete = wvmStorage(
         instance.compute.hostname,
@@ -1112,7 +1107,7 @@ def delete_vol(request, pk):
             request,
             _("Volume %(vol)s is used by another VM; detach it instead") % {"vol": disk["image"]},
         )
-        return redirect(request.META.get("HTTP_REFERER") + "#disks")
+        return _back(request, pk, "disks")
 
     msg = _("Delete disk: %(dev)s") % {"dev": dev}
     instance.proxy.detach_disk(dev)
@@ -1124,11 +1119,11 @@ def delete_vol(request, pk):
               "Delete it from the storage pool once the VM is shut down.")
             % {"dev": dev, "vol": disk["image"]},
         )
-        return redirect(request.META.get("HTTP_REFERER") + "#disks")
+        return _back(request, pk, "disks")
     conn_delete.del_volume(disk["image"])
 
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#disks")
+    return _back(request, pk, "disks")
 
 
 @require_POST
@@ -1141,7 +1136,7 @@ def detach_vol(request, pk):
     msg = _("Detach disk: %(dev)s") % {"dev": dev}
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
 
-    return redirect(request.META.get("HTTP_REFERER") + "#disks")
+    return _back(request, pk, "disks")
 
 
 @require_POST
@@ -1152,7 +1147,7 @@ def add_cdrom(request, pk):
     bus = request.POST.get("bus", "ide" if instance.machine == "pc" else "sata")
     invalid = invalid_disk_options(instance, bus=bus)
     if invalid:
-        return reject_disk_options(request, invalid)
+        return reject_disk_options(request, pk, invalid)
 
     target = utils.get_new_disk_dev(instance.media, instance.disks, bus)
     instance.proxy.attach_disk(
@@ -1166,7 +1161,7 @@ def add_cdrom(request, pk):
     msg = _("Add CD-ROM: %(target)s") % {"target": target}
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
 
-    return redirect(request.META.get("HTTP_REFERER") + "#disks")
+    return _back(request, pk, "disks")
 
 
 @require_POST
@@ -1179,7 +1174,7 @@ def detach_cdrom(request, pk, dev):
     msg = _("Detach CD-ROM: %(dev)s") % {"dev": dev}
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
 
-    return redirect(request.META.get("HTTP_REFERER") + "#disks")
+    return _back(request, pk, "disks")
 
 
 @require_POST
@@ -1236,7 +1231,7 @@ def snapshot(request, pk):
         else:
             msg = _("Create snapshot: %(snap)s") % {"snap": name}
             addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#managesnapshot")
+    return _back(request, pk, "managesnapshot")
 
 
 @require_POST
@@ -1253,7 +1248,7 @@ def delete_snapshot(request, pk):
         instance.proxy.snapshot_delete(snap_name)
         msg = _("Delete snapshot: %(snap)s") % {"snap": snap_name}
         addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#managesnapshot")
+    return _back(request, pk, "managesnapshot")
 
 
 @require_POST
@@ -1271,13 +1266,13 @@ def revert_snapshot(request, pk):
             instance.proxy.snapshot_revert(snap_name)
         except libvirtError as err:
             messages.error(request, _("Snapshot was not reverted: %(err)s") % {"err": err})
-            return redirect(request.META.get("HTTP_REFERER") + "#managesnapshot")
+            return _back(request, pk, "managesnapshot")
         msg = _("Successful revert snapshot: ")
         msg += snap_name
         messages.success(request, msg)
         msg = _("Revert snapshot: %(snap)s") % {"snap": snap_name}
         addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#managesnapshot")
+    return _back(request, pk, "managesnapshot")
 
 
 @require_POST
@@ -1296,7 +1291,7 @@ def create_external_snapshot(request, pk):
         instance.proxy.create_external_snapshot("s1." + name, instance, desc=desc)
         msg = _("Create external snapshot: %(snap)s") % {"snap": name}
         addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#managesnapshot")
+    return _back(request, pk, "managesnapshot")
 
 
 def get_external_snapshots(request, pk):
@@ -1332,7 +1327,7 @@ def revert_external_snapshot(request, pk):
         instance.proxy.start() if instance_state else None
         msg = _("Revert external snapshot: %(snap)s") % {"snap": name}
         addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#managesnapshot")
+    return _back(request, pk, "managesnapshot")
 
 
 @require_POST
@@ -1358,7 +1353,7 @@ def delete_external_snapshot(request, pk):
         finally:
             instance.proxy.force_shutdown() if instance_state else None
 
-    return redirect(request.META.get("HTTP_REFERER") + "#managesnapshot")
+    return _back(request, pk, "managesnapshot")
 
 
 @require_POST
@@ -1374,7 +1369,7 @@ def set_vcpu(request, pk):
         instance.proxy.set_vcpu(id, 0)
     msg = _("VCPU %(id)s is enabled=%(enabled)s") % {"id": id, "enabled": enabled}
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#resize")
+    return _back(request, pk, "resize")
 
 
 @require_POST
@@ -1386,7 +1381,7 @@ def set_vcpu_hotplug(request, pk):
     msg = _("VCPU Hot-plug is enabled=%(status)s") % {"status": status}
     instance.proxy.set_vcpu_hotplug(status)
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#resize")
+    return _back(request, pk, "resize")
 
 
 @require_POST
@@ -1397,7 +1392,7 @@ def set_autostart(request, pk):
     instance.proxy.set_autostart(1)
     msg = _("Set autostart")
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#boot_opt")
+    return _back(request, pk, "boot_opt")
 
 
 @require_POST
@@ -1408,7 +1403,7 @@ def unset_autostart(request, pk):
     instance.proxy.set_autostart(0)
     msg = _("Unset autostart")
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#boot_opt")
+    return _back(request, pk, "boot_opt")
 
 
 @require_POST
@@ -1419,7 +1414,7 @@ def set_bootmenu(request, pk):
     instance.proxy.set_bootmenu(1)
     msg = _("Enable boot menu")
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#boot_opt")
+    return _back(request, pk, "boot_opt")
 
 
 @require_POST
@@ -1430,7 +1425,7 @@ def unset_bootmenu(request, pk):
     instance.proxy.set_bootmenu(0)
     msg = _("Disable boot menu")
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#boot_opt")
+    return _back(request, pk, "boot_opt")
 
 
 @require_POST
@@ -1458,7 +1453,7 @@ def set_bootorder(request, pk):
         else:
             messages.success(request, _("Boot order changed successfully."))
         addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#boot_opt")
+    return _back(request, pk, "boot_opt")
 
 
 @require_POST
@@ -1471,7 +1466,7 @@ def change_xml(request, pk):
         instance.proxy._defineXML(new_xml)
         msg = _("Change instance XML")
         addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#xmledit")
+    return _back(request, pk, "xmledit")
 
 
 @require_POST
@@ -1487,7 +1482,7 @@ def set_guest_agent(request, pk):
 
     msg = _("Set Guest Agent: %(status)s") % {"status": status}
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#options")
+    return _back(request, pk, "options")
 
 
 @require_POST
@@ -1499,7 +1494,7 @@ def set_video_model(request, pk):
     instance.proxy.set_video_model(video_model)
     msg = _("Set Video Model: %(model)s") % {"model": video_model}
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#options")
+    return _back(request, pk, "options")
 
 
 @require_POST
@@ -1579,7 +1574,7 @@ def add_network(request, pk):
     instance.proxy.add_network(mac, source, source_type, model=model, nwfilter=nwfilter)
     msg = _("Add network: %(mac)s") % {"mac": mac}
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#network")
+    return _back(request, pk, "network")
 
 
 @require_POST
@@ -1592,7 +1587,7 @@ def delete_network(request, pk):
     instance.proxy.delete_network(mac_address)
     msg = _("Delete Network: %(mac)s") % {"mac": mac_address}
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#network")
+    return _back(request, pk, "network")
 
 
 @require_POST
@@ -1607,7 +1602,7 @@ def set_link_state(request, pk):
     instance.proxy.set_link_state(mac_address, state)
     msg = _("Set Link State: %(state)s") % {"state": state}
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#network")
+    return _back(request, pk, "network")
 
 
 @require_POST
@@ -1640,7 +1635,7 @@ def set_qos(request, pk):
             % {"qos_dir": qos_dir.capitalize()},
         )
 
-    return redirect(request.META.get("HTTP_REFERER") + "#network")
+    return _back(request, pk, "network")
 
 
 @require_POST
@@ -1665,14 +1660,17 @@ def unset_qos(request, pk):
             )
             % {"qos_dir": qos_dir.capitalize()},
         )
-    return redirect(request.META.get("HTTP_REFERER") + "#network")
+    return _back(request, pk, "network")
 
 
 @require_POST
 @superuser_only
 def add_owner(request, pk):
     instance = get_instance(request.user, pk)
-    user_id = request.POST.get("user_id")
+    user_id = request.POST.get("user_id", "")
+    if not user_id.isdigit():
+        raise Http404
+    user = get_object_or_404(User, pk=user_id)
 
     check_inst = 0
 
@@ -1684,24 +1682,26 @@ def add_owner(request, pk):
             request, _("Only one owner is allowed and the one already added")
         )
     else:
-        add_user_inst = UserInstance(instance=instance, user_id=user_id)
-        add_user_inst.save()
-        user = User.objects.get(id=user_id)
-        msg = _("Add owner: %(user)s") % {"user": user}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#users")
+        if UserInstance.objects.get_or_create(instance=instance, user=user)[1]:
+            msg = _("Add owner: %(user)s") % {"user": user}
+            addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+        else:
+            messages.warning(request, _("%(user)s is already an owner") % {"user": user})
+    return _back(request, pk, "users")
 
 
 @require_POST
 @superuser_only
 def del_owner(request, pk):
     instance = get_instance(request.user, pk)
-    userinstance_id = int(request.POST.get("userinstance", ""))
-    userinstance = UserInstance.objects.get(pk=userinstance_id)
+    userinstance_id = request.POST.get("userinstance", "")
+    if not userinstance_id.isdigit():
+        raise Http404
+    userinstance = get_object_or_404(UserInstance, pk=userinstance_id, instance=instance)
     userinstance.delete()
     msg = _("Delete owner: %(userinstance_id)s ") % {"userinstance_id": userinstance_id}
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(request.META.get("HTTP_REFERER") + "#users")
+    return _back(request, pk, "users")
 
 
 MAC_ADDRESS_RE = re.compile(r"^([0-9A-F]{2})(:?[0-9A-F]{2}){5}$", re.IGNORECASE)
@@ -1831,12 +1831,13 @@ def clone(request, pk):
 
             if app_settings.CLONE_INSTANCE_AUTO_MIGRATE == "True":
                 new_compute = Compute.objects.order_by("?").first()
-                utils.migrate_instance(
-                    new_compute, new_instance, request.user, xml_del=True, offline=True
-                )
+                if new_compute != instance.compute:
+                    utils.migrate_instance(
+                        new_compute, new_instance, request.user, xml_del=True, offline=True
+                    )
 
             return redirect(reverse("instances:instance", args=[new_instance.id]))
-        except Exception as e:
+        except (libvirtError, ValueError, OSError) as e:  # OSError includes a lock timeout
             messages.error(request, e)
 
     return get_safe_redirect(request, default=reverse("instances:instance", args=[pk]))
@@ -1905,7 +1906,7 @@ def change_options(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
     try:
         userinstance = instance.userinstance_set.get(user=request.user)
-    except Exception:
+    except UserInstance.DoesNotExist:
         userinstance = UserInstance(is_change=False)
 
     if request.user.is_superuser or userinstance.is_change:

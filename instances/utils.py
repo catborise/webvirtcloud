@@ -9,6 +9,7 @@ from computes.utils import libvirt_compute_lock
 from django.conf import settings
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
+from vrtManager import util
 from vrtManager.connection import connection_manager
 from vrtManager.instance import wvmInstance, wvmInstances
 
@@ -137,11 +138,10 @@ def migrate_instance(
     compress=False,
     postcopy=False,
 ):
-    status = connection_manager.host_is_up(new_compute.type, new_compute.hostname)
-    if not status:
-        return
     if new_compute == instance.compute:
-        return
+        raise util.OperationError(_("The instance is already on %(compute)s") % {"compute": new_compute.name})
+    if not connection_manager.host_is_up(new_compute.type, new_compute.hostname):
+        raise util.OperationError(_("%(compute)s is not reachable") % {"compute": new_compute.name})
     c1, c2 = (
         (instance.compute, new_compute)
         if instance.compute.id < new_compute.id
