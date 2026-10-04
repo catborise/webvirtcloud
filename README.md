@@ -405,6 +405,8 @@ Upgrading from Django 4.2, edit `webvirtcloud/settings.py`:
 
 Logging out now needs a POST; links or scripts that call `/accounts/logout/` with GET get 405.
 
+`SHOW_PROFILE_EDIT_PASSWORD` is applied to all users one last time by migration `accounts.0008` and then ignored; remove it from `settings.py` (system check `accounts.W001`). Whether a user may change their own password is the "Can change password" permission, per user or group; new users get it by default.
+
 Before running migrations, add `accounts.middleware.ForcePasswordChangeMiddleware`
 to `MIDDLEWARE` in your existing `webvirtcloud/settings.py`, after
 `django.contrib.auth.middleware.AuthenticationMiddleware` (and the OTP/login-required

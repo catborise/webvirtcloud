@@ -23,30 +23,16 @@ def _migrated(state_apps, model, field=None):
     return field is None or any(f.name == field for f in fields)
 
 
-def apply_change_password(sender, **kwargs):
-    """
-    Apply new change_password permission for all users
-    Depending on settings SHOW_PROFILE_EDIT_PASSWORD
-    """
-    from django.conf import settings
-    from django.contrib.auth.models import Permission, User
-
-    if not (_migrated(kwargs.get("apps"), "auth.Permission") and _migrated(kwargs.get("apps"), "auth.User")):
+def grant_change_password(sender, instance, created, raw=False, **kwargs):
+    """New users may change their own password unless an admin takes the
+    permission away; the user form saves its own choice after this."""
+    if not created or raw:
         return
-    if hasattr(settings, "SHOW_PROFILE_EDIT_PASSWORD"):
-        print("\033[1m! \033[92mSHOW_PROFILE_EDIT_PASSWORD is found inside settings.py\033[0m")
-        print("\033[1m* \033[92mApplying permission can_change_password for all users\033[0m")
-        users = User.objects.all()
-        permission = Permission.objects.get(codename="change_password")
-        if settings.SHOW_PROFILE_EDIT_PASSWORD:
-            print("\033[1m! \033[91mWarning!!! Setting to True for all users\033[0m")
-            for user in users:
-                user.user_permissions.add(permission)
-        else:
-            print("\033[1m* \033[91mWarning!!! Setting to False for all users\033[0m")
-            for user in users:
-                user.user_permissions.remove(permission)
-        print("\033[1m! Don`t forget to remove the option from settings.py\033[0m")
+    from django.contrib.auth.models import Permission
+
+    permission = Permission.objects.filter(content_type__app_label="accounts", codename="change_password").first()
+    if permission is not None:  # created by post_migrate on a fresh database
+        instance.user_permissions.add(permission)
 
 
 def _store_generated_password(password):
@@ -127,5 +113,8 @@ class AccountsConfig(AppConfig):
 
     def ready(self):
         post_migrate.connect(create_admin, sender=self)
-        post_migrate.connect(apply_change_password, sender=self)
+        from django.conf import settings
+        from django.db.models.signals import post_save
+
+        post_save.connect(grant_change_password, sender=settings.AUTH_USER_MODEL)
         from . import checks  # noqa: F401

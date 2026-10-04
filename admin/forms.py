@@ -95,6 +95,13 @@ class UserForm(forms.ModelForm):
 class UserCreateForm(UserForm):
     password = forms.CharField(widget=forms.PasswordInput)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # New users may change their own password unless unticked here
+        self.fields["user_permissions"].initial = Permission.objects.filter(
+            content_type__app_label="accounts", codename="change_password"
+        )
+
     class Meta:
         model = User
         fields = [

@@ -35,6 +35,7 @@ ALLOWED_FOR_ANY_USER = {
     "accounts:email_otp": "part of the login flow (its own issues are tracked separately)",
     "accounts:logout": "logout",
     "accounts:profile": "the user's own profile",
+    "accounts:change_password": "the user's own password; new users get the permission by default",
     "accounts:ssh_key_create": "the user's own SSH keys",
     "set_language": "UI language switch",
     "rest_framework:login": "DRF browsable API login",

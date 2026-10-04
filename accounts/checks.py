@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.core.checks import Error, Tags, register
+from django.core.checks import Error, Tags, Warning, register
 
 
 @register(Tags.security)
@@ -36,3 +36,18 @@ def login_required_middleware_check(app_configs, **kwargs):
             )
         ]
     return []
+
+
+@register()
+def obsolete_settings_check(app_configs, **kwargs):
+    if hasattr(settings, "SHOW_PROFILE_EDIT_PASSWORD"):
+        return [
+            Warning(
+                "SHOW_PROFILE_EDIT_PASSWORD is no longer used.",
+                hint="Remove it from webvirtcloud/settings.py. Whether a user may change their own "
+                "password is the 'Can change password' permission, per user or group.",
+                id="accounts.W001",
+            )
+        ]
+    return []
+
