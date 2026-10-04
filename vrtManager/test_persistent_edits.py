@@ -78,5 +78,47 @@ class XmlFidelityTestCase(unittest.TestCase):
         )
 
 
+AGENT_DOMAIN = """<domain><name>vm</name><devices><channel type='unix'>
+<target type='virtio' name='org.qemu.guest_agent.0'/></channel></devices></domain>"""
+
+
+class DeviceEditsByStateTestCase(unittest.TestCase):
+    """Disk and agent channel changes reach the running definition whenever the
+    VM is active, paused included, and the persistent one always."""
+
+    EDITS = {
+        "attach_disk": ("attachDeviceFlags", lambda vm: vm.attach_disk("vdb", "/var/lib/libvirt/images/d.qcow2")),
+        "add_guest_agent": ("attachDeviceFlags", lambda vm: vm.add_guest_agent()),
+        "remove_guest_agent": ("detachDeviceFlags", lambda vm: vm.remove_guest_agent()),
+    }
+
+    def affected(self, state, active):
+        from libvirt import VIR_DOMAIN_AFFECT_CONFIG, VIR_DOMAIN_AFFECT_LIVE
+
+        names = {VIR_DOMAIN_AFFECT_LIVE: "live", VIR_DOMAIN_AFFECT_CONFIG: "config"}
+        result = {}
+        for name, (method, edit) in self.EDITS.items():
+            vm = wvmInstance.__new__(wvmInstance)
+            vm.instance = MagicMock()
+            vm.instance.isActive.return_value = active
+            vm.get_status = MagicMock(return_value=state)
+            vm._XMLDesc = MagicMock(return_value=AGENT_DOMAIN)
+            edit(vm)
+            result[name] = [names[c.args[1]] for c in getattr(vm.instance, method).call_args_list]
+        return result
+
+    def test_paused_vm(self):
+        for name, affected in self.affected(state=3, active=True).items():
+            self.assertEqual(affected, ["live", "config"], name)
+
+    def test_running_vm(self):
+        for name, affected in self.affected(state=1, active=True).items():
+            self.assertEqual(affected, ["live", "config"], name)
+
+    def test_stopped_vm(self):
+        for name, affected in self.affected(state=5, active=False).items():
+            self.assertEqual(affected, ["config"], name)
+
+
 if __name__ == "__main__":
     unittest.main()

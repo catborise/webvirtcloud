@@ -67,6 +67,7 @@ def domain_xml(name, disk, iso):
     <serial type='pty'><target port='0'/></serial>
     <rng model='virtio'><backend model='random'>/dev/urandom</backend></rng>
     <watchdog model='i6300esb' action='reset'/>
+    <controller type='virtio-serial'/>  <!-- add_guest_agent hotplugs a channel -->
   </devices>
 </domain>"""
 
@@ -142,7 +143,7 @@ EDITS = {
     ),
     "umount_iso": (
         lambda vm: vm.umount_iso("sda"),
-        lambda t: not t.xpath("devices/disk[target/@dev='sda']/source"),
+        lambda t: not t.xpath("devices/disk[target/@dev='sda']/source/@file"),
         ["devices/disk[target/@dev='sda']/source"], True, True,
     ),
     "set_link_state": (
@@ -165,6 +166,16 @@ EDITS = {
         lambda vm: vm.delete_network(MAC),
         lambda t: not t.xpath("devices/interface"),
         ["devices/interface"], True, True,
+    ),
+    "attach_disk": (
+        lambda vm: vm.attach_disk("vdc", livetest.create_volume(vm.wvm, P + "fx-extra"), target_bus="virtio", format_type="qcow2"),
+        lambda t: bool(t.xpath("devices/disk[target/@dev='vdc']")),
+        ["devices/disk[target/@dev='vdc']"], True, True,
+    ),
+    "add_guest_agent": (
+        lambda vm: vm.add_guest_agent(),
+        lambda t: bool(t.xpath("devices/channel/target[@name='org.qemu.guest_agent.0']")),
+        ["devices/channel[target/@name='org.qemu.guest_agent.0']"], True, True,
     ),
     "edit_disk (cache mode)": (
         lambda vm: vm.edit_disk("vda", vm.get_disk_devices(config=True)[0]["path"], False, False, "virtio",
@@ -246,6 +257,10 @@ class LiveXmlEffectsTestCase(SimpleTestCase):
                     after = self.persistent(dom)
                     self.assertTrue(effect(after), "edit had no effect")
                     self.assertEqual(canonical(after, touched), canonical(before, touched), "unrelated change")
+                    # An unplug completes only when the guest acknowledges it; these
+                    # VMs have no OS (test_live_guest covers it with a real guest).
+                    if running and changes_live and name != "delete_network":
+                        self.assertTrue(effect(self.live(dom)), "edit did not reach the running VM")
                     if running and not changes_live:
                         self.assertEqual(
                             canonical(self.live(dom), ["devices/graphics/@port"]),

@@ -831,11 +831,8 @@ class wvmInstance(wvmConnect):
         if serial is not None and serial != "None" and serial != "":
             xml_disk += f"""<serial>{serial}</serial>"""
         xml_disk += """</disk>"""
-        if self.get_status() == 1:
-            self.instance.attachDeviceFlags(xml_disk, VIR_DOMAIN_AFFECT_LIVE)
-            self.instance.attachDeviceFlags(xml_disk, VIR_DOMAIN_AFFECT_CONFIG)
-        if self.get_status() == 5:
-            self.instance.attachDeviceFlags(xml_disk, VIR_DOMAIN_AFFECT_CONFIG)
+        for _, affect in self._definitions():
+            self.instance.attachDeviceFlags(xml_disk, affect)
 
     def detach_disk(self, target_dev):
         tree = etree.fromstring(self._XMLDesc(0))
@@ -1927,24 +1924,17 @@ class wvmInstance(wvmConnect):
                             <target type='virtio' name='org.qemu.guest_agent.0'/>
                         </channel>
                       """
-        if self.get_status() == 1:
-            self.instance.attachDeviceFlags(channel_xml, VIR_DOMAIN_AFFECT_LIVE)
-            self.instance.attachDeviceFlags(channel_xml, VIR_DOMAIN_AFFECT_CONFIG)
-        if self.get_status() == 5:
-            self.instance.attachDeviceFlags(channel_xml, VIR_DOMAIN_AFFECT_CONFIG)
+        for _, affect in self._definitions():
+            self.instance.attachDeviceFlags(channel_xml, affect)
 
     def remove_guest_agent(self):
-        tree = etree.fromstring(self._XMLDesc(0))
-        for target in tree.xpath(
-            "/domain/devices/channel[@type='unix']/target[@name='org.qemu.guest_agent.0']"
-        ):
-            parent = target.getparent()
-            channel_xml = etree.tostring(parent).decode()
-            if self.get_status() == 1:
-                self.instance.detachDeviceFlags(channel_xml, VIR_DOMAIN_AFFECT_LIVE)
-                self.instance.detachDeviceFlags(channel_xml, VIR_DOMAIN_AFFECT_CONFIG)
-            if self.get_status() == 5:
-                self.instance.detachDeviceFlags(channel_xml, VIR_DOMAIN_AFFECT_CONFIG)
+        for xml_flags, affect in self._definitions():
+            tree = etree.fromstring(self._XMLDesc(xml_flags))
+            for target in tree.xpath(
+                "/domain/devices/channel[@type='unix']/target[@name='org.qemu.guest_agent.0']"
+            ):
+                channel_xml = etree.tostring(target.getparent()).decode()
+                self.instance.detachDeviceFlags(channel_xml, affect)
 
     def get_guest_agent(self):
         def _get_agent(doc):
