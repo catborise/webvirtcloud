@@ -34,6 +34,7 @@ class OwnershipTestCase(TestCase):
     def compute(self, name):
         compute = Compute.objects.create(name=name, hostname=f"{name}.example", login="", password="", type=1)
         compute.__dict__["proxy"] = MagicMock()
+        compute.__dict__["status"] = True  # reachable
         self.on(compute, [])
         return compute
 

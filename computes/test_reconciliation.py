@@ -40,6 +40,7 @@ class InstanceReconciliationTestCase(TestCase):
         mock_proxy = MagicMock()
         mock_proxy.wvm.listAllDomains.return_value = [dom1, dom2]
         self.compute.__dict__["proxy"] = mock_proxy
+        self.compute.__dict__["status"] = True  # reachable
 
         refresh_instance_database(self.compute)
 
@@ -61,6 +62,7 @@ class InstanceReconciliationTestCase(TestCase):
         mock_proxy = MagicMock()
         mock_proxy.wvm.listAllDomains.return_value = []
         self.compute.__dict__["proxy"] = mock_proxy
+        self.compute.__dict__["status"] = True  # reachable
 
         refresh_instance_database(self.compute)
 
@@ -82,6 +84,7 @@ class InstanceReconciliationTestCase(TestCase):
         mock_proxy = MagicMock()
         mock_proxy.wvm.listAllDomains.return_value = [dom_renamed]
         self.compute.__dict__["proxy"] = mock_proxy
+        self.compute.__dict__["status"] = True  # reachable
 
         refresh_instance_database(self.compute)
 
@@ -105,6 +108,7 @@ class InstanceReconciliationTestCase(TestCase):
         mock_proxy = MagicMock()
         mock_proxy.wvm.listAllDomains.side_effect = Exception("Libvirt socket connection refused")
         self.compute.__dict__["proxy"] = mock_proxy
+        self.compute.__dict__["status"] = True  # reachable
 
         refresh_instance_database(self.compute)
 
@@ -124,6 +128,7 @@ class InstanceReconciliationTestCase(TestCase):
         mock_proxy = MagicMock()
         mock_proxy.wvm.listAllDomains.return_value = [broken_dom]
         self.compute.__dict__["proxy"] = mock_proxy
+        self.compute.__dict__["status"] = True  # reachable
 
         refresh_instance_database(self.compute)
 

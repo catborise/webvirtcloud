@@ -1,6 +1,9 @@
+import os
 import re
 import socket
 import threading
+import time
+from urllib.parse import quote
 
 import libvirt
 from django.conf import settings
@@ -15,6 +18,20 @@ CONN_TCP = 1
 TLS_PORT = 16514
 SSH_PORT = 22
 TCP_PORT = 16509
+
+# libvirt has no timeout for opening a connection: an unreachable host
+# blocks for the kernel's TCP connect timeout (about 2 minutes), a daemon
+# that accepts but never answers blocks forever, and such an open cannot be
+# cancelled. Connections are opened in a helper thread, at most one per
+# connection at a time, so a stuck host holds one thread and nothing else;
+# the caller waits at most CONNECT_TIMEOUT seconds, and a host that failed is
+# not tried again for RETRY_AFTER seconds.
+CONNECT_TIMEOUT = getattr(settings, "LIBVIRT_CONNECT_TIMEOUT", 5)
+RETRY_AFTER = getattr(settings, "LIBVIRT_RETRY_AFTER", 30)
+CLOSE_REASONS = {0: "error", 1: "end of file", 2: "keepalive timeout", 3: "client closed"}
+# ssh with a connect timeout for qemu+ssh (libvirt runs the "command" binary
+# in place of ssh and never passes one itself)
+SSH_COMMAND = os.path.join(os.path.dirname(os.path.abspath(__file__)), "libvirt-ssh")
 
 
 class wvmEventLoop(threading.Thread):
@@ -58,6 +75,8 @@ class wvmConnection(object):
         self.connection_state_lock = threading.Lock()
         self.connection = None
         self.last_error = None
+        self._opening = None  # threading.Event of the open in progress
+        self._retry_at = 0.0  # monotonic time before which no new open is tried
 
         # credentials
         self.host = host
@@ -66,39 +85,70 @@ class wvmConnection(object):
         self.type = conn
 
     def connect(self):
-        self.connection_state_lock.acquire()
-        try:
-            # recheck if we have a connection (it may have been
-            if not self.connected:
-                if self.type == CONN_TCP:
-                    self.__connect_tcp()
-                elif self.type == CONN_SSH:
-                    self.__connect_ssh()
-                elif self.type == CONN_TLS:
-                    self.__connect_tls()
-                elif self.type == CONN_SOCKET:
-                    self.__connect_socket()
-                else:
-                    raise ValueError(f'"{self.type}" is not a valid connection type')
+        """Open the connection if needed, waiting at most CONNECT_TIMEOUT.
+        On failure last_error says why and connected stays False."""
+        with self.connection_state_lock:
+            if self.connected:
+                return
+            if self._opening is not None and self._opening.abandoned:
+                # A caller already waited for this open in vain; nobody waits
+                # again until it ends (one thread per connection, however long).
+                return
+            if time.monotonic() < self._retry_at:
+                return  # failed recently: answer with the last error at once
+            if self._opening is None:
+                self._opening = threading.Event()
+                self._opening.abandoned = False
+                threading.Thread(target=self._open, args=(self._opening,), daemon=True).start()
+            opening = self._opening
 
-                if self.connected:
-                    # do some preprocessing of the connection:
-                    #     * set keep alive interval
-                    #     * set connection close/fail handler
-                    try:
-                        self.connection.setKeepAlive(
-                            connection_manager.keepalive_interval, connection_manager.keepalive_count
-                        )
-                        try:
-                            self.connection.registerCloseCallback(self.__connection_close_callback, None)
-                        except Exception:
-                            # Temporary fix for libvirt > libvirt-0.10.2-41
-                            pass
-                    except libvirtError as e:
-                        # hypervisor driver does not seem to support persistent connections
-                        self.last_error = str(e)
+        if not opening.wait(CONNECT_TIMEOUT):
+            with self.connection_state_lock:
+                if self._opening is opening:  # still running: give up waiting, not the open
+                    self.last_error = f"Connection Failed: {self.host} did not answer within {CONNECT_TIMEOUT} s"
+                    opening.abandoned = True
+
+    def _open(self, opening):
+        """Helper thread: open, configure and publish the connection."""
+        connection = error = None
+        try:
+            connection = self._open_transport()
+            if not connection.isAlive():  # closed again before it was published
+                raise util.OperationError("the connection closed right after opening")
+            # Drivers without keepalive or close callbacks work without them
+            try:
+                connection.setKeepAlive(connection_manager.keepalive_interval, connection_manager.keepalive_count)
+            except libvirtError:
+                pass
+            try:
+                connection.registerCloseCallback(self.__connection_close_callback, None)
+            except libvirtError:
+                pass
+        except Exception as e:  # libvirtError, or anything else from the transport
+            error = f"Connection Failed: {str(e)}"
         finally:
-            self.connection_state_lock.release()
+            with self.connection_state_lock:
+                if error is None:
+                    self.connection = connection
+                    self.last_error = None
+                    self._retry_at = 0.0
+                else:
+                    self.connection = None
+                    self.last_error = error
+                    self._retry_at = time.monotonic() + RETRY_AFTER
+                self._opening = None
+            opening.set()
+
+    def _open_transport(self):
+        if self.type == CONN_TCP:
+            return self.__connect_tcp()
+        if self.type == CONN_SSH:
+            return self.__connect_ssh()
+        if self.type == CONN_TLS:
+            return self.__connect_tls()
+        if self.type == CONN_SOCKET:
+            return self.__connect_socket()
+        raise ValueError(f'"{self.type}" is not a valid connection type')
 
     @property
     def connected(self):
@@ -121,65 +171,30 @@ class wvmConnection(object):
         return 0
 
     def __connection_close_callback(self, connection, reason, opaque=None):
-        self.connection_state_lock.acquire()
-        try:
-            # on server shutdown libvirt module gets freed before the close callbacks are called
-            # so we just check here if it is still present
-            if libvirt is not None:
-                self.last_error = reason
-
+        with self.connection_state_lock:
+            # A late callback of a connection that was already replaced must
+            # not drop its successor.
+            if connection is not self.connection:
+                return
+            self.last_error = f"Connection closed ({CLOSE_REASONS.get(reason, reason)})"
             # prevent other threads from using the connection (in the future)
             self.connection = None
-        finally:
-            self.connection_state_lock.release()
 
     def __connect_tcp(self):
         flags = [libvirt.VIR_CRED_AUTHNAME, libvirt.VIR_CRED_PASSPHRASE]
         auth = [flags, self.__libvirt_auth_credentials_callback, None]
-        uri = f"qemu+tcp://{self.host}/system"
-
-        try:
-            self.connection = libvirt.openAuth(uri, auth, 0)
-            self.last_error = None
-
-        except libvirtError as e:
-            self.last_error = f"Connection Failed: {str(e)}"
-            self.connection = None
+        return libvirt.openAuth(f"qemu+tcp://{self.host}/system", auth, 0)
 
     def __connect_ssh(self):
-        uri = "qemu+ssh://%s@%s/system" % (self.login, self.host)
-
-        try:
-            self.connection = libvirt.open(uri)
-            self.last_error = None
-
-        except libvirtError as e:
-            self.last_error = f"Connection Failed: {str(e)} --- " + repr(libvirt.virGetLastError())
-            self.connection = None
+        return libvirt.open(f"qemu+ssh://{self.login}@{self.host}/system?command={quote(SSH_COMMAND)}")
 
     def __connect_tls(self):
         flags = [libvirt.VIR_CRED_AUTHNAME, libvirt.VIR_CRED_PASSPHRASE]
         auth = [flags, self.__libvirt_auth_credentials_callback, None]
-        uri = "qemu+tls://%s@%s/system" % (self.login, self.host)
-
-        try:
-            self.connection = libvirt.openAuth(uri, auth, 0)
-            self.last_error = None
-
-        except libvirtError as e:
-            self.last_error = f"Connection Failed: {str(e)}"
-            self.connection = None
+        return libvirt.openAuth(f"qemu+tls://{self.login}@{self.host}/system", auth, 0)
 
     def __connect_socket(self):
-        uri = "qemu:///system"
-
-        try:
-            self.connection = libvirt.open(uri)
-            self.last_error = None
-
-        except libvirtError as e:
-            self.last_error = f"Connection Failed: {str(e)}"
-            self.connection = None
+        return libvirt.open("qemu:///system")
 
     def close(self):
         """
@@ -286,7 +301,7 @@ class wvmConnectionManager(object):
                 self._connections_lock.release()
 
         if not connection.connected:
-            # (re-)connect; the connection's own lock serializes concurrent attempts
+            # (re-)connect within CONNECT_TIMEOUT; one open per connection at a time
             connection.connect()
 
         if connection.connected:

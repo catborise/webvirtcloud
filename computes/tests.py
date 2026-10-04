@@ -214,6 +214,7 @@ class ComputeConcurrencyTestCase(TransactionTestCase):
         mock_proxy = MagicMock()
         mock_proxy.wvm.listAllDomains.return_value = [mock_dom1, mock_dom2]
         compute.proxy = mock_proxy
+        compute.status = True  # reachable
 
         exceptions = []
 
@@ -253,6 +254,7 @@ class ComputeConcurrencyTestCase(TransactionTestCase):
         mock_proxy = MagicMock()
         mock_proxy.wvm.listAllDomains.return_value = []
         compute.proxy = mock_proxy
+        compute.status = True  # reachable
 
         # 1. When lock directory cannot be acquired
         with patch("computes.utils._get_lock_directory", return_value=None):

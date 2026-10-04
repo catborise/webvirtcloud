@@ -17,12 +17,14 @@ class Compute(Model):
 
     @cached_property
     def status(self):
-        # return connection_manager.host_is_up(self.type, self.hostname)
-        # TODO: looks like socket has problems connecting via VPN
-        if isinstance(self.connection, virConnect):
-            return True
-        else:
-            return self.connection
+        """True if WebVirtCloud can connect to the host (within the connect
+        timeout; a host that failed recently is not tried again at once)."""
+        return isinstance(self.connection, virConnect)
+
+    @cached_property
+    def connection_error(self):
+        """Why the host cannot be reached, or None."""
+        return None if self.status else str(self.connection)
 
     @cached_property
     def connection(self):
