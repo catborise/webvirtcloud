@@ -2141,13 +2141,15 @@ def create_instance(request, compute_id, arch, machine):
                             firmware["secure"] = "no"
                             firmware["readonly"] = "yes"
                             firmware["type"] = "pflash"
-                            if "secboot" in firmware["loader"] and machine != "q35":
-                                messages.warning(
-                                    request,
-                                    "Changing machine type from '%s' to 'q35' "
-                                    "which is required for UEFI secure boot." % machine,
-                                )
-                                machine = "q35"
+                            if "secboot" in firmware["loader"]:
+                                # A secure boot loader needs secure='yes' and SMM, on q35 only
+                                if machine != "q35":
+                                    messages.warning(
+                                        request,
+                                        "Changing machine type from '%s' to 'q35' "
+                                        "which is required for UEFI secure boot." % machine,
+                                    )
+                                    machine = "q35"
                                 firmware["secure"] = "yes"
 
                         if data["net_model"] == "default":

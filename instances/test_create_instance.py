@@ -13,6 +13,16 @@ class CreateInstanceViewTests(TestCase):
     @patch("instances.views.wvmCreate")
     @patch("instances.views.NewVMForm")
     def test_successful_create_redirects_after_saving_instance(self, form_class, connection_class):
+        self.create(form_class, connection_class, "BIOS")
+
+    @patch("instances.views.wvmCreate")
+    @patch("instances.views.NewVMForm")
+    def test_secure_boot_loader_on_q35_requests_secure_boot(self, form_class, connection_class):
+        self.create(form_class, connection_class, "UEFI x86_64: /usr/share/edk2/ovmf/OVMF_CODE.secboot.fd")
+        firmware = connection_class.return_value.create_instance.call_args.kwargs["firmware"]
+        self.assertEqual(firmware["secure"], "yes")
+
+    def create(self, form_class, connection_class, firmware):
         user = get_user_model().objects.create_superuser(
             username="create-test-admin", password="password", email="create@example.com"
         )
@@ -43,7 +53,7 @@ class CreateInstanceViewTests(TestCase):
         form.cleaned_data = {
             "name": "new-vm", "meta_prealloc": False, "hdd_size": 0,
             "template": "", "images": "base.qcow2", "cache_mode": "default",
-            "firmware": "BIOS", "net_model": "virtio", "memory": 1024,
+            "firmware": firmware, "net_model": "virtio", "memory": 1024,
             "vcpu": 1, "vcpu_mode": "host-model", "networks": "default",
             "virtio": True, "listener_addr": "0.0.0.0", "nwfilter": "",
             "graphics": "vnc", "video": "vga", "console_pass": "",

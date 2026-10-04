@@ -128,6 +128,21 @@ class LiveCreateTestCase(TestCase):
         dom.create()
         self.assertTrue(dom.isActive())
 
+    def test_secure_boot_loader_on_q35_gets_secure_boot(self):
+        caps = etree.fromstring(self.conn.getDomainCapabilities(None, "x86_64", "q35", "kvm"))
+        secboot = [p for p in caps.xpath("os/loader/value/text()") if "secboot" in p and "OVMF_CODE" in p]
+        if not secboot:
+            self.skipTest("the host has no secure boot loader for q35")
+
+        self.create("cr-secboot", firmware=f"UEFI x86_64: {secboot[0]}")
+
+        dom = self.conn.lookupByName(P + "cr-secboot")
+        tree = etree.fromstring(dom.XMLDesc(0))
+        self.assertEqual(tree.find("os/loader").get("secure"), "yes")
+        self.assertEqual(tree.find("features/smm").get("state"), "on")
+        dom.create()
+        self.assertTrue(dom.isActive())
+
     def test_api_rejected_definition_removes_the_new_disk(self):
         response = self.client.post(
             f"/api/v1/computes/{self.compute.id}/instances/create/x86_64/q35/",
