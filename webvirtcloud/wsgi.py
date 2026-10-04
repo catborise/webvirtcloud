@@ -7,14 +7,6 @@ For more information on this file, see
 https://docs.djangoproject.com/en/4.2/howto/deployment/wsgi/
 """
 
-import signal
-import threading
-
-# Reap child processes to avoid zombies. Signal handlers can only be set from
-# the main thread; runserver imports this module from a worker thread.
-if threading.current_thread() is threading.main_thread():
-    signal.signal(signal.SIGCHLD, signal.SIG_IGN)
-
 import os
 
 from django.core.wsgi import get_wsgi_application

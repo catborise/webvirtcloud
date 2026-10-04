@@ -4,9 +4,6 @@ import sys
 import logging
 import django
 
-import signal
-signal.signal(signal.SIGCHLD, signal.SIG_IGN)
-
 DIR_PATH = os.path.dirname(os.path.abspath(__file__))
 ROOT_PATH = os.path.abspath(os.path.join(DIR_PATH, "..", ""))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "webvirtcloud.settings")
@@ -37,7 +34,6 @@ import socket
 import socketio
 import pty
 import select
-import subprocess
 import struct
 import fcntl
 import termios
@@ -201,7 +197,9 @@ def connect(sid, environ):
         uuid = conn.get_uuid()
         uri = conn.wvm.getURI()
 
-        subprocess.run(["conf/daemon/consolecallback", uri, uuid])
+        # Become the console process; returning would run this server's code
+        # in the child as well.
+        os.execv("conf/daemon/consolecallback", ["consolecallback", uri, uuid])
     else:
         # this is the parent process fork.
         sio.start_background_task(target=read_and_forward_pty_output)
@@ -216,7 +214,7 @@ def disconnect(sid):
     # kill pty process
     try:
         os.kill(child_pid, signal.SIGKILL)
-        os.wait()
+        os.waitpid(child_pid, 0)  # only the child this daemon started
     except ProcessLookupError:
         pass
     except ChildProcessError:

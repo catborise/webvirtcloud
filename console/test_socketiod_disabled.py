@@ -1,5 +1,4 @@
 import os
-import signal
 import subprocess
 import sys
 import tempfile
@@ -28,9 +27,6 @@ class SocketiodDisabledTestCase(unittest.TestCase):
                 DJANGO_SETTINGS_MODULE="socketiod_disabled_settings",
                 PYTHONPATH=os.pathsep.join([tmp, str(ROOT)]),
             )
-            # Other test modules import novncd, which sets SIGCHLD to SIG_IGN in
-            # this process; with that, the child's exit status is lost (always 0).
-            previous_sigchld = signal.signal(signal.SIGCHLD, signal.SIG_DFL)
             try:
                 result = subprocess.run(
                     [sys.executable, str(SOCKETIOD)],
@@ -42,7 +38,5 @@ class SocketiodDisabledTestCase(unittest.TestCase):
                 )
             except subprocess.TimeoutExpired:
                 self.fail("socketiod kept running although SERIAL_CONSOLE_ENABLED=False")
-            finally:
-                signal.signal(signal.SIGCHLD, previous_sigchld)
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("SERIAL_CONSOLE_ENABLED", result.stderr)

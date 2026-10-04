@@ -1,6 +1,5 @@
 import json
 import os
-import signal
 import socket
 import subprocess
 import sys
@@ -51,9 +50,6 @@ class GstfsdTestCase(unittest.TestCase):
     """gstfsd hardening."""
 
     def setUp(self):
-        # novncd (imported by other tests) sets SIGCHLD to SIG_IGN, which hides exit codes.
-        previous = signal.signal(signal.SIGCHLD, signal.SIG_DFL)
-        self.addCleanup(signal.signal, signal.SIGCHLD, previous)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         Path(self.tmp.name, "guestfs.py").write_text(FAKE_GUESTFS)

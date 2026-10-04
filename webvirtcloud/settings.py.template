@@ -4,7 +4,6 @@ Django settings for webvirtcloud project.
 """
 
 import os
-import subprocess
 try:
     import ldap
     from django_auth_ldap.config import LDAPSearch, NestedActiveDirectoryGroupType
