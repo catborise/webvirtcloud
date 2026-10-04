@@ -1,3 +1,4 @@
+import ipaddress
 import re
 
 from django import forms
@@ -57,29 +58,28 @@ class AddInterface(forms.Form):
 
     def clean_ipv6_addr(self):
         ipv6_addr = self.cleaned_data["ipv6_addr"]
-        have_symbol = re.match("^[0-9a-f./:]+|^$", ipv6_addr)
-        if not have_symbol:
-            raise forms.ValidationError(
-                _("The IPv6 address must not contain any special characters")
-            )
-        elif len(ipv6_addr) > 100:
-            raise forms.ValidationError(
-                _("The IPv6 address must not exceed 100 characters")
-            )
-        return ipv6_addr
+        if not ipv6_addr:
+            return ipv6_addr
+        try:
+            # Always address/prefix, as the interface XML needs both
+            return str(ipaddress.IPv6Interface(ipv6_addr))
+        except ValueError:
+            raise forms.ValidationError(_("The IPv6 address is not valid (e.g. 2001:db8::10/64)"))
 
     def clean_ipv6_gw(self):
         ipv6_gw = self.cleaned_data["ipv6_gw"]
-        have_symbol = re.match("^[0-9a-f./:]+|^$", ipv6_gw)
-        if not have_symbol:
-            raise forms.ValidationError(
-                _("The IPv6 gateway must not contain any special characters")
-            )
-        elif len(ipv6_gw) > 100:
-            raise forms.ValidationError(
-                _("The IPv6 gateway must not exceed 100 characters")
-            )
-        return ipv6_gw
+        if not ipv6_gw:
+            return ipv6_gw
+        try:
+            return str(ipaddress.IPv6Address(ipv6_gw))
+        except ValueError:
+            raise forms.ValidationError(_("The IPv6 gateway is not valid"))
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("ipv6_type") == "static" and not cleaned.get("ipv6_addr") and "ipv6_addr" not in self.errors:
+            self.add_error("ipv6_addr", _("A static IPv6 configuration needs an address"))
+        return cleaned
 
     def clean_name(self):
         name = self.cleaned_data["name"]

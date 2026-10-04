@@ -44,9 +44,10 @@ class wvmInterfaces(wvmConnect):
         if ipv6_type == "static":
             address, prefix = ipv6_addr.split("/")
             xml += f"""<protocol family='ipv6'>
-                        <ip address='{address}' prefix='{prefix}'/>
-                        <route gateway='{ipv6_gw}'/>
-                      </protocol>"""
+                        <ip address='{address}' prefix='{prefix}'/>"""
+            if ipv6_gw:
+                xml += f"""<route gateway='{ipv6_gw}'/>"""
+            xml += """</protocol>"""
         if itype == "bridge":
             xml += f"""<bridge stp='{stp}' delay='{delay}'>
                         <interface name='{netdev}' type='ethernet'/>
