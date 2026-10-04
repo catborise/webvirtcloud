@@ -164,18 +164,6 @@ def get_compute_machine_types(request, compute_id, arch):
     return HttpResponse(comp_mgr.get_machine_types(arch), content_type="application/json")
 
 
-def get_compute_video_models(request, compute_id, arch, machine):
-    """
-    :param request:
-    :param compute_id:
-    :param arch:
-    :param machine:
-    :return:
-    """
-    comp_mgr = ComputeManager(compute_id)
-    return HttpResponse(comp_mgr.get_video_models(arch, machine), content_type="application/json")
-
-
 def get_dom_capabilities(request, compute_id, arch, machine):
     """
     :param request:
@@ -197,15 +185,6 @@ class ComputeManager:
             self.compute.password,
             self.compute.type,
         )
-
-    def get_video_models(self, arch, machine):
-        data = dict()
-        try:
-            data["videos"] = self.conn.get_video_models(arch, machine)
-        except libvirtError:
-            pass
-
-        return json.dumps(data)
 
     def get_dom_capabilities(self, arch, machine):
         data = dict()
