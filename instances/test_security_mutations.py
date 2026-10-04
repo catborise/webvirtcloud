@@ -299,7 +299,7 @@ class InstanceSecurityMutationsTestCase(TestCase):
 
     def test_disk_mutation_denied_with_is_change(self):
         # change_user has is_change=True, is_delete=False. Disk views are
-        # superuser-only (S-02/S-03/S-04), so is_change alone is not enough.
+        # superuser-only, so is_change alone is not enough.
         self.client.force_login(self.change_user)
         with patch("instances.models.wvmInstance"), patch("instances.views.wvmStorage") as mock_storage:
             res = self.client.post(

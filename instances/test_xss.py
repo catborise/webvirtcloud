@@ -1,7 +1,7 @@
 """
-Regression tests for ROADMAP Wave 0 item 3 (S-06, S-07): JSON endpoints must
-not be served as text/html (reflected XSS), and templates must not build HTML
-by concatenating server data that contains user-controlled names (stored XSS).
+JSON endpoints must not be served as text/html (reflected XSS), and
+templates must not build HTML by concatenating server data that contains
+user-controlled names (stored XSS).
 """
 import re
 from pathlib import Path

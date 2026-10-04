@@ -1,4 +1,4 @@
-"""Live checks that persistent edits keep secrets and pending changes (R-01, R-02).
+"""Live checks that persistent edits keep secrets and pending changes.
 
 Every edit that redefines the domain must start from the persistent
 definition with secrets (VIR_DOMAIN_XML_INACTIVE | VIR_DOMAIN_XML_SECURE).

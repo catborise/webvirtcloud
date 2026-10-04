@@ -1,4 +1,4 @@
-"""ROADMAP O-02: the generated admin password must not be printed to the log."""
+"""The generated admin password must not be printed to the log."""
 import io
 import os
 import stat

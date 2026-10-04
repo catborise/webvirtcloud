@@ -129,7 +129,7 @@ def console(request):
     elif console_type == "pty" and not getattr(
         settings, "SERIAL_CONSOLE_ENABLED", False
     ):
-        # socketiod does not authenticate connections yet (ROADMAP S-01), so
+        # socketiod does not authenticate connections yet, so
         # the serial console stays off unless an admin explicitly enables it.
         console_error = _(
             "Serial console is disabled on this server. "

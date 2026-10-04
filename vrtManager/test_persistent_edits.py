@@ -16,7 +16,7 @@ DOMAIN = """<domain><name>vm</name><memory>131072</memory><currentMemory>131072<
 
 
 class PersistentEditsTestCase(unittest.TestCase):
-    """R-01/R-02: edits read the persistent definition with secrets."""
+    """Edits read the persistent definition with secrets."""
 
     def test_edits_read_the_persistent_secure_definition(self):
         edits = {

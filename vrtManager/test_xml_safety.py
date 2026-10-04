@@ -170,7 +170,7 @@ class TestXmlSafety(unittest.TestCase):
         inst._defineXML.assert_not_called()
 
     def test_internal_snapshot_never_rewrites_a_pflash_loader(self):
-        # R-13: libvirt decides; the definition is not switched to rom.
+        # libvirt decides; the definition is not switched to rom.
         inst = wvmInstance.__new__(wvmInstance)
         inst.get_status = MagicMock(return_value=5)
         inst._XMLDesc = MagicMock(
@@ -187,7 +187,7 @@ class TestXmlSafety(unittest.TestCase):
 
 
 class TestCloneRollback(unittest.TestCase):
-    """R-08: a failed clone removes only the volumes it created."""
+    """A failed clone removes only the volumes it created."""
 
     def test_copies_are_removed_when_the_definition_fails(self):
         import libvirt

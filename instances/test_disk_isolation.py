@@ -1,6 +1,5 @@
 """
-Regression tests for ROADMAP Wave 0 item 1 (S-02, S-03, S-04):
-disk and media mutation views must be superuser-only (matching the UI, where
+Disk and media mutation views must be superuser-only (matching the UI, where
 the Disk tab is only rendered for superusers), and even for superusers the
 views must not act on volumes or option values taken blindly from the client.
 """

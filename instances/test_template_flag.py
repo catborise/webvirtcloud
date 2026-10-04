@@ -1,5 +1,5 @@
 """
-ROADMAP S-22: only superusers and staff may mark or unmark a VM as a template.
+Only superusers and staff may mark or unmark a VM as a template.
 The UI only disables the checkbox for other users, and a disabled checkbox is
 not submitted, so the server must not derive is_template from its absence for
 them.

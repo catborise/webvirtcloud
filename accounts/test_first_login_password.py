@@ -1,4 +1,4 @@
-"""ROADMAP O-17: the generated admin password must be replaced at first login."""
+"""The generated admin password must be replaced at first login."""
 import tempfile
 from pathlib import Path
 

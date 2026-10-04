@@ -300,7 +300,7 @@ class CreateInstance(models.Model):
 
 
 class InstanceTombstone(models.Model):
-    """Ownership of a VM that disappeared from its compute (R-05).
+    """Ownership of a VM that disappeared from its compute.
 
     Kept for INSTANCE_OWNERSHIP_RETENTION_DAYS so that the owners come back
     when the same UUID shows up again, on this or another compute.

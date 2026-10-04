@@ -13,7 +13,7 @@ from . import forms, views
 def superuser_only_patterns(patterns):
     """
     Wrap every view below these patterns with superuser_only. Everything under
-    /computes/ is host administration (ROADMAP S-10), so the check is applied
+    /computes/ is host administration, so the check is applied
     to the whole namespace instead of per view, and a view added here later
     cannot be exposed by forgetting a decorator.
     """

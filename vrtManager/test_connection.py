@@ -1,4 +1,4 @@
-"""R-09: reachability probe and connections that do not block each other."""
+"""Reachability probe and connections that do not block each other."""
 
 import socket
 import threading

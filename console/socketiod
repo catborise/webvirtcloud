@@ -19,7 +19,7 @@ django.setup()
 
 from django.conf import settings as django_settings
 
-# socketiod does not authenticate connections yet (ROADMAP S-01): any client
+# socketiod does not authenticate connections yet: any client
 # that can reach the port can read and write an open serial console. Refuse
 # to start unless an admin explicitly opts in.
 if not getattr(django_settings, "SERIAL_CONSOLE_ENABLED", False):

@@ -26,7 +26,7 @@ class SetRootPassTestCase(TestCase):
     @patch("socket.socket")
     @patch.object(Instance, "proxy")
     def test_set_root_pass_post(self, mock_proxy, mock_socket_cls):
-        # Renamed on the host: gstfsd must get the name of this UUID's domain (R-06)
+        # Renamed on the host: gstfsd must get the name of this UUID's domain
         mock_proxy.instance.name.return_value = "renamed-on-host"
         mock_proxy.get_status.return_value = 5  # status: running
         mock_sock = MagicMock()
@@ -46,7 +46,7 @@ class SetRootPassTestCase(TestCase):
         data = json.loads(sent_bytes.decode())
         self.assertEqual(data["action"], "password")
         self.assertEqual(data["vname"], "renamed-on-host")
-        # SHA-512 crypt with a random salt (ROADMAP S-08), not the old fixed one
+        # SHA-512 crypt with a random salt, not the old fixed one
         self.assertTrue(data["passwd"].startswith("$6$"))
         self.assertFalse(data["passwd"].startswith("$6$kgPoiREy$"))
 

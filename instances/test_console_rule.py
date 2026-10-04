@@ -1,7 +1,7 @@
 """
-ROADMAP Wave 0 item 5 (S-09): one rule decides who may open a VM's console
-(noVNC page, novncd, the virt-viewer .vv file, the VDI URL): a superuser or
-an owner of the VM. The global view_instances permission is read-only.
+One rule decides who may open a VM's console (noVNC page, novncd, the
+virt-viewer .vv file, the VDI URL): a superuser or an owner of the VM. The
+global view_instances permission is read-only.
 """
 from unittest.mock import MagicMock, patch
 

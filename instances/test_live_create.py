@@ -1,4 +1,4 @@
-"""Live checks that a failed VM creation leaves no volumes behind (R-08).
+"""Live checks that a failed VM creation leaves no volumes behind.
 
 Runs only with TEST_LIBVIRT_HOST set (see instances/livetest.py).
 """

@@ -53,7 +53,7 @@ def _store_generated_password(password):
     """
     Write the generated admin password to data/admin_password (mode 0600)
     instead of printing it, so it does not end up in install logs or
-    `docker logs` (ROADMAP O-02). Abort provisioning if private storage fails.
+    `docker logs`. Abort provisioning if private storage fails.
     """
     path = admin_password_path()
     try:

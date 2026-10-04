@@ -1,4 +1,4 @@
-"""R-05: ownership survives a VM's temporary disappearance or an out-of-band move."""
+"""Ownership survives a VM's temporary disappearance or an out-of-band move."""
 
 from datetime import timedelta
 from unittest.mock import MagicMock

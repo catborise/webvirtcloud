@@ -11,7 +11,7 @@ SOCKETIOD = ROOT / "console" / "socketiod"
 
 
 class SocketiodDisabledTestCase(unittest.TestCase):
-    """ROADMAP S-01: socketiod must refuse to start unless explicitly enabled."""
+    """socketiod must refuse to start unless explicitly enabled."""
 
     def test_socketiod_exits_when_serial_console_disabled(self):
         # The settings module lives in a temporary directory, so the test does

@@ -24,7 +24,7 @@ def is_loopback(host):
 
 # gstfsd is an unauthenticated root service that rewrites any VM's
 # /etc/shadow and authorized_keys, so it only listens on loopback unless
-# explicitly allowed (ROADMAP S-08).
+# explicitly allowed.
 if not is_loopback(ADDRESS) and os.environ.get("GSTFSD_ALLOW_REMOTE") != "1":
     sys.stderr.write(
         "gstfsd: refusing to listen on %s (unauthenticated root service). "

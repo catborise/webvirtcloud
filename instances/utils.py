@@ -20,7 +20,7 @@ def can_open_console(user, instance):
     The single rule for console access (noVNC page, novncd, the virt-viewer
     .vv file and the VDI URL): an active superuser or an active owner of the
     VM. The global view_instances permission is read-only and does not grant
-    an interactive console (ROADMAP S-09).
+    an interactive console.
     """
     if not user.is_active:
         return False

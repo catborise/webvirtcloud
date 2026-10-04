@@ -16,7 +16,7 @@ FORM = {
 
 
 class CreateRollbackTestCase(TestCase):
-    """R-08: volumes are removed only while the VM is not defined yet."""
+    """Volumes are removed only while the VM is not defined yet."""
 
     def setUp(self):
         admin = get_user_model().objects.create_superuser("rb_admin", "r@example.com", "pw")

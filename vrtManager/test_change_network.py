@@ -41,7 +41,7 @@ class TestChangeNetwork(unittest.TestCase):
         self.assertEqual(second.find("source").attrib, {"bridge": "br0"})
         self.assertEqual(second.find("model").get("type"), "e1000")
         self.assertEqual(second.find("filterref").get("filter"), "clean-traffic")
-        # F-06: QoS, link state and the PCI address survive
+        # QoS, link state and the PCI address survive
         self.assertEqual(second.find("bandwidth/outbound").get("average"), "1000")
         self.assertEqual(second.find("link").get("state"), "down")
         self.assertEqual(second.find("address").get("bus"), "0x02")

@@ -207,7 +207,7 @@ def refresh_instance_database(compute):
     Libvirt is the single source of truth:
       - VMs removed in virt-manager/virsh are deleted from the database; their
         ownership is moved to the same UUID on another compute or kept in a
-        tombstone for INSTANCE_OWNERSHIP_RETENTION_DAYS (R-05).
+        tombstone for INSTANCE_OWNERSHIP_RETENTION_DAYS.
       - VMs created in virt-manager/virsh are added to the database.
       - VMs renamed in virt-manager/virsh have their name updated without losing
         UserInstance permission relationships (matched by UUID).
@@ -265,7 +265,7 @@ def refresh_instance_database(compute):
 
                 # 2. Instances gone from this compute. Their ownership goes to the
                 #    same UUID on another compute (an out-of-band move) or is kept
-                #    in a tombstone in case the VM comes back (R-05).
+                #    in a tombstone in case the VM comes back.
                 for inst in db_instances:
                     if inst.uuid not in host_domains:
                         elsewhere = Instance.objects.filter(uuid=inst.uuid).exclude(compute=compute).first()

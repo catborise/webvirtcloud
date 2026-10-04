@@ -1,8 +1,8 @@
-"""Live reproductions of the Wave 1a data-loss findings.
+"""Live tests for cases that lost disks or changed the wrong VM.
 
-Each test asserts the safe behavior and is marked expectedFailure until
-its finding is fixed; a fix turns it into an unexpected success, which
-fails the run until the marker is removed. Runs only with
+Each test asserts the safe behavior. Known unfixed cases are marked
+expectedFailure; a fix turns them into unexpected successes, which fail
+the run until the marker is removed. Runs only with
 TEST_LIBVIRT_HOST set (see instances/livetest.py).
 """
 
@@ -90,10 +90,10 @@ class LiveDataLossTestCase(TestCase):
         except libvirt.libvirtError:
             return False
 
-    # R-03: external snapshots
+    # External snapshots
 
     @unittest.expectedFailure
-    def test_r03_revert_external_snapshot_keeps_disk_added_later(self):
+    def test_revert_external_snapshot_keeps_disk_added_later(self):
         base = livetest.create_volume(self.conn, P + "r03-a")
         dom, inst = self.vm("r03-a", [base])
         self.post("create_external_snapshot", inst, {"name": "snap"})
@@ -109,7 +109,7 @@ class LiveDataLossTestCase(TestCase):
         self.assertTrue(livetest.volume_exists(self.conn, later), "revert deleted a disk the snapshot never had")
 
     @unittest.expectedFailure
-    def test_r03_delete_older_external_snapshot_keeps_newer_snapshot_files(self):
+    def test_delete_older_external_snapshot_keeps_newer_snapshot_files(self):
         base = livetest.create_volume(self.conn, P + "r03-b")
         dom, inst = self.vm("r03-b", [base])
         self.post("create_external_snapshot", inst, {"name": "older"})
@@ -122,7 +122,7 @@ class LiveDataLossTestCase(TestCase):
             self.assertTrue(livetest.volume_exists(self.conn, path), f"{path} was deleted")
         self.assertIn("s1.newer", dom.snapshotListNames(0))
 
-    # R-13: internal snapshots of UEFI VMs
+    # Internal snapshots of UEFI VMs
 
     def _uefi_internal_snapshot(self, running):
         base = livetest.create_volume(self.conn, P + "r13")
@@ -145,15 +145,15 @@ class LiveDataLossTestCase(TestCase):
 
         return etree.tostring(etree.fromstring(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)).find("os"))
 
-    def test_r13_uefi_internal_snapshot_of_a_stopped_vm(self):
+    def test_uefi_internal_snapshot_of_a_stopped_vm(self):
         self._uefi_internal_snapshot(running=False)
 
-    def test_r13_uefi_internal_snapshot_of_a_running_vm(self):
+    def test_uefi_internal_snapshot_of_a_running_vm(self):
         self._uefi_internal_snapshot(running=True)
 
-    # R-14: destroy
+    # Destroy
 
-    def test_r14_destroy_keeps_a_volume_another_vm_uses(self):
+    def test_destroy_keeps_a_volume_another_vm_uses(self):
         shared = livetest.create_volume(self.conn, P + "r14-shared")
         _, inst = self.vm("r14-a", [shared])
         self.vm("r14-b", [shared])
@@ -182,13 +182,13 @@ class LiveDataLossTestCase(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(livetest.volume_exists(self.conn, base), "deleted the backing file of another VM's disk")
 
-    def test_r14_destroy_keeps_the_backing_file_of_a_stopped_vm(self):
+    def test_destroy_keeps_the_backing_file_of_a_stopped_vm(self):
         self._destroy_base_of_another_vms_overlay(running=False)
 
-    def test_r14_destroy_keeps_the_backing_file_of_a_running_vm(self):
+    def test_destroy_keeps_the_backing_file_of_a_running_vm(self):
         self._destroy_base_of_another_vms_overlay(running=True)
 
-    def test_r14_destroy_with_managed_save_removes_the_vm(self):
+    def test_destroy_with_managed_save_removes_the_vm(self):
         base = livetest.create_volume(self.conn, P + "r14-save")
         dom, inst = self.vm("r14-save", [base])
         dom.create()
@@ -200,7 +200,7 @@ class LiveDataLossTestCase(TestCase):
         self.assertFalse(self.domain_exists(uuid), "VM is still defined")
         self.assertFalse(Instance.objects.filter(uuid=uuid).exists())
 
-    def test_r14_destroy_of_a_paused_vm_removes_it(self):
+    def test_destroy_of_a_paused_vm_removes_it(self):
         base = livetest.create_volume(self.conn, P + "r14-paused")
         dom, inst = self.vm("r14-paused", [base])
         dom.create()
@@ -210,7 +210,7 @@ class LiveDataLossTestCase(TestCase):
 
         self.assertFalse(self.domain_exists(dom.UUIDString()), "paused VM is still running")
 
-    # S-02: delete a volume only after it is detached
+    # Delete a volume only after it is detached
 
     def _delete_attached_volume(self, pause):
         base = livetest.create_volume(self.conn, P + "s02")
@@ -229,13 +229,13 @@ class LiveDataLossTestCase(TestCase):
         self.assertIn("vdb", self.disk_sources(dom))
         self.assertTrue(livetest.volume_exists(self.conn, data), "volume deleted while the VM still uses it")
 
-    def test_s02_delete_volume_of_a_paused_vm(self):
+    def test_delete_volume_of_a_paused_vm(self):
         self._delete_attached_volume(pause=True)
 
-    def test_s02_delete_volume_of_a_running_vm_without_guest_ack(self):
+    def test_delete_volume_of_a_running_vm_without_guest_ack(self):
         self._delete_attached_volume(pause=False)
 
-    def test_s02_delete_volume_another_vm_uses_is_refused(self):
+    def test_delete_volume_another_vm_uses_is_refused(self):
         base = livetest.create_volume(self.conn, P + "s02-own")
         shared = livetest.create_volume(self.conn, P + "s02-shared")
         _, inst = self.vm("s02-a", [base, shared])
@@ -246,9 +246,9 @@ class LiveDataLossTestCase(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(livetest.volume_exists(self.conn, shared), "deleted another VM's disk")
 
-    # R-06: operations follow the VM's UUID, not its name
+    # Operations follow the VM's UUID, not its name
 
-    def test_r06_mutation_follows_uuid_after_names_are_swapped(self):
+    def test_mutation_follows_uuid_after_names_are_swapped(self):
         dom_a, inst_a = self.vm("r06-a", [])
         dom_b, _ = self.vm("r06-b", [])
         dom_a.rename(P + "r06-tmp", 0)
@@ -260,7 +260,7 @@ class LiveDataLossTestCase(TestCase):
         self.assertIn("<title>for-a</title>", dom_a.XMLDesc(0))
         self.assertNotIn("<title>for-a</title>", dom_b.XMLDesc(0))
 
-    def test_r06_vm_replaced_under_the_same_name_is_not_touched(self):
+    def test_vm_replaced_under_the_same_name_is_not_touched(self):
         dom_old, inst = self.vm("r06-c", [])
         dom_old.undefine()
         dom_new = livetest.define_vm(self.conn, P + "r06-c", [])

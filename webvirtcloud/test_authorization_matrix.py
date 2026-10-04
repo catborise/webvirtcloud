@@ -1,5 +1,5 @@
 """
-Authorization matrix (ROADMAP Wave 0 item 5, S-09/S-10).
+Authorization matrix.
 
 Walks every named URL pattern and checks that an authenticated user without
 any relation to a VM or compute cannot reach it, unless the URL is in the
@@ -32,7 +32,7 @@ ALLOWED_FOR_ANY_USER = {
     "index": "landing page",
     "instances:index": "lists only the user's own instances",
     "accounts:login": "login page",
-    "accounts:email_otp": "part of the login flow (S-12 tracks its own issues)",
+    "accounts:email_otp": "part of the login flow (its own issues are tracked separately)",
     "accounts:logout": "logout",
     "accounts:profile": "the user's own profile",
     "accounts:ssh_key_create": "the user's own SSH keys",
@@ -40,31 +40,31 @@ ALLOWED_FOR_ANY_USER = {
     "rest_framework:login": "DRF browsable API login",
     "rest_framework:logout": "DRF browsable API logout",
     "console": "renders an error without a valid token; access is checked per VM",
-    "ds_openstack_index": "static cloud-init datasource index (F-14)",
+    "ds_openstack_index": "static cloud-init datasource index",
     # Meant for VMs: answers for the VM whose name matches the reverse DNS of
-    # the client IP. The design is broken and tracked as F-14.
-    "ds_openstack_metadata": "cloud-init datasource keyed by client IP (F-14)",
-    "ds_openstack_userdata": "cloud-init datasource keyed by client IP (F-14)",
+    # the client IP. The design is broken and needs a redesign.
+    "ds_openstack_metadata": "cloud-init datasource keyed by client IP",
+    "ds_openstack_userdata": "cloud-init datasource keyed by client IP",
     "instance-list": "API: filtered to the user's own instances",
     "compute-instance-list": "API: filtered to the user's own instances",
     "instance-flavor-list": "API: flavor catalogue",
     "instance-flavor-detail": "API: flavor catalogue",
-    "schema": "OpenAPI schema (SERVE_PERMISSIONS is S-21, Wave 3)",
-    "schema-json": "OpenAPI schema (SERVE_PERMISSIONS is S-21, Wave 3)",
-    "schema-redoc": "API docs (SERVE_PERMISSIONS is S-21, Wave 3)",
-    "schema-swagger-ui": "API docs (SERVE_PERMISSIONS is S-21, Wave 3)",
+    "schema": "OpenAPI schema (SERVE_PERMISSIONS not restricted yet)",
+    "schema-json": "OpenAPI schema (SERVE_PERMISSIONS not restricted yet)",
+    "schema-redoc": "API docs (SERVE_PERMISSIONS not restricted yet)",
+    "schema-swagger-ui": "API docs (SERVE_PERMISSIONS not restricted yet)",
 }
 
 # URL name -> why an anonymous visitor may reach it. Everything else must
 # redirect to the login page.
 ALLOWED_FOR_ANONYMOUS = {
     "accounts:login": "login page",
-    "accounts:email_otp": "part of the login flow (S-12 tracks its own issues)",
+    "accounts:email_otp": "part of the login flow (its own issues are tracked separately)",
     "rest_framework:login": "DRF browsable API login page",
-    "schema": "OpenAPI schema (SERVE_PERMISSIONS is S-21, Wave 3)",
-    "schema-json": "OpenAPI schema (SERVE_PERMISSIONS is S-21, Wave 3)",
-    "schema-redoc": "API docs (SERVE_PERMISSIONS is S-21, Wave 3)",
-    "schema-swagger-ui": "API docs (SERVE_PERMISSIONS is S-21, Wave 3)",
+    "schema": "OpenAPI schema (SERVE_PERMISSIONS not restricted yet)",
+    "schema-json": "OpenAPI schema (SERVE_PERMISSIONS not restricted yet)",
+    "schema-redoc": "API docs (SERVE_PERMISSIONS not restricted yet)",
+    "schema-swagger-ui": "API docs (SERVE_PERMISSIONS not restricted yet)",
 }
 
 # Endpoints that expose a VM's console (or its VNC password) and therefore

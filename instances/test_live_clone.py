@@ -1,4 +1,4 @@
-"""Live checks for cloning (R-08). Runs only with TEST_LIBVIRT_HOST set."""
+"""Live checks for cloning. Runs only with TEST_LIBVIRT_HOST set."""
 
 import os
 import unittest

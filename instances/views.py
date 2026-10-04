@@ -1909,7 +1909,7 @@ def change_options(request, pk):
         userinstance = UserInstance(is_change=False)
 
     if request.user.is_superuser or userinstance.is_change:
-        # Only superusers and staff may (un)mark templates (ROADMAP S-22). The
+        # Only superusers and staff may (un)mark templates. The
         # checkbox is disabled for everyone else, and a disabled checkbox is
         # not submitted, so for them the flag must be left alone.
         if request.user.is_superuser or request.user.is_staff:
@@ -2111,7 +2111,7 @@ def create_instance(request, compute_id, arch, machine):
                         data = form.cleaned_data
                         meta_prealloc = bool(data["meta_prealloc"])
 
-                        # Everything is checked before any storage is allocated (R-08).
+                        # Everything is checked before any storage is allocated.
                         if data["name"] in instances:
                             raise util.OperationError(_("A virtual machine with this name already exists"))
                         if Instance.objects.filter(name__exact=data["name"]):

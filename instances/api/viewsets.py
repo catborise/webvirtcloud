@@ -313,7 +313,7 @@ class CreateInstanceViewSet(viewsets.ViewSet):
                         qemu_ga=serializer.validated_data["qemu_ga"],
                     )
             except Exception as err:
-                # R-08: a failed definition must not leave the new disk behind
+                # A failed definition must not leave the new disk behind
                 if path:
                     try:
                         conn.delete_volume(path)

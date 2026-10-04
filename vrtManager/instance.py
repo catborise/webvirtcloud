@@ -51,7 +51,7 @@ from vrtManager.storage import wvmStorage, wvmStorages
 
 # Edits that redefine the domain start from this: the persistent definition,
 # with secrets. Live XML would drop pending changes, non-secure XML the VNC
-# password (R-01, R-02).
+# password.
 PERSISTENT_XML = VIR_DOMAIN_XML_INACTIVE | VIR_DOMAIN_XML_SECURE
 
 
@@ -711,7 +711,7 @@ class wvmInstance(wvmConnect):
         """Insert path into, or with None eject, CD-ROM dev.
 
         The live and the persistent definition are updated separately from
-        their own device XML, so neither is rewritten from the other (R-12).
+        their own device XML, so neither is rewritten from the other.
         """
         definitions = [("persistent", PERSISTENT_XML, VIR_DOMAIN_AFFECT_CONFIG)]
         if self.instance.isActive():  # running or paused
@@ -1338,7 +1338,7 @@ class wvmInstance(wvmConnect):
             time.time(),
         )
         # libvirt decides whether this firmware/NVRAM supports internal
-        # snapshots; the domain definition is never rewritten for it (R-13).
+        # snapshots; the domain definition is never rewritten for it.
         xml += self._XMLDesc(VIR_DOMAIN_XML_SECURE)
         xml += """<active>0</active>
                   </domainsnapshot>"""
@@ -1506,7 +1506,7 @@ class wvmInstance(wvmConnect):
 
     def clone_instance(self, clone_data):
         """Copy a shut-off VM. Inputs are checked before anything is allocated,
-        and on failure only the volumes this call created are removed (R-08)."""
+        and on failure only the volumes this call created are removed."""
         if self.get_status() != 5:
             # A running guest keeps writing while its disks are copied.
             raise util.OperationError("Shut the VM down before cloning it")

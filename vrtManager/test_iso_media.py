@@ -25,7 +25,7 @@ def vm(active):
 
 
 class IsoMediaTestCase(unittest.TestCase):
-    """R-12: media change goes through updateDeviceFlags for the right CD-ROM."""
+    """Media change goes through updateDeviceFlags for the right CD-ROM."""
 
     def updates(self, inst):
         return [

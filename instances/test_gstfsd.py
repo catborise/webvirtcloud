@@ -48,7 +48,7 @@ def free_port(family=socket.AF_INET, host="127.0.0.1"):
 
 
 class GstfsdTestCase(unittest.TestCase):
-    """ROADMAP S-08: gstfsd hardening."""
+    """gstfsd hardening."""
 
     def setUp(self):
         # novncd (imported by other tests) sets SIGCHLD to SIG_IGN, which hides exit codes.

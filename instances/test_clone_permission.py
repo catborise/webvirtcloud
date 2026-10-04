@@ -1,7 +1,6 @@
 """
-Regression tests for ROADMAP Wave 0 item 4 (S-05): cloning another user's VM
-must require change permission on it (templates excepted), and the clone
-data must not be taken blindly from the POST body.
+Cloning another user's VM must require change permission on it (templates
+excepted), and the clone data must not be taken blindly from the POST body.
 """
 from contextlib import contextmanager
 from unittest.mock import patch

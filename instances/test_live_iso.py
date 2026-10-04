@@ -1,4 +1,4 @@
-"""Live checks for ISO mount/unmount (R-12). Runs only with TEST_LIBVIRT_HOST set."""
+"""Live checks for ISO mount/unmount. Runs only with TEST_LIBVIRT_HOST set."""
 
 import os
 import unittest

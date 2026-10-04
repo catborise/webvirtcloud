@@ -6,7 +6,7 @@ from django.urls import reverse
 
 
 class AdminEmailOtpTestCase(TestCase):
-    """ROADMAP S-11: sending the OTP QR code by email must not happen on GET."""
+    """Sending the OTP QR code by email must not happen on GET."""
 
     def setUp(self):
         User = get_user_model()

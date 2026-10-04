@@ -140,7 +140,7 @@ class ConsoleViewsTestCase(TestCase):
     @override_settings(SERIAL_CONSOLE_ENABLED=False)
     @patch("console.views.wvmInstance")
     def test_console_pty_refused_when_serial_console_disabled(self, mock_wvm):
-        # ROADMAP S-01: socketiod is unauthenticated, so the serial console is
+        # socketiod is unauthenticated, so the serial console is
         # disabled unless an admin explicitly enables it.
         mock_conn = MagicMock()
         mock_conn.get_console_type.return_value = "pty"
@@ -194,7 +194,7 @@ class ConsoleViewsTestCase(TestCase):
 
     @patch("console.views.wvmInstance")
     def test_console_token_cookie_flags(self, mock_wvm):
-        # ROADMAP S-11: the token cookie is only read by novncd, never by JS.
+        # The token cookie is only read by novncd, never by JS.
         mock_conn = MagicMock()
         mock_conn.get_console_type.return_value = "vnc"
         mock_conn.get_console_websocket_port.return_value = None
@@ -209,7 +209,7 @@ class ConsoleViewsTestCase(TestCase):
 
     @patch("console.views.wvmInstance")
     def test_console_view_instances_perm_does_not_open_console(self, mock_wvm):
-        # ROADMAP S-09: global view_instances is a read-only role; the console
+        # Global view_instances is a read-only role; the console
         # is for superusers and VM owners only.
         mock_conn = MagicMock()
         mock_conn.get_console_type.return_value = "vnc"
