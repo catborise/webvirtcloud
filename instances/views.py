@@ -1462,7 +1462,11 @@ def set_bootorder(request, pk):
 def change_xml(request, pk):
     instance = get_instance(request.user, pk)
     new_xml = request.POST.get("inst_xml", "")
-    if new_xml:
+    # The editor is filled while the VM is shut off; once it runs, the posted
+    # XML would overwrite changes made since.
+    if new_xml and instance.proxy.get_status() != 5:
+        messages.error(request, _("Power off the instance to change its XML"))
+    elif new_xml:
         instance.proxy._defineXML(new_xml)
         msg = _("Change instance XML")
         addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
