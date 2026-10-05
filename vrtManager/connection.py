@@ -38,11 +38,6 @@ class wvmEventLoop(threading.Thread):
     """ Event Loop Class"""
 
     def __init__(self, group=None, target=None, name=None, args=(), kwargs={}):
-        # register the default event implementation
-        # of libvirt, as we do not have an existing
-        # event loop.
-        libvirt.virEventRegisterDefaultImpl()
-
         if name is None:
             name = "libvirt event loop"
 
@@ -58,6 +53,38 @@ class wvmEventLoop(threading.Thread):
             # we do not catch the exception here so it will show up
             # in the logs. Not sure when this call will ever fail
             libvirt.virEventRunDefaultImpl()
+
+
+# The event loop (keepalive, close callbacks) starts with the first connection
+# of a process, not at import: novncd imports this module and then forks a child
+# per console, and libvirt must not be used after a fork of a process with
+# running libvirt threads. Threads do not survive a fork, so a child starts its
+# own loop. This is process state, shared by all connection managers.
+_event_loop = {"lock": threading.Lock(), "running": False, "registered": False}
+
+
+def start_event_loop():
+    if _event_loop["running"]:
+        return
+    with _event_loop["lock"]:
+        if _event_loop["running"]:
+            return
+        if not _event_loop["registered"]:
+            # the registration is libvirt's process state and a child inherits it
+            libvirt.virEventRegisterDefaultImpl()
+            _event_loop["registered"] = True
+        wvmEventLoop().start()
+        _event_loop["running"] = True
+
+
+def _after_fork_in_child():
+    # the loop thread and any thread holding these locks are gone
+    _event_loop["lock"] = threading.Lock()
+    _event_loop["running"] = False
+    connection_manager.forget_connections()
+
+
+os.register_at_fork(after_in_child=_after_fork_in_child)
 
 
 class wvmConnection(object):
@@ -251,10 +278,15 @@ class wvmConnectionManager(object):
         #     http://wiki.libvirt.org/page/FAQ#Is_libvirt_thread_safe.3F
         self._connections = dict()
         self._connections_lock = ReadWriteLock()
+        self._inherited = []
 
-        # start event loop to handle keepalive requests and other events
-        self._event_loop = wvmEventLoop()
-        self._event_loop.start()
+    def forget_connections(self):
+        """For a forked child: stop using the inherited connections (the
+        parent's sockets). They are kept, not released: their destructors
+        would call libvirt in the child."""
+        self._inherited.append(self._connections)
+        self._connections = dict()
+        self._connections_lock = ReadWriteLock()
 
     def _search_connection(self, host, login, passwd, conn):
         """
@@ -279,6 +311,7 @@ class wvmConnectionManager(object):
         returns a connection object (as returned by the libvirt.open* methods) for the given host and credentials
         raises libvirtError if (re)connecting fails
         """
+        start_event_loop()
         # force all string values to unicode
         host = str(host)
         login = str(login)

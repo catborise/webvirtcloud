@@ -13,6 +13,7 @@ if not settings.configured:
     settings.configure(MAC_OUI="52:54:10")
 
 import libvirt
+from vrtManager import connection
 from vrtManager.connection import CONN_SSH, CONN_TCP, SSH_COMMAND, wvmConnectionManager
 
 
@@ -204,6 +205,64 @@ class BoundedOpenTestCase(unittest.TestCase):
         self.assertTrue(os.access(SSH_COMMAND, os.X_OK))
         with open(SSH_COMMAND) as script:
             self.assertIn("ConnectTimeout", script.read())
+
+
+class EventLoopTestCase(unittest.TestCase):
+    """The libvirt event loop thread starts with the first connection of a
+    process, not at import: novncd forks a child per console after importing
+    this module, and libvirt is not safe to use after a fork of a process
+    with running libvirt threads. A child starts its own loop, so its
+    keepalive works."""
+
+    def setUp(self):
+        for name in ("wvmEventLoop", "libvirt.virEventRegisterDefaultImpl", "libvirt.openAuth"):
+            patcher = patch(f"vrtManager.connection.{name}")
+            setattr(self, name.split(".")[-1], patcher.start())
+            self.addCleanup(patcher.stop)
+        self.openAuth.side_effect = lambda *args: alive_connection()
+        state = patch.dict(connection._event_loop, {"lock": threading.Lock(), "running": False, "registered": False})
+        state.start()
+        self.addCleanup(state.stop)
+
+    def test_no_thread_until_the_first_connection(self):
+        manager = wvmConnectionManager()
+        self.wvmEventLoop.assert_not_called()
+        self.virEventRegisterDefaultImpl.assert_not_called()
+        manager.get_connection("h", "u", "p", CONN_TCP)
+        wvmConnectionManager().get_connection("h2", "u", "p", CONN_TCP)  # one loop per process
+        self.wvmEventLoop.return_value.start.assert_called_once()
+        self.virEventRegisterDefaultImpl.assert_called_once()
+
+    def test_a_forked_child_starts_its_own_loop_with_its_own_connections(self):
+        manager = connection.connection_manager
+        parent_conn = manager.get_connection("fork-host", "u", "p", CONN_TCP)
+        read_end, write_end = os.pipe()
+        pid = os.fork()
+        if pid == 0:  # child: report and leave without running the test runner
+            try:
+                child_conn = manager.get_connection("fork-host", "u", "p", CONN_TCP)
+                kept = any(
+                    entry.connection is parent_conn
+                    for connections in manager._inherited
+                    for entries in connections.values()
+                    for entry in entries
+                )
+                report = (
+                    f"{self.wvmEventLoop.return_value.start.call_count} "
+                    f"{self.virEventRegisterDefaultImpl.call_count} {child_conn is parent_conn} {kept}"
+                )
+            except BaseException as e:
+                report = repr(e)
+            os.write(write_end, report.encode())
+            os._exit(0)
+        os.close(write_end)
+        os.waitpid(pid, 0)
+        report = os.read(read_end, 200).decode()
+        os.close(read_end)
+        # a second loop started in the child, on the inherited registration;
+        # the child opened its own connection instead of the parent's socket,
+        # and kept the parent's (releasing it would run libvirt destructors)
+        self.assertEqual(report, "2 1 False True")
 
 
 if __name__ == "__main__":
