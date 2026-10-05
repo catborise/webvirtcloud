@@ -6,11 +6,12 @@ from computes.models import Compute
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from instances.models import Instance
-from instances.utils import check_user_quota
+from instances.utils import QUOTA_UNVERIFIED, check_user_quota
 
 
 class QuotaWithDownHostTestCase(TestCase):
-    def test_vm_on_an_unreachable_host_does_not_break_the_quota_check(self):
+    def test_vm_on_an_unreachable_host_makes_the_quota_unverified(self):
+        # its usage is unknown, so an increase is refused (fail closed), without an error page
         sock = socket.socket()
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -22,4 +23,4 @@ class QuotaWithDownHostTestCase(TestCase):
         UserInstance.objects.create(user=user, instance=vm)
         get_settings()  # app settings are normally loaded by middleware
 
-        self.assertEqual(check_user_quota(user, 1, 1, 128, 1), "")
+        self.assertEqual(check_user_quota(user, 1, 1, 128, 1), QUOTA_UNVERIFIED)

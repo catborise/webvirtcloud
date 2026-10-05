@@ -9,6 +9,7 @@ from computes.utils import libvirt_compute_lock
 from django.conf import settings
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
+from libvirt import libvirtError
 from vrtManager import util
 from vrtManager.connection import connection_manager
 from vrtManager.instance import wvmInstance, wvmInstances
@@ -43,40 +44,63 @@ def get_clone_free_names(size=10):
     return free_names
 
 
+# check_user_quota could not read every VM of the user: an increase is refused
+QUOTA_UNVERIFIED = "unverified"
+
+
 def check_user_quota(user, instance, cpu, memory, disk_size):
+    """
+    Which quota the user would exceed by adding these amounts (instances,
+    vCPUs, memory MiB, disk GiB) to their VMs, or "". QUOTA_UNVERIFIED if a
+    VM that counts cannot be read (its host is down, the VM is gone): the
+    usage is unknown, so an increase is refused.
+    """
     ua, attributes_created = UserAttributes.objects.get_or_create(user=user)
     msg = ""
 
     if user.is_superuser:
         return msg
+    # adding nothing (a shrink) cannot exceed a quota
+    if instance <= 0 and cpu <= 0 and memory <= 0 and disk_size <= 0:
+        return msg
 
     quota_debug = app_settings.QUOTA_DEBUG
 
-    user_instances = UserInstance.objects.filter(user=user, instance__is_template=False)
+    user_instances = UserInstance.objects.filter(user=user, instance__is_template=False).select_related(
+        "instance__compute"
+    )
     instance += user_instances.count()
+    if ua.max_instances > 0 and instance > ua.max_instances:
+        msg = "instance"
+        if quota_debug:
+            msg += f" ({instance} > {ua.max_instances})"
+        return msg
+    if ua.max_cpus <= 0 and ua.max_memory <= 0 and ua.max_disk_size <= 0:
+        return msg
+
+    computes = {}  # status is cached per object: check each host once
     for usr_inst in user_instances:
-        if connection_manager.host_is_up(
-            usr_inst.instance.compute.type,
-            usr_inst.instance.compute.hostname,
-        ):
+        vm = usr_inst.instance
+        compute = computes.setdefault(vm.compute_id, vm.compute)
+        if compute.status is not True:
+            return QUOTA_UNVERIFIED
+        try:
             conn = wvmInstance(
-                usr_inst.instance.compute.hostname,
-                usr_inst.instance.compute.login,
-                usr_inst.instance.compute.password,
-                usr_inst.instance.compute.type,
-                usr_inst.instance.name,
-                uuid=usr_inst.instance.uuid,
+                compute.hostname,
+                compute.login,
+                compute.password,
+                compute.type,
+                vm.name,
+                uuid=vm.uuid,
             )
             cpu += int(conn.get_vcpu())
             memory += int(conn.get_memory())
             for disk in conn.get_disk_devices():
                 if disk["size"]:
                     disk_size += int(disk["size"]) >> 30
+        except libvirtError:
+            return QUOTA_UNVERIFIED
 
-    if ua.max_instances > 0 and instance > ua.max_instances:
-        msg = "instance"
-        if quota_debug:
-            msg += f" ({instance} > {ua.max_instances})"
     if ua.max_cpus > 0 and cpu > ua.max_cpus:
         msg = "cpu"
         if quota_debug:

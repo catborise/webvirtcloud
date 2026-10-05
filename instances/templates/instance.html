@@ -67,11 +67,6 @@
                 <span>{% bs_icon 'repeat'%} </span>
             </a>
         </div>
-        {% if user_quota_msg %}
-            <div class="alert alert-warning fade show">
-            {{ user_quota_msg|capfirst }} {% trans "quota reached" %}.
-            </div>
-        {% endif %}
         <hr>
     </div>
 

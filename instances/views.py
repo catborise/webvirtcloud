@@ -34,6 +34,7 @@ from libvirt import (VIR_DOMAIN_UNDEFINE_KEEP_NVRAM,
                      VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA,
                      VIR_DOMAIN_UNDEFINE_NVRAM,
                      VIR_DOMAIN_START_PAUSED,
+                     VIR_DOMAIN_RUNNING,
                      libvirtError)
 from logs.views import addlogmsg
 from vrtManager import util
@@ -118,7 +119,6 @@ def instance(request, pk):
     if instance.cur_memory not in memory_range:
         insort(memory_range, instance.cur_memory)
     clone_free_names = utils.get_clone_free_names()
-    user_quota_msg = utils.check_user_quota(request.user, 0, 0, 0, 0)
 
     default_bus = app_settings.INSTANCE_VOLUME_DEFAULT_BUS
     default_io = app_settings.INSTANCE_VOLUME_DEFAULT_IO
@@ -401,6 +401,14 @@ def serialize_instance_mutation(func):
             return _busy(request, pk)
 
     return wrapper
+
+
+def quota_refused(quota_msg, refused):
+    """The message for a refused change: refused is the action's own
+    'User %(quota_msg)s quota reached, ...' text, already formatted."""
+    if quota_msg == utils.QUOTA_UNVERIFIED:
+        return _("The quota cannot be checked because a host of your virtual machines cannot be reached. Nothing was changed.")
+    return refused
 
 
 def serialize_user_quota(func):
@@ -766,12 +774,12 @@ def resizevm_cpu(request, pk):
         request.user, 0, int(new_vcpu) - vcpu, 0, 0
     )
     if not request.user.is_superuser and quota_msg:
-        msg = _(
+        msg = quota_refused(quota_msg, _(
             "User %(quota_msg)s quota reached, cannot resize CPU of '%(instance_name)s'!"
         ) % {
             "quota_msg": quota_msg,
             "instance_name": instance.name,
-        }
+        })
         messages.error(request, msg)
     else:
         cur_vcpu = new_cur_vcpu
@@ -804,16 +812,19 @@ def resize_memory(request, pk):
     new_cur_memory_custom = request.POST.get("cur_memory_custom", "")
     if new_cur_memory_custom:
         new_cur_memory = new_cur_memory_custom
-    quota_msg = utils.check_user_quota(
-        request.user, 0, 0, int(new_memory) - memory, 0
-    )
+    # The quota charges the maximum. A running VM keeps it (resize_mem changes
+    # only the current memory there); pass the current maximum, so a VM that
+    # shuts down meanwhile does not get an unchecked one.
+    if instance.proxy.get_status() == VIR_DOMAIN_RUNNING:
+        new_memory = memory
+    quota_msg = utils.check_user_quota(request.user, 0, 0, int(new_memory) - memory, 0)
     if not request.user.is_superuser and quota_msg:
-        msg = _(
+        msg = quota_refused(quota_msg, _(
             "User %(quota_msg)s quota reached, cannot resize memory of '%(instance_name)s'!"
         ) % {
             "quota_msg": quota_msg,
             "instance_name": instance.name,
-        }
+        })
         messages.error(request, msg)
     else:
         instance.proxy.resize_mem(new_cur_memory, new_memory)
@@ -859,12 +870,12 @@ def resize_disk(request, pk):
         request.user, 0, 0, 0, disk_new_sum - disk_sum
     )
     if not request.user.is_superuser and quota_msg:
-        msg = _(
+        msg = quota_refused(quota_msg, _(
             "User %(quota_msg)s quota reached, cannot resize disks of '%(instance_name)s'!"
         ) % {
             "quota_msg": quota_msg,
             "instance_name": instance.name,
-        }
+        })
         messages.error(request, msg)
     else:
         instance.proxy.resize_disk(disks_new)
@@ -1789,12 +1800,12 @@ def clone(request, pk):
     ]
 
     if not request.user.is_superuser and quota_msg:
-        msg = _(
+        msg = quota_refused(quota_msg, _(
             "User '%(quota_msg)s' quota reached, cannot create '%(clone_name)s'!"
         ) % {
             "quota_msg": quota_msg,
             "clone_name": clone_data["name"],
-        }
+        })
         messages.error(request, msg)
     elif check_instance:
         msg = _("Instance '%(clone_name)s' already exists!") % {
