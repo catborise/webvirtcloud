@@ -220,37 +220,42 @@ def refresh_instance_database(compute):
 
     try:
         with libvirt_compute_lock(compute, timeout=15.0):
-            with transaction.atomic():
-                comp_locked = Compute.objects.select_for_update().filter(pk=compute_pk).first()
-                if not comp_locked:
-                    return
+            # libvirt is asked before the transaction: a silent host can keep a
+            # call waiting for 30 s, and on SQLite an open transaction makes every
+            # other write of the app fail meanwhile. The compute lock still keeps
+            # create/delete/migration of this compute out until the end.
+            if hasattr(compute, "status") and compute.status is False:
+                return
 
-                if hasattr(compute, "status") and compute.status is False:
-                    return
+            try:
+                domains = compute.proxy.wvm.listAllDomains()
+            except Exception as e:
+                logger.warning(
+                    "Failed to retrieve domains from compute %s (%s): %s",
+                    getattr(compute, "name", compute),
+                    getattr(compute, "hostname", ""),
+                    e,
+                )
+                return
 
+            # Map libvirt UUIDs to current domain names
+            host_domains = {}
+            for d in domains:
                 try:
-                    domains = compute.proxy.wvm.listAllDomains()
+                    host_domains[d.UUIDString()] = d.name()
                 except Exception as e:
                     logger.warning(
-                        "Failed to retrieve domains from compute %s (%s): %s",
+                        "Error reading domain metadata from compute %s: %s",
                         getattr(compute, "name", compute),
-                        getattr(compute, "hostname", ""),
                         e,
                     )
                     return
 
-                # Map libvirt UUIDs to current domain names
-                host_domains = {}
-                for d in domains:
-                    try:
-                        host_domains[d.UUIDString()] = d.name()
-                    except Exception as e:
-                        logger.warning(
-                            "Error reading domain metadata from compute %s: %s",
-                            getattr(compute, "name", compute),
-                            e,
-                        )
-                        return
+            with transaction.atomic():
+                # the compute may have been deleted while libvirt was asked
+                comp_locked = Compute.objects.select_for_update().filter(pk=compute_pk).first()
+                if not comp_locked:
+                    return
 
                 db_instances = list(Instance.objects.filter(compute=compute).select_for_update())
                 db_uuids = set(inst.uuid for inst in db_instances)

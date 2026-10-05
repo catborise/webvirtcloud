@@ -1,6 +1,7 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.db import connection
+from django.test import TestCase, TransactionTestCase
 
 from accounts.models import UserInstance
 from computes.models import Compute
@@ -138,3 +139,45 @@ class InstanceReconciliationTestCase(TestCase):
         with patch("computes.utils.refresh_instance_database") as mock_refresh:
             refr(self.compute)
             mock_refresh.assert_called_once_with(self.compute)
+
+
+class ReconciliationTransactionTestCase(TransactionTestCase):
+    """libvirt is asked outside the DB transaction: on SQLite an open transaction
+    makes every other write of the app fail while a silent host is waited on."""
+
+    def setUp(self):
+        self.compute = Compute.objects.create(name="tx-compute", hostname="127.0.0.1", login="root", password="", type=1)
+
+    def proxy(self, list_domains):
+        mock_proxy = MagicMock()
+        mock_proxy.wvm.listAllDomains.side_effect = list_domains
+        self.compute.__dict__["proxy"] = mock_proxy
+
+    def test_libvirt_is_called_outside_the_transaction(self):
+        seen = {}
+
+        def status():
+            seen["status"] = connection.in_atomic_block
+            return True
+
+        def list_domains():
+            seen["list"] = connection.in_atomic_block
+            return [MockDomain(name="vm-tx", uuid_str="77777777-7777-7777-7777-777777777777")]
+
+        self.proxy(list_domains)
+        with patch.object(Compute, "status", new_callable=PropertyMock, side_effect=status):
+            refresh_instance_database(self.compute)
+
+        self.assertEqual(seen, {"status": False, "list": False})
+        self.assertTrue(Instance.objects.filter(compute=self.compute, name="vm-tx").exists())
+
+    def test_compute_deleted_while_listing_gets_no_instances(self):
+        def list_domains():
+            Compute.objects.filter(pk=self.compute.pk).delete()
+            return [MockDomain(name="vm-orphan", uuid_str="88888888-8888-8888-8888-888888888888")]
+
+        self.proxy(list_domains)
+        self.compute.__dict__["status"] = True
+        refresh_instance_database(self.compute)
+
+        self.assertFalse(Instance.objects.filter(uuid="88888888-8888-8888-8888-888888888888").exists())
