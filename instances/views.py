@@ -236,10 +236,8 @@ def stats(request, pk):
     json_net = []
 
     # TODO: stats are inaccurate
-    cpu_usage = instance.proxy.cpu_usage()
+    cpu_usage, blk_usage, net_usage = instance.proxy.usage()
     mem_usage = instance.proxy.mem_usage()
-    blk_usage = instance.proxy.disk_usage()
-    net_usage = instance.proxy.net_usage()
 
     current_time = time.strftime("%H:%M:%S")
     for blk in blk_usage:

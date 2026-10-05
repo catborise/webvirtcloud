@@ -944,19 +944,6 @@ class wvmInstance(wvmConnect):
 
         self._defineXML(etree.tostring(tree).decode())
 
-    def cpu_usage(self):
-        cpu_usage = {}
-        if self.get_status() == 1:
-            nbcore = self.wvm.getInfo()[2]
-            cpu_use_ago = self.instance.info()[4]
-            time.sleep(1)
-            cpu_use_now = self.instance.info()[4]
-            diff_usage = cpu_use_now - cpu_use_ago
-            cpu_usage["cpu"] = 100 * diff_usage / (1 * nbcore * 10**9)
-        else:
-            cpu_usage["cpu"] = 0
-        return cpu_usage
-
     def set_vcpu(self, cpu_id, enabled):
         self.instance.setVcpu(str(cpu_id), enabled)
 
@@ -1005,9 +992,14 @@ class wvmInstance(wvmConnect):
             mem_usage["total"] = 0
         return mem_usage
 
-    def disk_usage(self):
+    def usage(self):
+        """
+        CPU (percent of the host), disk read/write bytes and network rx/tx
+        bits of the last second, for the stats view. All counters are read
+        before and after one shared second: the view runs in a web worker,
+        and a second per device kept it busy for 1 + disks + NICs seconds.
+        """
         devices = []
-        dev_usage = []
         tree = ElementTree.fromstring(self._XMLDesc(0))
         for disk in tree.findall("devices/disk"):
             if disk.get("device") == "disk":
@@ -1029,41 +1021,39 @@ class wvmInstance(wvmConnect):
                     if network_disk:
                         dev_file = dev_bus
                     devices.append([dev_file, dev_bus])
-        for dev in devices:
-            if self.get_status() == 1:
-                rd_use_ago = self.instance.blockStats(dev[0])[1]
-                wr_use_ago = self.instance.blockStats(dev[0])[3]
-                time.sleep(1)
-                rd_use_now = self.instance.blockStats(dev[0])[1]
-                wr_use_now = self.instance.blockStats(dev[0])[3]
-                rd_diff_usage = rd_use_now - rd_use_ago
-                wr_diff_usage = wr_use_now - wr_use_ago
-            else:
-                rd_diff_usage = 0
-                wr_diff_usage = 0
-            dev_usage.append({"dev": dev[1], "rd": rd_diff_usage, "wr": wr_diff_usage})
-        return dev_usage
-
-    def net_usage(self):
-        devices = []
-        dev_usage = []
-        if self.get_status() == 1:
+        nics = []
+        running = self.get_status() == 1
+        if running:
             tree = ElementTree.fromstring(self._XMLDesc(0))
             for target in tree.findall("devices/interface/target"):
-                devices.append(target.get("dev"))
-            for i, dev in enumerate(devices):
-                rx_use_ago = self.instance.interfaceStats(dev)[0]
-                tx_use_ago = self.instance.interfaceStats(dev)[4]
-                time.sleep(1)
-                rx_use_now = self.instance.interfaceStats(dev)[0]
-                tx_use_now = self.instance.interfaceStats(dev)[4]
-                rx_diff_usage = (rx_use_now - rx_use_ago) * 8
-                tx_diff_usage = (tx_use_now - tx_use_ago) * 8
-                dev_usage.append({"dev": i, "rx": rx_diff_usage, "tx": tx_diff_usage})
-        else:
-            for i, dev in enumerate(self.get_net_devices()):
-                dev_usage.append({"dev": i, "rx": 0, "tx": 0})
-        return dev_usage
+                nics.append(target.get("dev"))
+
+        def sample():
+            return (
+                self.instance.info()[4],
+                [self.instance.blockStats(dev[0]) for dev in devices],
+                [self.instance.interfaceStats(dev) for dev in nics],
+            )
+
+        cpu_usage = {"cpu": 0}
+        dev_usage = [{"dev": dev[1], "rd": 0, "wr": 0} for dev in devices]
+        if not running:
+            net_usage = [{"dev": i, "rx": 0, "tx": 0} for i, _ in enumerate(self.get_net_devices())]
+            return cpu_usage, dev_usage, net_usage
+
+        nbcore = self.wvm.getInfo()[2]
+        cpu_ago, blk_ago, net_ago = sample()
+        time.sleep(1)
+        cpu_now, blk_now, net_now = sample()
+        cpu_usage["cpu"] = 100 * (cpu_now - cpu_ago) / (1 * nbcore * 10**9)
+        for usage, ago, now in zip(dev_usage, blk_ago, blk_now):
+            usage["rd"] = now[1] - ago[1]
+            usage["wr"] = now[3] - ago[3]
+        net_usage = [
+            {"dev": i, "rx": (now[0] - ago[0]) * 8, "tx": (now[4] - ago[4]) * 8}
+            for i, (ago, now) in enumerate(zip(net_ago, net_now))
+        ]
+        return cpu_usage, dev_usage, net_usage
 
     def get_telnet_port(self):
         telnet_port = None
