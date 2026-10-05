@@ -186,6 +186,9 @@ class wvmInstances(wvmConnect):
 
 
 class wvmInstance(wvmConnect):
+    # set by cached_reads(): libvirt answers reused within the block
+    _read_cache = None
+
     def __init__(self, host, login, passwd, conn, vname, uuid=None):
         wvmConnect.__init__(self, host, login, passwd, conn)
         self._ip_cache = None
@@ -249,11 +252,44 @@ class wvmInstance(wvmConnect):
     def delete(self, flags=0):
         self.instance.undefineFlags(flags)
 
+    @contextlib.contextmanager
+    def cached_reads(self):
+        """
+        Within the block the domain XML (per flags value) and the host
+        capabilities are read from libvirt once, for pages that only read: a
+        VM page reads the XML in some 30 getters. Code that changes the VM
+        must not run inside: most changes (devices, QoS, memory) do not go
+        through _defineXML, the only call that drops the cache.
+        """
+        if self._read_cache is not None:
+            raise RuntimeError("cached_reads blocks do not nest")
+        self._read_cache = {}
+        try:
+            yield self
+        finally:
+            self._read_cache = None
+
     def _XMLDesc(self, flag):
-        return self.instance.XMLDesc(flag)
+        cache = self._read_cache
+        if cache is None:
+            return self.instance.XMLDesc(flag)
+        key = ("xml", flag)
+        if key not in cache:
+            cache[key] = self.instance.XMLDesc(flag)
+        return cache[key]
 
     def _defineXML(self, xml):
+        if self._read_cache is not None:
+            self._read_cache.clear()
         return self.wvm.defineXML(xml)
+
+    def get_cap_xml(self):
+        cache = self._read_cache
+        if cache is None:
+            return super().get_cap_xml()
+        if "capabilities" not in cache:
+            cache["capabilities"] = super().get_cap_xml()
+        return cache["capabilities"]
 
     def get_status(self):
         """

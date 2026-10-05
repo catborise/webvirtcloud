@@ -95,6 +95,13 @@ def instance(request, pk):
             msg = _("The host of '%(name)s' cannot be reached right now.") % {"name": instance.name}
         messages.error(request, msg)
         return redirect(reverse("instances:index"))
+    # The page only reads the VM, and its getters read the same XML some 30
+    # times: libvirt is asked once per kind of XML.
+    with instance.proxy.cached_reads():
+        return _instance_page(request, pk, instance, compute)
+
+
+def _instance_page(request, pk, instance, compute):
     computes = Compute.objects.all().order_by("name")
     computes_count = computes.count()
     users = User.objects.all().order_by("username")
