@@ -25,12 +25,17 @@ class ConsoleForm(forms.Form):
     clear_keymap = forms.BooleanField(label=_("Clear keymap"), required=False)
     keymap = forms.ChoiceField(label=_("Keymap"), required=False)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, can_set_listener=True, **kwargs):
         super(ConsoleForm, self).__init__(*args, **kwargs)
         keymap_choices = [("auto", _("Auto"))] + list((c, c) for c in QEMU_KEYMAPS)
+        # Only administrators choose the listen address: beyond localhost the
+        # console is reachable from the network. A disabled field ignores
+        # posted values.
         self.fields["listen_on"] = forms.ChoiceField(
             label=_("Listen on"),
-            choices=QEMU_CONSOLE_LISTENER_ADDRESSES
+            choices=QEMU_CONSOLE_LISTENER_ADDRESSES,
+            disabled=not can_set_listener,
+            required=can_set_listener,
         )
         self.fields["keymap"] = forms.ChoiceField(label=_("Keymap"), choices=keymap_choices)
 

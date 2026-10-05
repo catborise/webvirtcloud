@@ -110,7 +110,8 @@ def instance(request, pk):
                 "listen_on": instance.console_listener_address,
                 "password": instance.console_passwd,
                 "keymap": instance.console_keymap,
-            }
+            },
+            can_set_listener=request.user.is_superuser,
         )
     console_listener_addresses = settings.QEMU_CONSOLE_LISTENER_ADDRESSES
     bottom_bar = app_settings.VIEW_INSTANCE_DETAIL_BOTTOM_BAR
@@ -1887,7 +1888,7 @@ def update_console(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
 
     if utils.can_manage_console(request.user, instance):
-        form = ConsoleForm(request.POST or None)
+        form = ConsoleForm(request.POST or None, can_set_listener=request.user.is_superuser)
         if form.is_valid():
             if (
                 "generate_password" in form.changed_data
@@ -1901,7 +1902,19 @@ def update_console(request, pk):
                 else:
                     password = form.cleaned_data["password"]
 
-                if not instance.proxy.set_console_passwd(password):
+                # A console that listens beyond localhost (set by an
+                # administrator) keeps its password unless an administrator
+                # removes it. The definition being changed is the persistent one.
+                if (
+                    not password
+                    and not request.user.is_superuser
+                    and not instance.proxy.console_listens_locally()
+                ):
+                    messages.error(
+                        request,
+                        _("The console listens beyond localhost; only an administrator can remove its password."),
+                    )
+                elif not instance.proxy.set_console_passwd(password):
                     msg = _(
                         "Error setting console password. "
                         + "You should check that your instance have an graphic device."

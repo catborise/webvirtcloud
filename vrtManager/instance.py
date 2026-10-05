@@ -1,4 +1,5 @@
 import contextlib
+import ipaddress
 import json
 import logging
 import os.path
@@ -1091,6 +1092,31 @@ class wvmInstance(wvmConnect):
             if listener_addr is None:
                 return "127.0.0.1"
         return listener_addr
+
+    def console_listens_locally(self):
+        """True if the persistent definition binds the console to loopback
+        addresses or a Unix socket only. Anything the XML does not pin down
+        counts as not local: listen type network, or no address at all (the
+        host's default in qemu.conf)."""
+        graphic = etree.fromstring(self._XMLDesc(PERSISTENT_XML)).find("devices/graphics")
+        if graphic is None:
+            return True  # no console
+        addresses = [graphic.get("listen")]
+        local_types = 0
+        for listen in graphic.findall("listen"):
+            if listen.get("type") == "address":
+                addresses.append(listen.get("address"))
+            elif listen.get("type") in ("socket", "none"):
+                local_types += 1
+            else:
+                return False
+        addresses = [a for a in addresses if a]
+        if not addresses:
+            return local_types > 0
+        try:
+            return all(ipaddress.ip_address(a).is_loopback for a in addresses)
+        except ValueError:  # a host name
+            return False
 
     def set_console_listener_addr(self, listener_addr):
         root = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
