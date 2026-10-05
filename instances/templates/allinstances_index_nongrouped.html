@@ -40,11 +40,11 @@
                         </td>
                     {% endif %}
                     <td>
-                        {% if instance.proxy.instance.info.0 == 1 %}<span
+                        {% if instance.info.0 == 1 %}<span
                             class="text-success">{% trans "Active" %}</span>{% endif %}
-                        {% if instance.proxy.instance.info.0 == 5 %}<span
+                        {% if instance.info.0 == 5 %}<span
                             class="text-danger">{% trans "Off" %}</span>{% endif %}
-                        {% if instance.proxy.instance.info.0 == 3 %}<span
+                        {% if instance.info.0 == 3 %}<span
                             class="text-warning">{% trans "Suspended" %}</span>{% endif %}
                     </td>
 		    {% if app_settings.VM_DRBD_STATUS == 'True' %}
@@ -52,8 +52,8 @@
 			    {% if instance.drbd == "Primary/OK" or instance.drbd == "Secondary/OK" %}<span class="text-success">{% else %}<span class="text-danger">{% endif %}{{ instance.drbd }}</span>
 		    </td>
 		    {% endif %}
-                    <td>{{ instance.proxy.instance.info.3 }}</td>
-                    <td>{{ instance.cur_memory }} MB</td>
+                    <td>{{ instance.info.3 }}</td>
+                    <td>{% widthratio instance.info.2 1024 1 %} MB</td>
                     <td class="text-nowrap">
                         {% include 'instance_actions.html' %}
                     </td>

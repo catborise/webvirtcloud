@@ -1,7 +1,7 @@
 {% load i18n %}
 {% load bootstrap_icons %}
 <div class="btn-group" role="group" aria-label="Instance actions">
-    {% if instance.proxy.instance.info.0 == 5 %}
+    {% if instance.info.0 == 5 %}
         {% if instance.is_template %}
             <a href="{% url 'instances:instance' instance.id %}#clone" class="btn btn-sm btn-secondary" title="{% trans "Clone" %}">
                 {% bs_icon 'copy' %}
@@ -21,7 +21,7 @@
             <span>{% bs_icon 'eye-fill' %}</span>
         </button>
     {% endif %}
-    {% if instance.proxy.instance.info.0 == 3 %}
+    {% if instance.info.0 == 3 %}
         <form action="{% url 'instances:resume' instance.id %}" method="post" style="display:inline;">
             {% csrf_token %}
             <button type="submit" class="btn btn-sm btn-secondary" title="{% trans "Resume" %}">
@@ -40,7 +40,7 @@
             <span>{% bs_icon 'eye-fill' %}</span>
         </button>
     {% endif %}
-    {% if instance.proxy.instance.info.0 == 1 %}
+    {% if instance.info.0 == 1 %}
         <button class="btn btn-sm btn-secondary disabled" title="{% trans "Power On" %}" disabled>{% bs_icon 'play-fill' %}</button>
         <form action="{% url 'instances:suspend' instance.id %}" method="post" style="display:inline;">
             {% csrf_token %}

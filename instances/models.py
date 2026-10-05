@@ -64,6 +64,11 @@ class Instance(models.Model):
         return self.proxy.get_disk_devices()
 
     @cached_property
+    def info(self) -> list:
+        """virDomainGetInfo, read once: state, max memory KiB, memory KiB, vCPUs, CPU time"""
+        return self.proxy.instance.info()
+
+    @cached_property
     def status(self) -> int:
         return self.proxy.get_status()
 
