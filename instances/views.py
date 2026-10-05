@@ -58,15 +58,23 @@ def index(request):
         utils.refr(compute)
     prefetch_related_objects(computes, "instance_set__userinstance_set")
 
-    if request.user.is_superuser or request.user.has_perm("instances.view_instances"):
+    show_hosts = request.user.is_superuser or request.user.has_perm("instances.view_instances")
+    own_hosts_down = False
+    if show_hosts:
         instances = Instance.objects.all().prefetch_related("userinstance_set")
     else:
         instances = Instance.objects.filter(
             userinstance__user=request.user
         ).prefetch_related("userinstance_set")
+        # other users get no host names or connection errors, only whether
+        # a host of their own VMs is down
+        own = set(instances.values_list("compute_id", flat=True))
+        own_hosts_down = any(c.status is not True for c in computes if c.pk in own)
 
     return render(
-        request, "allinstances.html", {"computes": computes, "instances": instances}
+        request,
+        "allinstances.html",
+        {"computes": computes, "instances": instances, "show_hosts": show_hosts, "own_hosts_down": own_hosts_down},
     )
 
 
