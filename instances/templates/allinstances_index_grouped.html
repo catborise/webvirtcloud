@@ -72,12 +72,7 @@
                             </em>
                         </td>
                         <td>
-                            {% if instance.info.0 == 1 %}<span class="text-success">{% trans "Active" %}</span>{% endif %}
-                            {% if instance.info.0 == 5 %}<span class="text-danger">{% trans "Off" %}</span>{% endif %}
-                            {% if instance.info.0 == 3 %}
-                                <span class="text-warning">{% trans "Suspended" %}</span>
-                            {% endif %}
-                            {% if instance.info is None %}<span class="text-secondary">{% trans "Unknown" %}</span>{% endif %}
+                            {% include 'instance_state.html' %}
                         </td>
                         {% if app_settings.VM_DRBD_STATUS == 'True' %}
                         <td>

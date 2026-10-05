@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load static %}
+{% load vm_states %}
 {% load i18n %}
 {% load bootstrap_icons %}
 
@@ -13,15 +14,8 @@
     {% include 'pleasewaitdialog.html' %}
      <div>
         <div>
-            {% if instance.status == 5 %}
-               <span class="badge bg-danger">{% trans "Off" %}</span>
-            {% endif %}
-            {% if instance.status == 1 %}
-                <span class="badge bg-success">{% trans "Active" %}</span>
-            {% endif %}
-            {% if instance.status == 3 %}
-                <span class="badge bg-warning">{% trans "Suspend" %}</span>
-            {% endif %}
+            {% vm_state instance.status as state %}
+            <span class="badge bg-{{ state.1 }}">{{ state.0 }}</span>
             |
             <span 
                 {%if instance.guest_agent %}

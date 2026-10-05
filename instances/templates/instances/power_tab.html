@@ -2,7 +2,7 @@
 <div class="tab-pane active" id="power" role="tabpanel">
     <!-- Nav tabs -->
     <ul class="nav nav-tabs" role="tablist" aria-label="Instance power actions">
-        {% if instance.status == 1 %}
+        {% if instance.status == 1 or instance.status == 2 %}
             <li class="nav-item" role="presentation">
                 <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#poweroff" type="button" role="tab" aria-controls="poweroff" aria-selected="true">
                     {% trans "Power Off" %}
@@ -40,6 +40,13 @@
             </li>
             {% endif %}
         {% endif %}
+        {% if instance.status == 4 or instance.status == 6 or instance.status == 7 %}
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#powerforce" type="button" role="tab" aria-controls="powerforce" aria-selected="true">
+                    {% trans "Force Off" %}
+                </button>
+            </li>
+        {% endif %}
         {% if instance.status == 5 %}
             <li class="nav-item" role="presentation">
                 <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#boot" type="button" role="tab" aria-controls="boot" aria-selected="true">
@@ -50,7 +57,7 @@
     </ul>
     <!-- Tab panes -->
     <div class="tab-content">
-        {% if instance.status == 1 %}
+        {% if instance.status == 1 or instance.status == 2 %}
             <div class="tab-pane tab-pane-bordered active" id="poweroff" role="tabpanel" aria-labelledby="poweroff-tab">
                 <p>{% trans "This action sends an ACPI shutdown signal to the instance." %}</p>
                 <form action="{% url 'instances:poweroff' instance.id %}" method="post" role="form" aria-label0="Power off instance form">
@@ -109,6 +116,17 @@
                     </form>
                 </div>
             {% endif %}
+        {% endif %}
+        {% if instance.status == 4 or instance.status == 6 or instance.status == 7 %}
+            {# shutting down, crashed or suspended by the guest: a forced power off ends it, then it can be started #}
+            <div class="tab-pane tab-pane-bordered active" id="powerforce" role="tabpanel" aria-labelledby="powerforce-tab">
+                <p>{% trans "This action forcibly powers off the instance and may cause data corruption." %}</p>
+                <form action="{% url 'instances:force_off' instance.id %}" method="post" role="form" aria-label="Force to shutdown instance form">
+                    {% csrf_token %}
+                    <input type="submit" name="powerforce" class="btn btn-lg btn-success float-end" value="{% trans "Force Off" %}">
+                    <div class="clearfix"></div>
+                </form>
+            </div>
         {% endif %}
         {% if instance.status == 5 %}
             <div class="tab-pane tab-pane-bordered active" id="boot" role="tabpanel" aria-labelledby="boot-tab">

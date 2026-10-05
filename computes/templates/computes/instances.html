@@ -94,16 +94,7 @@
                             </em>
                         </td>
                         <td>
-                            {% if instance.info.0 == 1 %}
-                                <span class="text-success">{% trans "Active" %}</span>
-                            {% endif %}
-                            {% if instance.info.0 == 5 %}
-                                <span class="text-danger">{% trans "Off" %}</span>
-                            {% endif %}
-                            {% if instance.info.0 == 3 %}
-                                <span class="text-warning">{% trans "Suspended" %}</span>
-                            {% endif %}
-                            {% if instance.info is None %}<span class="text-secondary">{% trans "Unknown" %}</span>{% endif %}
+                            {% include 'instance_state.html' %}
                         </td>
                         <td>{{ instance.info.3 }}</td>
                         <td><p class="text-end">{% if instance.info %}{% widthratio instance.info.1 1024 1  %} MiB{% endif %}</p></td>

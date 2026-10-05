@@ -1,0 +1,172 @@
+"""Every libvirt state has a label, and the lists offer the actions the state
+and the user's permissions allow."""
+
+from types import SimpleNamespace
+from unittest.mock import PropertyMock, patch
+
+from accounts.models import UserInstance
+from appsettings.models import AppSettings
+from computes.models import Compute
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.test import TestCase
+from django.urls import reverse
+from instances.models import Instance
+from instances.states import allowed_actions
+
+LABELS = {0: "No state", 1: "Active", 2: "Blocked", 3: "Suspended", 4: "Shutting down", 5: "Off", 6: "Crashed", 7: "PM suspended"}
+# actions offered per state, for a superuser
+ACTIONS = {
+    0: set(),
+    1: {"poweroff", "powercycle", "suspend"},
+    2: {"poweroff", "powercycle", "suspend"},
+    3: {"resume", "force_off"},
+    4: {"force_off"},
+    5: {"poweron"},
+    6: {"force_off"},
+    7: {"force_off"},
+}
+ALL = {"poweron", "poweroff", "powercycle", "force_off", "suspend", "resume"}
+
+
+class Domain:
+    def __init__(self, state):
+        self.state = state
+
+    def info(self):
+        return [self.state, 4194304, 2097152, 2, 0]
+
+
+class StateTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.admin = User.objects.create_superuser("st-admin", "st@example.com", "pw")
+        self.owner = User.objects.create_user("st-owner", password="pw")
+        self.viewer = User.objects.create_user("st-viewer", password="pw")
+        self.viewer.user_permissions.add(Permission.objects.get(codename="view_instances"))
+        self.compute = Compute.objects.create(name="st", hostname="10.0.0.1", login="u", password="p", type=1)
+        self.vms = {}
+        for state in LABELS:
+            vm = Instance.objects.create(compute=self.compute, name=f"st-vm-{state}", uuid=f"{state:08d}-0000-0000-0000-000000000000")
+            UserInstance.objects.create(user=self.owner, instance=vm)
+            self.vms[state] = vm
+        AppSettings.objects.filter(key="VIEW_INSTANCES_LIST_STYLE").update(value="nongrouped")
+
+    def get(self, user, url):
+        by_uuid = {vm.uuid: state for state, vm in self.vms.items()}
+
+        def wvm(*args, uuid=None, **kwargs):
+            return SimpleNamespace(instance=Domain(by_uuid[uuid]), get_title=lambda: "", get_uuid=lambda: uuid)
+
+        self.client.force_login(user)
+        props = {"status": True, "connection_error": None, "cpu_count": 1, "ram_size": 1, "ram_usage": 0, "cpu_usage": 0}
+        patches = [patch.object(Compute, k, new_callable=PropertyMock, return_value=v) for k, v in props.items()]
+        patches += [patch("instances.views.utils.refr"), patch("computes.views.utils.refresh_instance_database"),
+                    patch("instances.models.wvmInstance", side_effect=wvm)]
+        for p in patches:
+            p.start()
+        try:
+            response = self.client.get(url)
+        finally:
+            for p in reversed(patches):
+                p.stop()
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def offered(self, page, vm):
+        return {a for a in ALL if reverse(f"instances:{a}", args=[vm.id]) in page}
+
+    def test_every_state_has_a_label(self):
+        page = self.get(self.admin, reverse("instances:index"))
+        for state, label in LABELS.items():
+            with self.subTest(state=state):
+                self.assertIn(f">{label}<", page)
+
+    def test_superuser_actions_follow_the_state(self):
+        for url in (reverse("instances:index"), reverse("instances", args=[self.compute.id])):
+            page = self.get(self.admin, url)
+            for state, vm in self.vms.items():
+                with self.subTest(url=url, state=state):
+                    self.assertEqual(self.offered(page, vm), ACTIONS[state])
+
+    def test_owner_is_not_offered_suspend_or_resume(self):
+        # both views are for superusers only; a VM an administrator suspended
+        # stays as it is for its owner, as on the VM page
+        page = self.get(self.owner, reverse("instances:index"))
+        for state, vm in self.vms.items():
+            with self.subTest(state=state):
+                expected = set() if state == 3 else ACTIONS[state] - {"suspend", "resume"}
+                self.assertEqual(self.offered(page, vm), expected)
+
+    def test_a_viewer_who_owns_nothing_is_offered_no_actions(self):
+        page = self.get(self.viewer, reverse("instances:index"))
+        for state, vm in self.vms.items():
+            with self.subTest(state=state):
+                self.assertIn(vm.name, page)
+                self.assertEqual(self.offered(page, vm), set())
+
+
+class DetailStateTests(TestCase):
+    """The VM page names every state and offers a forced power off where only that helps."""
+
+    def test_states(self):
+        owner = get_user_model().objects.create_user("st-detail-owner", password="pw")
+        compute = Compute.objects.create(name="st-d", hostname="10.0.0.2", login="u", password="p", type=1)
+        vm = Instance.objects.create(compute=compute, name="st-d-vm", uuid="99999999-0000-0000-0000-00000000d000")
+        UserInstance.objects.create(user=owner, instance=vm, is_change=True)
+        self.client.force_login(owner)
+        badge = LABELS
+        force_off = reverse("instances:force_off", args=[vm.id])
+        poweroff = reverse("instances:poweroff", args=[vm.id])
+        for state, label in badge.items():
+            with self.subTest(state=state), patch("instances.models.wvmInstance") as wvm, patch.object(
+                Compute, "status", new_callable=PropertyMock, return_value=True
+            ):
+                proxy = wvm.return_value
+                proxy.get_memory.return_value = 1024
+                proxy.get_cur_memory.return_value = 1024
+                proxy.get_max_memory.return_value = 4096
+                for name in ("get_networks", "get_ifaces", "get_storages", "get_disk_devices", "get_media_devices", "get_net_devices"):
+                    getattr(proxy, name).return_value = []
+                proxy.get_status.return_value = state
+                page = self.client.get(reverse("instances:instance", args=[vm.id])).content.decode()
+                self.assertIn(f'">{label}</span>', page.replace("\n", "").replace("  ", ""))
+                self.assertEqual(poweroff in page, state in (1, 2))
+                self.assertEqual(force_off in page, state in (1, 2, 4, 6, 7))
+
+
+class AllowedActionsTests(TestCase):
+    """The rules themselves, without templates."""
+
+    def test_rules(self):
+        User = get_user_model()
+        admin = User.objects.create_superuser("aa-admin", "aa@example.com", "pw")
+        owner = User.objects.create_user("aa-owner", password="pw")
+        other = User.objects.create_user("aa-other", password="pw")
+        compute = Compute.objects.create(name="aa", hostname="10.0.0.3", login="u", password="p", type=1)
+        vm = Instance.objects.create(compute=compute, name="aa-vm", uuid="aaaaaaaa-0000-0000-0000-000000000000")
+        UserInstance.objects.create(user=owner, instance=vm)
+        for state in LABELS:
+            with self.subTest(state=state):
+                self.assertEqual(allowed_actions(admin, vm, state) - {"console"}, ACTIONS[state])
+                expected = set() if state == 3 else ACTIONS[state] - {"suspend", "resume"}
+                self.assertEqual(allowed_actions(owner, vm, state) - {"console"}, expected)
+                self.assertEqual(allowed_actions(other, vm, state), set())
+
+
+class TemplateCloneTests(TestCase):
+    """A shut-off template offers Clone to whoever may clone it, owner or not."""
+
+    def test_clone_link(self):
+        User = get_user_model()
+        compute = Compute.objects.create(name="tc", hostname="10.0.0.4", login="u", password="p", type=1)
+        vm = Instance.objects.create(compute=compute, name="tc-vm", uuid="cccccccc-0000-0000-0000-000000000000", is_template=True)
+        cloner = User.objects.create_user("tc-viewer", password="pw")
+        cloner.user_permissions.add(*Permission.objects.filter(codename__in=["view_instances", "clone_instances"]))
+        cloner = User.objects.get(pk=cloner.pk)  # no cached permissions
+        owner = User.objects.create_user("tc-owner", password="pw")
+        UserInstance.objects.create(user=owner, instance=vm)
+        admin = User.objects.create_superuser("tc-admin", "tc@example.com", "pw")
+        self.assertEqual(allowed_actions(cloner, vm, 5), {"clone"})
+        self.assertEqual(allowed_actions(admin, vm, 5), {"clone"})
+        self.assertEqual(allowed_actions(owner, vm, 5), set())  # no clone permission
