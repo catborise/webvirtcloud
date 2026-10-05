@@ -5,7 +5,7 @@ change console settings, which is the rule update_console enforces: a
 superuser, or an owner with both is_change and is_vnc. In particular, is_staff
 and the global view_instances permission must not reveal the VNC password.
 """
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
@@ -52,8 +52,8 @@ class ConsoleSettingsAccessTestCase(TestCase):
 
     def _detail_page(self, user):
         self.client.force_login(user)
-        with patch("instances.models.wvmInstance") as mock_wvm, patch(
-            "instances.views.utils.check_user_quota", return_value=""
+        with patch("instances.models.wvmInstance") as mock_wvm, patch.object(
+            Compute, "status", new_callable=PropertyMock, return_value=True
         ):
             proxy = mock_wvm.return_value
             proxy.get_memory.return_value = 1024

@@ -2,7 +2,7 @@
 cannot verify (fail closed); requests that add nothing are not checked."""
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 from accounts.models import UserAttributes, UserInstance
 from appsettings.settings import get_settings
@@ -167,7 +167,7 @@ class DetailPageQuotaTests(TestCase):
         self.client.force_login(user)
         with patch("instances.models.wvmInstance") as wvm, patch(
             "instances.views.utils.check_user_quota", side_effect=AssertionError("quota checked on GET")
-        ):
+        ), patch.object(Compute, "status", new_callable=PropertyMock, return_value=True):
             proxy = wvm.return_value
             proxy.get_memory.return_value = 1024
             proxy.get_cur_memory.return_value = 1024

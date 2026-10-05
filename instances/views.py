@@ -82,6 +82,19 @@ def index(request):
 def instance(request, pk):
     instance: Instance = get_instance(request.user, pk)
     compute: Compute = instance.compute
+    # the page reads the VM from libvirt throughout; without the host it would
+    # be the error page, with a connection error that names the host
+    if compute.status is not True:
+        if request.user.is_superuser or request.user.has_perm("instances.view_instances"):
+            msg = _("The host %(host)s of '%(name)s' cannot be reached: %(error)s") % {
+                "host": compute.name,
+                "name": instance.name,
+                "error": compute.connection_error,
+            }
+        else:
+            msg = _("The host of '%(name)s' cannot be reached right now.") % {"name": instance.name}
+        messages.error(request, msg)
+        return redirect(reverse("instances:index"))
     computes = Compute.objects.all().order_by("name")
     computes_count = computes.count()
     users = User.objects.all().order_by("username")
