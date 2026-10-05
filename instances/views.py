@@ -1957,6 +1957,7 @@ def update_console(request, pk):
 
 
 @require_POST
+@serialize_user_quota
 @serialize_instance_mutation
 def change_options(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
@@ -1970,7 +1971,18 @@ def change_options(request, pk):
         # checkbox is disabled for everyone else, and a disabled checkbox is
         # not submitted, so for them the flag must be left alone.
         if request.user.is_superuser or request.user.is_staff:
-            instance.is_template = bool(request.POST.get("is_template", False))
+            is_template = bool(request.POST.get("is_template", False))
+            # A template is not counted and cannot be started: making it a
+            # VM again adds it to the owner's usage, so the quota applies.
+            if instance.is_template and not is_template and not request.user.is_superuser:
+                disk_sum = sum(int(disk.get("size") or 0) >> 30 for disk in instance.disks)
+                quota_msg = utils.check_user_quota(request.user, 1, instance.vcpu, instance.memory, disk_sum)
+                if quota_msg:
+                    messages.error(request, quota_refused(quota_msg, _(
+                        "User %(quota_msg)s quota reached, '%(instance_name)s' stays a template!"
+                    ) % {"quota_msg": quota_msg, "instance_name": instance.name}))
+                    is_template = True
+            instance.is_template = is_template
             instance.save(update_fields=["is_template"])
 
         options = {}

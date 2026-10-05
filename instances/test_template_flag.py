@@ -38,7 +38,11 @@ class TemplateFlagTestCase(TestCase):
 
     def _change_options(self, user, data):
         self.client.force_login(user)
-        with patch("instances.models.wvmInstance"):
+        with patch("instances.models.wvmInstance") as wvm:
+            # unmarking a template checks the owner's quota with the VM's size
+            wvm.return_value.get_vcpu.return_value = 1
+            wvm.return_value.get_memory.return_value = 1024
+            wvm.return_value.get_disk_devices.return_value = []
             res = self.client.post(
                 reverse("instances:change_options", args=[self.instance.id]), data
             )
