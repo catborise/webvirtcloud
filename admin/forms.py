@@ -1,6 +1,8 @@
 from django import forms
+from django.contrib.auth import password_validation
 from django.contrib.auth.forms import ReadOnlyPasswordHashField
 from django.contrib.auth.models import Group, User
+from django.core.exceptions import ValidationError
 from django.urls import reverse_lazy
 from django.utils.text import format_lazy
 from django.utils.translation import gettext_lazy as _
@@ -101,6 +103,27 @@ class UserCreateForm(UserForm):
         self.fields["user_permissions"].initial = Permission.objects.filter(
             content_type__app_label="accounts", codename="change_password"
         )
+
+    def _post_clean(self):
+        # The validators in AUTH_PASSWORD_VALIDATORS, as on the password change
+        # forms; after the instance has the form's values (username, email).
+        super()._post_clean()
+        password = self.cleaned_data.get("password")
+        if password:
+            try:
+                password_validation.validate_password(password, self.instance)
+            except ValidationError as error:
+                self.add_error("password", error)
+
+    def save(self, commit=True):
+        # hashed before the user is first written: the raw password never
+        # reaches the database
+        user = super().save(commit=False)
+        user.set_password(self.cleaned_data["password"])
+        if commit:
+            user.save()
+            self.save_m2m()
+        return user
 
     class Meta:
         model = User

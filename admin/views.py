@@ -95,9 +95,6 @@ def user_create(request):
     attributes_form = forms.UserAttributesForm(request.POST or None)
     if user_form.is_valid() and attributes_form.is_valid():
         user = user_form.save()
-        password = user_form.cleaned_data["password"]
-        user.set_password(password)
-        user.save()
         attributes = attributes_form.save(commit=False)
         attributes.user = user
         attributes.save()
