@@ -7,10 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 from instances.models import Instance
 from libvirt import libvirtError
-from vrtManager.connection import (
-    connection_manager,
-    wvmConnect,
-)
+from vrtManager.connection import wvmConnect
 from vrtManager.hostdetails import wvmHostDetails
 
 from computes.forms import (
@@ -39,11 +36,9 @@ def computes(request):
 @superuser_only
 def overview(request, compute_id):
     compute = get_object_or_404(Compute, pk=compute_id)
-    status = (
-        "true"
-        if connection_manager.host_is_up(compute.type, compute.hostname) is True
-        else "false"
-    )
+    # the connection itself, not a TCP probe: ssh aliases and ProxyJump hosts
+    # are not reachable by name and port from here
+    status = "true" if compute.status else "false"
 
     conn = wvmHostDetails(
         compute.hostname,

@@ -37,7 +37,9 @@
                             {{ compute.name }}
                         </td>
                         <td class="col-sm-2">
-                            {% if compute.status is True %}{% trans "Connected" %}{% else %}{% trans "Not Connected" %}{% endif %}
+                            {% if compute.status is True %}{% trans "Connected" %}{% else %}{% trans "Not Connected" %}
+                                <br><small class="text-danger">{{ compute.connection_error }}</small>
+                            {% endif %}
                         </td>
                         <td class="col-sm-5">
                             {{ compute.details|default:"" }}
