@@ -378,9 +378,19 @@
     });
 </script>
 <script src="{% static 'js/Chart.bundle.min.js' %}"></script>
+<script src="{% static 'js/poll.js' %}"></script>
 <script>
     var stats_tab = document.querySelector('#graphics-tab');
+    var stats_poll = null;
+    // The charts are polled while the Stats tab is shown; they are made once.
+    stats_tab.addEventListener('hidden.bs.tab', function (event) {
+        stats_poll.stop();
+    });
     stats_tab.addEventListener('shown.bs.tab', function (event) {
+        if (stats_poll !== null) {
+            stats_poll.start();
+            return;
+        }
         var cpu_ctx = $("#cpuChart").get(0).getContext("2d");
         var cpuChart = new Chart(cpu_ctx, {
             type: 'line',
@@ -597,69 +607,69 @@
             });
         {% endfor %}
 
-        var graph_interval = window.setInterval(function graph_usage() {
-            $.getJSON("{% url 'instances:stats' instance.id %}", function (data) {
-                cpuChart.data.labels.push(data.timeline);
-                cpuChart.data.datasets[0].data.push(data.cpudata);
-                if (cpuChart.data.datasets[0].data.length > 10){
-                    cpuChart.data.labels.shift();
-                    cpuChart.data.datasets[0].data.shift();
+        stats_poll = pollWhileVisible(10000, function () {
+            return $.getJSON("{% url 'instances:stats' instance.id %}");
+        }, function graph_usage(data) {
+            cpuChart.data.labels.push(data.timeline);
+            cpuChart.data.datasets[0].data.push(data.cpudata);
+            if (cpuChart.data.datasets[0].data.length > 10){
+                cpuChart.data.labels.shift();
+                cpuChart.data.datasets[0].data.shift();
+            }
+            cpuChart.update();
+
+            memChart.data.labels.push(data.timeline);
+            memChart.options.scales.yAxes[0].ticks.max = parseInt(data.memdata.total / 1024);
+            memChart.options.scales.yAxes[0].ticks.stepSize = parseInt(data.memdata.total / (1024 * 5));
+            memChart.data.datasets[0].data.push(data.memdata.used / 1024);
+            if (memChart.data.datasets[0].data.length > 10){
+                memChart.data.labels.shift();
+                memChart.data.datasets[0].data.shift();
+            }
+            memChart.update();
+
+            for (let j = 0; j < data.blkdata.length; j++) {
+                diskChart[data.blkdata[j].dev].data.labels.push(data.timeline);
+
+                diskChart[data.blkdata[j].dev].data.datasets[0].data.push(data.blkdata[j].data[0]);
+                diskChart[data.blkdata[j].dev].data.datasets[1].data.push(data.blkdata[j].data[1]);
+                if (diskChart[data.blkdata[j].dev].data.datasets[0].data.length > 10){
+                    diskChart[data.blkdata[j].dev].data.labels.shift();
+                    diskChart[data.blkdata[j].dev].data.datasets[0].data.shift();
+                    diskChart[data.blkdata[j].dev].data.datasets[1].data.shift();
                 }
-                cpuChart.update();
+                diskChart[data.blkdata[j].dev].update();
+            }
 
-                memChart.data.labels.push(data.timeline);
-                memChart.options.scales.yAxes[0].ticks.max = parseInt(data.memdata.total / 1024);
-                memChart.options.scales.yAxes[0].ticks.stepSize = parseInt(data.memdata.total / (1024 * 5));
-                memChart.data.datasets[0].data.push(data.memdata.used / 1024);
-                if (memChart.data.datasets[0].data.length > 10){
-                    memChart.data.labels.shift();
-                    memChart.data.datasets[0].data.shift();
+            for (let j = 0; j < data.netdata.length; j++) {
+                netChart[data.netdata[j].dev].data.labels.push(data.timeline);
+
+                netChart[data.netdata[j].dev].data.datasets[0].data.push(data.netdata[j].data[0]);
+                netChart[data.netdata[j].dev].data.datasets[1].data.push(data.netdata[j].data[1]);
+                if (netChart[data.netdata[j].dev].data.datasets[0].data.length > 10){
+                    netChart[data.netdata[j].dev].data.labels.shift();
+                    netChart[data.netdata[j].dev].data.datasets[0].data.shift();
+                    netChart[data.netdata[j].dev].data.datasets[1].data.shift();
                 }
-                memChart.update();
-
-                for (let j = 0; j < data.blkdata.length; j++) {
-                    diskChart[data.blkdata[j].dev].data.labels.push(data.timeline);
-
-                    diskChart[data.blkdata[j].dev].data.datasets[0].data.push(data.blkdata[j].data[0]);
-                    diskChart[data.blkdata[j].dev].data.datasets[1].data.push(data.blkdata[j].data[1]);
-                    if (diskChart[data.blkdata[j].dev].data.datasets[0].data.length > 10){
-                        diskChart[data.blkdata[j].dev].data.labels.shift();
-                        diskChart[data.blkdata[j].dev].data.datasets[0].data.shift();
-                        diskChart[data.blkdata[j].dev].data.datasets[1].data.shift();
-                    }
-                    diskChart[data.blkdata[j].dev].update();
-                }
-
-                for (let j = 0; j < data.netdata.length; j++) {
-                    netChart[data.netdata[j].dev].data.labels.push(data.timeline);
-
-                    netChart[data.netdata[j].dev].data.datasets[0].data.push(data.netdata[j].data[0]);
-                    netChart[data.netdata[j].dev].data.datasets[1].data.push(data.netdata[j].data[1]);
-                    if (netChart[data.netdata[j].dev].data.datasets[0].data.length > 10){
-                        netChart[data.netdata[j].dev].data.labels.shift();
-                        netChart[data.netdata[j].dev].data.datasets[0].data.shift();
-                        netChart[data.netdata[j].dev].data.datasets[1].data.shift();
-                    }
-                    netChart[data.netdata[j].dev].update();
-                }
-            });
-        }, 10000);
+                netChart[data.netdata[j].dev].update();
+            }
+        });
     });
 </script>
 <script>
     backgroundJobRunning = false;
-    var status_interval = window.setInterval(function get_status() {
-        var status = {{ instance.status|lower }};
-        $.getJSON("{% url 'instances:status' instance.id %}", function (data) {
-            if (data['status'] != status && !backgroundJobRunning) {
-                window.location.reload()
-            }
-        });
-    }, 5000);
+    var status = {{ instance.status|lower }};
+    var status_poll = pollWhileVisible(5000, function () {
+        return $.getJSON("{% url 'instances:status' instance.id %}");
+    }, function get_status(data) {
+        if (data['status'] != status && !backgroundJobRunning) {
+            window.location.reload()
+        }
+    });
 
     // Stop getting status info before delete instance
     $('#delete_form').submit(function(){
-        window.clearInterval(status_interval);
+        status_poll.stop();
         return true;
     });
 </script>

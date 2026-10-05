@@ -117,6 +117,7 @@
 {% endblock %}
 {% block script %}
 <script src="{% static "js/Chart.bundle.min.js" %}"></script>
+<script src="{% static "js/poll.js" %}"></script>
 <script>
 
     var cpu_ctx = document.getElementById("cpuChart").getContext("2d");
@@ -219,29 +220,29 @@
         }
     });
     if (Boolean({{ status }}) === true) {
-        window.setInterval(function graph_usage() {
-            $.getJSON('{% url 'compute_graph' compute_id %}', function (data) {
-                cpuChart.data.labels.push(data.timeline);
-                memChart.data.labels.push(data.timeline);
+        pollWhileVisible(5000, function () {
+            return $.getJSON('{% url 'compute_graph' compute_id %}');
+        }, function graph_usage(data) {
+            cpuChart.data.labels.push(data.timeline);
+            memChart.data.labels.push(data.timeline);
 
-                cpuChart.data.datasets[0].data.push(data.cpudata);
-                if (cpuChart.data.datasets[0].data.length > 10){
-                    cpuChart.data.labels.shift();
-                    cpuChart.data.datasets[0].data.shift();
-                }
-                memChart.options.scales.yAxes[0].ticks.max = parseInt(data.memdata.total / 1048576);
-                memChart.options.scales.yAxes[0].ticks.stepSize = parseInt(data.memdata.total / (1048576 * 5));
-                memChart.data.datasets[0].data.push(parseInt(data.memdata.usage / 1048576));
+            cpuChart.data.datasets[0].data.push(data.cpudata);
+            if (cpuChart.data.datasets[0].data.length > 10){
+                cpuChart.data.labels.shift();
+                cpuChart.data.datasets[0].data.shift();
+            }
+            memChart.options.scales.yAxes[0].ticks.max = parseInt(data.memdata.total / 1048576);
+            memChart.options.scales.yAxes[0].ticks.stepSize = parseInt(data.memdata.total / (1048576 * 5));
+            memChart.data.datasets[0].data.push(parseInt(data.memdata.usage / 1048576));
 
-                if (memChart.data.datasets[0].data.length > 10){
-                    memChart.data.labels.shift();
-                    memChart.data.datasets[0].data.shift();
-                }
+            if (memChart.data.datasets[0].data.length > 10){
+                memChart.data.labels.shift();
+                memChart.data.datasets[0].data.shift();
+            }
 
-                cpuChart.update();
-                memChart.update();
-            });
-        }, 5000);
+            cpuChart.update();
+            memChart.update();
+        });
     }
 </script>
 {% endblock %}

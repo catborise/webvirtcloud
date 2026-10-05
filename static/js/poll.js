@@ -1,0 +1,50 @@
+// Repeats request() while the page is visible and passes each answer to
+// onData. request() returns a jQuery promise (e.g. $.getJSON(url)); onData is
+// called after the poller's own bookkeeping, so an error in it does not stop
+// the polling. One request at a time: the next one starts
+// interval ms after the previous one has finished, so a slow host does not
+// pile up requests, each holding a web worker. A hidden page asks nothing;
+// when it is shown again it asks at once. stop() pauses, start() resumes
+// at once (for example while a tab of the page is shown).
+function pollWhileVisible(interval, request, onData) {
+    var timer = null;
+    var running = false;
+    var stopped = false;
+
+    function run() {
+        timer = null;
+        if (stopped || document.hidden) {
+            return;
+        }
+        running = true;
+        request()
+            .always(function () {
+                running = false;
+                if (!stopped && !document.hidden) {
+                    timer = setTimeout(run, interval);
+                }
+            })
+            .done(onData);
+    }
+
+    function resume() {
+        if (!stopped && !document.hidden && !running && timer === null) {
+            run();
+        }
+    }
+
+    document.addEventListener("visibilitychange", resume);
+    timer = setTimeout(run, interval);
+
+    return {
+        stop: function () {
+            stopped = true;
+            clearTimeout(timer);
+            timer = null;
+        },
+        start: function () {
+            stopped = false;
+            resume();
+        },
+    };
+}
