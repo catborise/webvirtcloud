@@ -11,7 +11,8 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.http import HttpResponseRedirect
+from django.core.cache import cache
+from django.http import Http404, HttpResponseRedirect
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.http import require_POST
@@ -201,18 +202,29 @@ def user_instance_delete(request, pk):
     )
 
 
+# a user gets at most one OTP mail per this many seconds
+EMAIL_OTP_INTERVAL = 300
+
+
 @login_not_required
 def email_otp(request):
+    """
+    "Lost OTP?": mail the OTP QR code to the user with this address. Open to
+    anyone, so it mails only one exact, active match, at most once per
+    EMAIL_OTP_INTERVAL, and answers the same in every case.
+    """
+    if not settings.OTP_ENABLED:
+        raise Http404
     form = EmailOTPForm(request.POST or None)
     if form.is_valid():
-        UserModel = get_user_model()
-        try:
-            user = UserModel.objects.get(email=form.cleaned_data["email"])
-        except UserModel.DoesNotExist:
-            pass
-        else:
-            device = get_user_totp_device(user)
-            send_email_with_otp(user, device)
+        users = list(get_user_model().objects.filter(email__iexact=form.cleaned_data["email"], is_active=True)[:2])
+        # the cache is per process: with several workers the bound is per worker
+        if len(users) == 1 and cache.add(f"email_otp:{users[0].pk}", True, EMAIL_OTP_INTERVAL):
+            user = users[0]
+            try:
+                send_email_with_otp(user, get_user_totp_device(user))
+            except Exception:
+                logging.getLogger(__name__).exception("Could not mail the OTP QR code to user %s", user.pk)
 
         messages.success(
             request, _("OTP Sent to %(email)s") % {"email": form.cleaned_data["email"]}
