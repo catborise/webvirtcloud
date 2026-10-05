@@ -2,7 +2,7 @@ from computes.models import Compute
 from django.db import models
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
-from libvirt import VIR_DOMAIN_XML_SECURE
+from libvirt import VIR_DOMAIN_XML_SECURE, libvirtError
 from vrtManager.instance import wvmInstance
 from webvirtcloud.settings import QEMU_CONSOLE_LISTENER_ADDRESSES
 
@@ -64,9 +64,13 @@ class Instance(models.Model):
         return self.proxy.get_disk_devices()
 
     @cached_property
-    def info(self) -> list:
-        """virDomainGetInfo, read once: state, max memory KiB, memory KiB, vCPUs, CPU time"""
-        return self.proxy.instance.info()
+    def info(self) -> list | None:
+        """virDomainGetInfo, read once: state, max memory KiB, memory KiB, vCPUs, CPU time.
+        None if the VM cannot be read (host down, VM gone): lists show it as unknown."""
+        try:
+            return self.proxy.instance.info()
+        except libvirtError:
+            return None
 
     @cached_property
     def status(self) -> int:

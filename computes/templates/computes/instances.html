@@ -50,11 +50,18 @@
 </div>
 <div class="row">
     <div class="col-lg-12">
+        {% if compute.status is not True %}
+            <div class="alert alert-danger shadow-sm">
+                {% trans 'Problem occurred with host' %} {{ compute.name }}: {{ compute.connection_error }}
+            </div>
+        {% endif %}
         {% if not instances %}
+            {% if compute.status is True %}
             <div class="alert alert-warning shadow-sm fade show">
                 {% bs_icon 'exclamation-triangle' %} <strong>{% trans "Warning" %}:</strong>
                 {% trans "Hypervisor doesn't have any Instances" %}
             </div>
+            {% endif %}
         </div>
         {% else %}
             <table class="table table-hover sortable-theme-bootstrap" data-sortable>
@@ -74,7 +81,7 @@
                         <td>
                             <a class="link-primary" href="{% url 'instances:instance' instance.id %}">{{ instance.name }}</a>
                             <br>
-                            <p class="m-0 small fst-italic">{{ instance.title }}</p>
+                            {% if instance.info %}<p class="m-0 small fst-italic">{{ instance.title }}</p>{% endif %}
                         </td>
                         <td>
                             <em>
@@ -96,9 +103,10 @@
                             {% if instance.info.0 == 3 %}
                                 <span class="text-warning">{% trans "Suspended" %}</span>
                             {% endif %}
+                            {% if instance.info is None %}<span class="text-secondary">{% trans "Unknown" %}</span>{% endif %}
                         </td>
                         <td>{{ instance.info.3 }}</td>
-                        <td><p class="text-end">{% widthratio instance.info.1 1024 1  %} MiB</p></td>
+                        <td><p class="text-end">{% if instance.info %}{% widthratio instance.info.1 1024 1  %} MiB{% endif %}</p></td>
                         <td class="text-nowrap">
                             {% include 'instance_actions.html' %}
                         </td>

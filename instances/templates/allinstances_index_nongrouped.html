@@ -17,14 +17,13 @@
     </thead>
     <tbody class="searchable">
         {% for instance in instances  %}
-            {% if instance.compute.status is True %}
                 <tr>
                     <td>
                         <a class="link-primary" href="{% url 'instances:instance' instance.id %}">
                             {{ instance.name }}
                         </a>
                         <br>
-                        <p class="m-0 small font-italic">{{ instance.title }}</p>
+                        {% if instance.info %}<p class="m-0 small font-italic">{{ instance.title }}</p>{% endif %}
                     </td>
                     {% if request.user.is_superuser %}
                         <td>
@@ -46,6 +45,7 @@
                             class="text-danger">{% trans "Off" %}</span>{% endif %}
                         {% if instance.info.0 == 3 %}<span
                             class="text-warning">{% trans "Suspended" %}</span>{% endif %}
+                        {% if instance.info is None %}<span class="text-secondary">{% trans "Unknown" %}</span>{% endif %}
                     </td>
 		    {% if app_settings.VM_DRBD_STATUS == 'True' %}
 		    <td>
@@ -53,12 +53,11 @@
 		    </td>
 		    {% endif %}
                     <td>{{ instance.info.3 }}</td>
-                    <td>{% widthratio instance.info.2 1024 1 %} MB</td>
+                    <td>{% if instance.info %}{% widthratio instance.info.2 1024 1 %} MB{% endif %}</td>
                     <td class="text-nowrap">
                         {% include 'instance_actions.html' %}
                     </td>
                 </tr>
-            {% endif %}
         {% endfor %}
     </tbody>
 </table>

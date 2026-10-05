@@ -1,5 +1,6 @@
 {% load i18n %}
 {% load bootstrap_icons %}
+{% if instance.info %}
 <div class="btn-group" role="group" aria-label="Instance actions">
     {% if instance.info.0 == 5 %}
         {% if instance.is_template %}
@@ -74,3 +75,4 @@
     }
 </script>
 {% endblock script %}
+{% endif %}
