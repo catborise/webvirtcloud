@@ -20,6 +20,7 @@ def appsettings(request):
     main_css = "wvc-main.min.css"
     sass_dir = AppSettings.objects.get(key="SASS_DIR")
     bootstrap_theme = AppSettings.objects.get(key="BOOTSTRAP_THEME")
+    themes_list = []
     try:
         themes_list = os.listdir(sass_dir.value + "/wvc-themes")
     except FileNotFoundError as err:
@@ -50,6 +51,10 @@ def appsettings(request):
 
         if "BOOTSTRAP_THEME" in request.POST:
             theme = request.POST.get("BOOTSTRAP_THEME", "")
+            # the name goes into @import paths: only the themes in SASS_DIR
+            if theme not in themes_list:
+                messages.error(request, _("Unknown theme: %(theme)s") % {"theme": theme})
+                return HttpResponseRedirect(request.get_full_path())
             scss_var = f"@import '{sass_dir.value}/wvc-themes/{theme}/variables';"
             # scss_boot = f"@import '{sass_dir.value}/bootstrap/bootstrap.scss';"
             scss_boot = f"@import '{sass_dir.value}/bootstrap-overrides.scss';"
