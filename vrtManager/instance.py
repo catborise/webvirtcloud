@@ -20,6 +20,9 @@ try:
         VIR_DOMAIN_UNDEFINE_KEEP_NVRAM,
         VIR_DOMAIN_UNDEFINE_KEEP_TPM,
         VIR_ERR_NO_DOMAIN,
+        VIR_ERR_NO_STORAGE_POOL,
+        VIR_ERR_NO_STORAGE_VOL,
+        VIR_CONNECT_LIST_STORAGE_POOLS_ACTIVE,
         VIR_DOMAIN_BLOCK_RESIZE_BYTES,
         VIR_STORAGE_VOL_FILE,
         VIR_MIGRATE_AUTO_CONVERGE,
@@ -151,6 +154,15 @@ class wvmInstances(wvmConnect):
                     mode.append(label)
 
         dom = conn.instance
+        definitions = {dom.XMLDesc(0)}
+        if state != 5:
+            definitions.add(dom.XMLDesc(VIR_DOMAIN_XML_INACTIVE))
+        missing = self.missing_disks(definitions)
+        if missing:
+            raise util.OperationError(
+                "The destination host does not have these disks of the VM: "
+                + ", ".join(f"{target} ({source})" for target, source in missing)
+            )
 
         dom_arch = conn.get_arch()
         dom_emulator = conn.get_dom_emulator()
@@ -169,6 +181,76 @@ class wvmInstances(wvmConnect):
         else:
             dom.migrate(self.wvm, flags, None, uri, 0)
         return ", ".join(mode)
+
+    def missing_disks(self, definitions):
+        """(target, source) of the disks in the VM definitions (XML) that are
+        not volumes of this host's active storage pools: the VM's own files,
+        their backing files (as the definition or this host's volume lists
+        them), CD-ROM images, block devices and pool volumes. Network disks
+        (RBD, iSCSI, ...) are reached the same way from every host and are not
+        checked; other types (dir, nvme, ...) cannot be and count as missing.
+        Pools are refreshed before a disk counts as missing, as a file another
+        host made on shared storage is listed after that."""
+        disks = {}
+        for xml in definitions:
+            for disk in ElementTree.fromstring(xml).iter("disk"):
+                target = disk.find("target")
+                target = target.get("dev") if target is not None else "?"
+                for element in (disk, *disk.iter("backingStore")):
+                    source = element.find("source")
+                    kind = element.get("type")
+                    if source is None or kind == "network":
+                        continue
+                    if kind == "volume":
+                        disks[(source.get("pool"), source.get("volume"))] = target
+                    elif kind in ("file", "block") and (source.get("file") or source.get("dev")):
+                        disks[(None, source.get("file") or source.get("dev"))] = target
+                    elif kind not in ("file", "block"):
+                        disks[(kind, None)] = target
+
+        def missing():
+            checked, unseen, queue = set(), [], list(disks.items())
+            while queue:
+                key, target = queue.pop()
+                if key in checked:
+                    continue
+                checked.add(key)
+                volume = self.find_volume(*key)
+                if volume is None:
+                    unseen.append((target, key))
+                    continue
+                backing = ElementTree.fromstring(volume.XMLDesc(0)).findtext("backingStore/path")
+                if backing and "://" not in backing:  # a URI is a network backing image
+                    queue.append(((None, backing), target))
+            return unseen
+
+        if missing():
+            for pool in self.wvm.listAllStoragePools(VIR_CONNECT_LIST_STORAGE_POOLS_ACTIVE):
+                with contextlib.suppress(libvirtError):
+                    pool.refresh(0)
+        return [(target, self.disk_label(*key)) for target, key in missing()]
+
+    @staticmethod
+    def disk_label(pool, name):
+        if name is None:
+            return f"{pool} disk, cannot be checked"
+        return name if pool is None else f"{pool}/{name}"
+
+    def find_volume(self, pool, name):
+        """The volume name of pool, or with pool None the volume at path name;
+        None when this host has none (or name is None: a disk type that
+        cannot be checked)."""
+        if name is None:
+            return None
+        try:
+            if pool is None:
+                return self.wvm.storageVolLookupByPath(name)
+            pool = self.wvm.storagePoolLookupByName(pool)
+            return pool.storageVolLookupByName(name) if pool.isActive() else None
+        except libvirtError as error:
+            if error.get_error_code() in (VIR_ERR_NO_STORAGE_VOL, VIR_ERR_NO_STORAGE_POOL):
+                return None
+            raise
 
     def move_definition(self, dom):
         """Migrates a shut-off VM: that is only its definition, as the disks

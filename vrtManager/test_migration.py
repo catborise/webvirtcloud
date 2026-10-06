@@ -42,7 +42,11 @@ class FakeDomain:
     def UUIDString(self):
         return "u-1"
 
+    inactive_xml = None  # the persistent definition, when it differs
+
     def XMLDesc(self, flags):
+        if flags & libvirt.VIR_DOMAIN_XML_INACTIVE and self.inactive_xml:
+            return self.inactive_xml
         return self.xml
 
     def snapshotNum(self, flags=0):
@@ -80,13 +84,63 @@ class FakeDomain:
         return self
 
 
-class FakeHost:
-    """The destination's libvirt connection."""
+def no_volume():
+    error = libvirt.libvirtError("Storage volume not found")
+    error.err = (libvirt.VIR_ERR_NO_STORAGE_VOL,)
+    return error
 
-    def __init__(self, existing=()):
+
+class FakeVolume:
+    def __init__(self, backing):
+        self.backing = backing
+
+    def XMLDesc(self, flags=0):
+        if self.backing is None:
+            return "<volume><target><path>x</path></target></volume>"
+        return f"<volume><backingStore><path>{self.backing}</path></backingStore></volume>"
+
+
+class FakePool:
+    def __init__(self, host, active=True):
+        self.host = host
+        self.active = active
+
+    def isActive(self):
+        return self.active
+
+    def refresh(self, flags=0):
+        self.host.refreshes += 1
+        self.host.volumes |= self.host.unlisted
+        self.host.unlisted = set()
+
+    def storageVolLookupByName(self, name):
+        return self.host.storageVolLookupByPath(name)
+
+
+class FakeHost:
+    """The destination's libvirt connection. volumes: the paths its pools
+    list; unlisted: files its pools show after a refresh."""
+
+    def __init__(self, existing=(), volumes=(), unlisted=(), backing=None, inactive_pools=()):
         self.existing = set(existing)
         self.defined = []
         self.new = []
+        self.volumes = set(volumes)
+        self.unlisted = set(unlisted)
+        self.backing = backing or {}  # path: the path of its backing file
+        self.inactive_pools = set(inactive_pools)
+        self.refreshes = 0
+
+    def storageVolLookupByPath(self, path):
+        if path not in self.volumes:
+            raise no_volume()
+        return FakeVolume(self.backing.get(path))
+
+    def storagePoolLookupByName(self, name):
+        return FakePool(self, active=name not in self.inactive_pools)
+
+    def listAllStoragePools(self, flags=0):
+        return [FakePool(self)]
 
     def lookup(self, key):
         if key in self.existing:
@@ -248,3 +302,101 @@ class MigrationModeTestCase(unittest.TestCase):
         self.assertEqual(flags & (live | unsafe | converge | compressed), live)
         self.assertEqual(self.migrate(5), ("offline", None))
         self.assertEqual(self.migrate(5, offline=True), ("offline", None))
+
+
+def with_disks(*disks):
+    return "<domain><devices>%s</devices></domain>" % "".join(disks)
+
+
+FILE_DISK = "<disk type='file' device='disk'><source file='/pool/vm.qcow2'/><target dev='vda'/></disk>"
+
+
+class DestinationDisksTestCase(unittest.TestCase):
+    """Every disk of the VM must be a volume the destination knows; the
+    VM is refused before anything changes otherwise, naming the disks."""
+
+    def migrate(self, host, xml, state=1, inactive_xml=None):
+        source = FakeSource(state, xml=xml)
+        source.instance.inactive_xml = inactive_xml
+        live = state != 5
+        destination(host).moveto(source, "vm", live=live, unsafe=False, offline=not live)
+        return source
+
+    def test_known_volumes_migrate(self):
+        host = FakeHost(volumes={"/pool/vm.qcow2", "/pool/base.qcow2", "/iso/os.iso"})
+        xml = with_disks(
+            "<disk type='file' device='disk'><source file='/pool/vm.qcow2'/><target dev='vda'/>"
+            "<backingStore type='file'><source file='/pool/base.qcow2'/><backingStore/></backingStore></disk>",
+            "<disk type='file' device='cdrom'><source file='/iso/os.iso'/><target dev='sda'/></disk>",
+            "<disk type='file' device='cdrom'><target dev='sdb'/></disk>",  # empty
+            "<disk type='network' device='disk'><source protocol='rbd' name='rbd/vm'/><target dev='vdb'/></disk>",
+            "<disk type='volume' device='disk'><source pool='p' volume='/pool/vm.qcow2'/><target dev='vdc'/></disk>",
+        )
+        self.assertEqual(len(self.migrate(host, xml).instance.calls), 1)
+        self.assertEqual(host.defined, [])
+        self.migrate(host, xml, state=5)
+        self.assertEqual(len(host.defined), 1)
+
+    def test_missing_disks_are_refused_and_named(self):
+        cases = {
+            "vda \\(/pool/vm.qcow2\\)": with_disks(FILE_DISK),
+            "sda \\(/iso/os.iso\\)": with_disks(
+                "<disk type='file' device='cdrom'><source file='/iso/os.iso'/><target dev='sda'/></disk>"),
+            "vda \\(/pool/base.qcow2\\)": with_disks(
+                "<disk type='file' device='disk'><source file='/pool/vm.qcow2'/><target dev='vda'/>"
+                "<backingStore type='file'><source file='/pool/base.qcow2'/></backingStore></disk>"),
+            "vdb \\(/dev/sdz\\)": with_disks(
+                "<disk type='block' device='disk'><source dev='/dev/sdz'/><target dev='vdb'/></disk>"),
+            "vdc \\(p/v\\)": with_disks(
+                "<disk type='volume' device='disk'><source pool='p' volume='v'/><target dev='vdc'/></disk>"),
+        }
+        for missing, xml in cases.items():
+            for state in (1, 5):
+                with self.subTest(missing=missing, state=state):
+                    host = FakeHost(volumes=set() if "vm.qcow2" in missing else {"/pool/vm.qcow2"})
+                    source = FakeSource(state, xml=xml)
+                    with self.assertRaisesRegex(util.OperationError, missing):
+                        destination(host).moveto(source, "vm", live=state == 1, unsafe=False, offline=state == 5)
+                    self.assertEqual((source.instance.calls, host.defined), ([], []))
+
+    def test_a_disk_of_the_persistent_definition_is_checked_too(self):
+        host = FakeHost(volumes={"/pool/vm.qcow2"})
+        inactive = with_disks(FILE_DISK, "<disk type='file' device='disk'><source file='/pool/data.img'/>"
+                                         "<target dev='vdb'/></disk>")
+        with self.assertRaisesRegex(util.OperationError, "vdb \\(/pool/data.img\\)"):
+            self.migrate(host, with_disks(FILE_DISK), inactive_xml=inactive)
+
+    def test_pools_are_refreshed_before_a_disk_counts_as_missing(self):
+        # a file another host made on shared storage is listed after a refresh
+        host = FakeHost(unlisted={"/pool/vm.qcow2"})
+        self.assertEqual(len(self.migrate(host, with_disks(FILE_DISK)).instance.calls), 1)
+        self.assertEqual(host.refreshes, 1)
+        host = FakeHost(volumes={"/pool/vm.qcow2"})
+        self.migrate(host, with_disks(FILE_DISK))
+        self.assertEqual(host.refreshes, 0)
+
+    def test_backing_files_the_definition_does_not_list_are_checked(self):
+        # an inactive definition has no <backingStore>: the volume tells
+        for state in (1, 5):
+            with self.subTest(state=state):
+                host = FakeHost(volumes={"/pool/vm.qcow2", "/pool/mid.qcow2"},
+                                backing={"/pool/vm.qcow2": "/pool/mid.qcow2", "/pool/mid.qcow2": "/local/base.qcow2"})
+                with self.assertRaisesRegex(util.OperationError, "vda \\(/local/base.qcow2\\)"):
+                    self.migrate(host, with_disks(FILE_DISK), state=state)
+                host.volumes.add("/local/base.qcow2")
+                self.migrate(host, with_disks(FILE_DISK), state=state)
+
+    def test_a_network_backing_image_is_not_checked(self):
+        host = FakeHost(volumes={"/pool/vm.qcow2"}, backing={"/pool/vm.qcow2": "nbd://storage.example.org:10809/base"})
+        self.assertEqual(len(self.migrate(host, with_disks(FILE_DISK)).instance.calls), 1)
+
+    def test_disks_that_cannot_be_checked_are_refused(self):
+        xml = with_disks("<disk type='dir' device='disk'><source dir='/srv/vm'/><target dev='vdb'/></disk>")
+        with self.assertRaisesRegex(util.OperationError, "vdb \\(dir disk, cannot be checked\\)"):
+            self.migrate(FakeHost(), xml, state=5)
+
+    def test_a_volume_of_an_inactive_pool_is_missing(self):
+        host = FakeHost(volumes={"v"}, inactive_pools={"p"})
+        xml = with_disks("<disk type='volume' device='disk'><source pool='p' volume='v'/><target dev='vdc'/></disk>")
+        with self.assertRaisesRegex(util.OperationError, "vdc \\(p/v\\)"):
+            self.migrate(host, xml)
