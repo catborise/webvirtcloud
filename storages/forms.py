@@ -38,7 +38,10 @@ class AddStgPool(forms.Form):
     def clean_target(self):
         storage_type = self.cleaned_data["stg_type"]
         target = self.cleaned_data["target"]
-        have_symbol = re.match(r"^[^-](\/?((?:[0-9a-zA-Z_])|(?:\.)|((?<!\/)-))*)+$", target)
+        # letters, digits, "_", ".", "/" and "-" not right after "/"; not
+        # starting with "-". Written without nested repetition, which
+        # backtracked exponentially on crafted input.
+        have_symbol = re.match(r"^[^-](?:[/0-9a-zA-Z_.]|(?<!/)-)*$", target)
         if storage_type in ["dir", "netfs"] and not have_symbol:
             raise forms.ValidationError(
                 _("The target must not contain any special characters")
