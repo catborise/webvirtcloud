@@ -84,13 +84,19 @@ class wvmNWFilter(wvmConnect):
                 break
         return ElementTree.tostring(tree).decode()
 
+    @staticmethod
+    def _rules(tree, action, direction, priority):
+        # compared, not put into an XPath predicate: the values come from forms
+        return [
+            rule
+            for rule in tree.findall("./rule")
+            if (rule.get("action"), rule.get("direction"), rule.get("priority")) == (action, direction, priority)
+        ]
+
     def delete_rule(self, action, direction, priority):
         tree = ElementTree.fromstring(self._XMLDesc(0))
 
-        rule_tree = tree.findall(
-            "./rule[@action='%s'][@direction='%s'][@priority='%s']"
-            % (action, direction, priority)
-        )
+        rule_tree = self._rules(tree, action, direction, priority)
         if rule_tree:
             tree.remove(rule_tree[0])
 
@@ -111,10 +117,7 @@ class wvmNWFilter(wvmConnect):
         rule_direction = rule.get("direction")
         rule_priority = rule.get("priority")
         rule_directives = rule.find("./")
-        rule_tree = tree.findall(
-            "./rule[@action='%s'][@direction='%s'][@priority='%s']"
-            % (rule_action, rule_direction, rule_priority)
-        )
+        rule_tree = self._rules(tree, rule_action, rule_direction, rule_priority)
 
         if rule_tree:
             rule_tree[0].append(rule_directives)

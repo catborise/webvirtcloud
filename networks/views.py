@@ -258,7 +258,11 @@ def network(request, compute_id, pool):
             return HttpResponseRedirect(request.get_full_path())
         if "unset_qos" in request.POST:
             qos_dir = request.POST.get("qos_direction", "")
-            conn.unset_qos(qos_dir)
+            try:
+                conn.unset_qos(qos_dir)
+            except ValueError as err:
+                messages.error(request, err)
+                return HttpResponseRedirect(request.get_full_path())
 
             if conn.is_active():
                 messages.success(

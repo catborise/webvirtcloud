@@ -379,6 +379,9 @@ class wvmNetwork(wvmConnect):
         self.wvm.networkDefineXML(new_xml)
 
     def unset_qos(self, direction):
+        # direction goes into the XPath below
+        if direction not in ("inbound", "outbound"):
+            raise ValueError("Direction must be inbound or outbound")
         tree = etree.fromstring(self._XMLDesc(0))
         for direct in tree.xpath(f"/network/bandwidth/{direction}"):
             parent = direct.getparent()

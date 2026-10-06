@@ -410,7 +410,7 @@ class wvmConnect(object):
 
         def guests(ctx):
             result = dict()
-            for arch_el in ctx.xpath("/capabilities/guest/arch[@name='{}']".format(arch)):
+            for arch_el in ctx.xpath("/capabilities/guest/arch[@name=$arch]", arch=arch):
                 result["wordsize"] = arch_el.find("wordsize").text
                 result["emulator"] = arch_el.find("emulator").text
                 result["domain"] = [v for v in arch_el.xpath("domain/@type")]
@@ -625,7 +625,12 @@ class wvmConnect(object):
         """
         :return: emulator list
         """
-        return util.get_xml_path(self.get_cap_xml(), "/capabilities/guest/arch[@name='{}']/emulator".format(arch))
+        # arch comes from the URL: an XPath variable, not part of the expression
+        def emulator(ctx):
+            found = ctx.xpath("/capabilities/guest/arch[@name=$arch]/emulator", arch=arch)
+            return found[0].text if found else None
+
+        return util.get_xml_path(self.get_cap_xml(), func=emulator)
 
     def get_machine_types(self, arch):
         """
@@ -634,9 +639,9 @@ class wvmConnect(object):
 
         def machines(ctx):
             result = list()
-            canonical_name = ctx.xpath("/capabilities/guest/arch[@name='{}']/machine[@canonical]".format(arch))
+            canonical_name = ctx.xpath("/capabilities/guest/arch[@name=$arch]/machine[@canonical]", arch=arch)
             if not canonical_name:
-                canonical_name = ctx.xpath("/capabilities/guest/arch[@name='{}']/machine".format(arch))
+                canonical_name = ctx.xpath("/capabilities/guest/arch[@name=$arch]/machine", arch=arch)
             for archi in canonical_name:
                 result.append(archi.text)
             return result
