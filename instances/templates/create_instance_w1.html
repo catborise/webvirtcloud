@@ -131,7 +131,10 @@
             let arch = $("#select_archs").val();
             let machine = $("#select_chipset").val();
             //create_machine_url = "/computes/" + compute + "/create/archs/" + arch + "/machines/" + machine;
-            url = "{% url 'instances:create_instance' compute.id 'x86_64' 'pc' %}".replace(/x86_64/, arch).replace(/pc/, machine);
+            // placeholders, not "x86_64"/"pc": an arch such as ppc64 contains "pc"
+            url = "{% url 'instances:create_instance' compute.id '__arch__' '__machine__' %}"
+                .replace("__arch__", encodeURIComponent(arch))
+                .replace("__machine__", encodeURIComponent(machine));
             window.location.href = url;//create_machine_url;
         }
 
