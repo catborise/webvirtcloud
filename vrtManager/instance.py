@@ -16,6 +16,10 @@ try:
         VIR_DOMAIN_RUNNING,
         VIR_DOMAIN_XML_SECURE,
         VIR_DOMAIN_XML_INACTIVE,
+        VIR_DOMAIN_XML_MIGRATABLE,
+        VIR_DOMAIN_UNDEFINE_KEEP_NVRAM,
+        VIR_DOMAIN_UNDEFINE_KEEP_TPM,
+        VIR_ERR_NO_DOMAIN,
         VIR_DOMAIN_BLOCK_RESIZE_BYTES,
         VIR_STORAGE_VOL_FILE,
         VIR_MIGRATE_AUTO_CONVERGE,
@@ -147,7 +151,80 @@ class wvmInstances(wvmConnect):
                 "Destination host emulator is different. Cannot be migrated"
             )
 
+        if conn.get_status() == 5:
+            # Workaround for a libvirt bug (RHEL-156800), see move_definition.
+            # Once supported hosts all run a fixed libvirt, this branch and
+            # move_definition can go: VIR_MIGRATE_OFFLINE is set above.
+            self.move_definition(dom)
+            return
         dom.migrate(self.wvm, flags, None, uri, 0)
+
+    def move_definition(self, dom):
+        """Migrates a shut-off VM: that is only its definition, as the disks
+        are on storage both hosts share. NVRAM and TPM state stay on the
+        source. The destination's qemu migration hook does not run for it.
+
+        Workaround, to be removed in a later version: libvirt's own offline
+        migration (VIR_MIGRATE_OFFLINE) fails with "operation failed: domain
+        is no longer running" on libvirt builds that have upstream commit
+        a4f610ff ("Always offer block dirty bitmaps during migration") but not
+        its fix 59fde80f, which is in libvirt 12.2.0. RHEL backported the
+        first (RHEL-145770) and tracks the fix as RHEL-156800; RHEL/Rocky 9.8
+        with libvirt 11.10.0-12.el9_8 is affected. When supported hosts all
+        have the fix, offline migration can go back to dom.migrate."""
+        if dom.snapshotNum(0):
+            raise util.OperationError("A VM with snapshots cannot be migrated")
+        if dom.hasManagedSaveImage(0):
+            raise util.OperationError("A VM with a saved state cannot be migrated")
+        for lookup, key in ((self.wvm.lookupByUUIDString, dom.UUIDString()), (self.wvm.lookupByName, dom.name())):
+            try:
+                lookup(key)
+            except libvirtError as error:
+                if error.get_error_code() != VIR_ERR_NO_DOMAIN:
+                    raise
+            else:
+                raise util.OperationError(f"The destination host already has a VM {key}")
+
+        xml = dom.XMLDesc(VIR_DOMAIN_XML_SECURE | VIR_DOMAIN_XML_MIGRATABLE)
+        keep = VIR_DOMAIN_UNDEFINE_KEEP_NVRAM
+        if ElementTree.fromstring(xml).find("devices/tpm") is not None:
+            keep |= VIR_DOMAIN_UNDEFINE_KEEP_TPM  # libvirt >= 8.9 knows the flag
+        autostart = dom.autostart()
+        new = self.wvm.defineXML(xml)
+        try:
+            dom.undefineFlags(keep)
+            try:
+                started = dom.isActive()
+            except libvirtError as error:
+                if error.get_error_code() != VIR_ERR_NO_DOMAIN:
+                    raise
+                started = False  # gone from the source: the move is done
+            if started:
+                # started meanwhile by another client: it stays on the source
+                dom.connect().defineXML(xml).setAutostart(autostart)
+                raise util.OperationError("The VM was started on the source host during the migration")
+        except Exception as error:
+            self.undo_definition(dom, new, keep, error)
+            raise
+
+    @staticmethod
+    def undo_definition(dom, new, keep, error):
+        """After a failed move, the VM is defined on one host only: the
+        destination definition goes only while the source still has its own."""
+        try:
+            on_source = dom.isPersistent()
+        except libvirtError:
+            on_source = False
+        if not on_source:
+            raise util.OperationError(
+                f"{error}; the VM may now be defined only on the destination host: check both hosts"
+            ) from error
+        try:
+            new.undefineFlags(keep)
+        except libvirtError as undo_error:
+            raise util.OperationError(
+                f"{error}; the VM is now defined on both hosts, remove it from the destination: {undo_error}"
+            ) from error
 
     def graphics_type(self, name):
         inst = self.get_instance(name)
