@@ -652,11 +652,12 @@
 </script>
 <script>
     backgroundJobRunning = false;
-    var status = {{ instance.status|lower }};
+    // not "status": that is window.status, which the browser may not keep
+    var vm_status = {{ instance.status|lower }};
     var status_poll = pollWhileVisible(5000, function () {
         return $.getJSON("{% url 'instances:status' instance.id %}");
     }, function get_status(data) {
-        if (data['status'] != status && !backgroundJobRunning) {
+        if (data['status'] != vm_status && !backgroundJobRunning) {
             window.location.reload()
         }
     });
