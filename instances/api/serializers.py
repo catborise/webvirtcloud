@@ -91,6 +91,10 @@ class CreateInstanceSerializer(serializers.ModelSerializer):
 class MigrateSerializer(serializers.ModelSerializer):
     instance = Instance.objects.all().prefetch_related("userinstance_set")
     live = serializers.BooleanField(initial=True)
+    # left out, also from a form-encoded request: auto converge on
+    autoconverge = serializers.BooleanField(default=True)
+    compress = serializers.BooleanField(default=False)
+    unsafe = serializers.BooleanField(default=False)
 
     class Meta:
         model = MigrateInstance
