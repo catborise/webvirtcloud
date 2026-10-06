@@ -342,7 +342,7 @@ class wvmConnectionManager(object):
             return connection.connection
         else:
             # raise libvirt error
-            raise util.OperationError(connection.last_error)
+            raise util.ConnectionFailed(connection.last_error)
 
     def host_is_up(self, conn_type, hostname, timeout=1):
         """True if the libvirt endpoint of hostname accepts a TCP (or Unix

@@ -37,6 +37,7 @@ from libvirt import (VIR_DOMAIN_UNDEFINE_KEEP_NVRAM,
                      VIR_DOMAIN_RUNNING,
                      libvirtError)
 from logs.views import addlogmsg
+from webvirtcloud.middleware import error_text
 from vrtManager import util
 from vrtManager.create import wvmCreate
 from vrtManager.instance import wvmInstances
@@ -622,7 +623,7 @@ def destroy(request, pk):
                 try:
                     proxy.get_volume_by_path(path).delete(0)
                 except libvirtError as err:
-                    messages.error(request, _("Disk %(path)s was not deleted: %(err)s") % {"path": path, "err": err})
+                    messages.error(request, _("Disk %(path)s was not deleted: %(err)s") % {"path": path, "err": error_text(request, err)})
             for path in shared:
                 messages.warning(request, _("Disk %(path)s is used by another VM and was kept") % {"path": path})
         addlogmsg(
@@ -1265,7 +1266,7 @@ def snapshot(request, pk):
             instance.proxy.create_snapshot(name, desc)
         except libvirtError as err:
             # e.g. UEFI firmware whose NVRAM format does not allow internal snapshots
-            messages.error(request, _("Snapshot was not created: %(err)s") % {"err": err})
+            messages.error(request, _("Snapshot was not created: %(err)s") % {"err": error_text(request, err)})
         else:
             msg = _("Create snapshot: %(snap)s") % {"snap": name}
             addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
@@ -1303,7 +1304,7 @@ def revert_snapshot(request, pk):
         try:
             instance.proxy.snapshot_revert(snap_name)
         except libvirtError as err:
-            messages.error(request, _("Snapshot was not reverted: %(err)s") % {"err": err})
+            messages.error(request, _("Snapshot was not reverted: %(err)s") % {"err": error_text(request, err)})
             return _back(request, pk, "managesnapshot")
         msg = _("Successful revert snapshot: ")
         msg += snap_name
@@ -1882,7 +1883,7 @@ def clone(request, pk):
 
             return redirect(reverse("instances:instance", args=[new_instance.id]))
         except (libvirtError, ValueError, OSError) as e:  # OSError includes a lock timeout
-            messages.error(request, e)
+            messages.error(request, error_text(request, e))
 
     return get_safe_redirect(request, default=reverse("instances:instance", args=[pk]))
 

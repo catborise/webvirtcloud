@@ -22,6 +22,11 @@ class OperationError(libvirt.libvirtError):
         self.err = None
 
 
+class ConnectionFailed(OperationError):
+    """The host could not be connected to; the message may name it and how it
+    is reached."""
+
+
 def is_kvm_available(xml):
     kvm_domains = get_xml_path(xml, "//domain/@type='kvm'")
     return kvm_domains > 0
