@@ -7,6 +7,7 @@ from django.contrib.auth.forms import AdminPasswordChangeForm
 from django.contrib.auth.models import Group, User
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.http import require_POST
 from logs.models import Logs
@@ -123,8 +124,12 @@ def user_update(request, pk):
     if user_form.is_valid() and attributes_form.is_valid():
         user_form.save()
         attributes_form.save()
-        next = request.GET.get("next")
-        return redirect(next or "admin:user_list")
+        next_url = request.GET.get("next")
+        if next_url and url_has_allowed_host_and_scheme(
+            url=next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+        ):
+            return redirect(next_url)
+        return redirect("admin:user_list")
 
     return render(
         request,
