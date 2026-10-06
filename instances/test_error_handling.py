@@ -78,9 +78,7 @@ class ErrorHandlingTestCase(TestCase):
         self.assertEqual(response.url, "http://testserver/instances/?x=1#boot_opt")
 
     def migrate(self, target_id, up=True):
-        with patch("instances.models.wvmInstance"), patch(
-            "instances.utils.connection_manager.host_is_up", return_value=up
-        ):
+        with patch("instances.models.wvmInstance"), patch.object(Compute, "status", up):
             return self.client.post(self.url("migrate"), {"compute_id": target_id})
 
     def test_migrate_to_a_down_host_is_reported_and_not_logged_as_done(self):
@@ -118,9 +116,7 @@ class ApiErrorTestCase(TestCase):
 
     def test_migrate_to_a_down_host_is_not_started(self):
         target = Compute.objects.create(name="api-down", hostname="10.0.0.9", login="", password="", type=4)
-        with patch("instances.models.wvmInstance"), patch(
-            "instances.utils.connection_manager.host_is_up", return_value=False
-        ):
+        with patch("instances.models.wvmInstance"), patch.object(Compute, "status", False):
             response = self.client.post(
                 reverse("instance-migrate-list"), {"instance": self.instance.id, "target_compute": target.id}
             )

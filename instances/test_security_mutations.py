@@ -236,6 +236,7 @@ class InstanceSecurityMutationsTestCase(TestCase):
         c2.password = ""
 
         inst1 = MagicMock()
+        inst1.id = "inst1"
         inst1.compute = c1
         inst1.name = "inst1"
         inst1.autostart = False
@@ -243,6 +244,7 @@ class InstanceSecurityMutationsTestCase(TestCase):
         inst1.uuid = "u1"
 
         inst2 = MagicMock()
+        inst2.id = "inst2"
         inst2.compute = c2
         inst2.name = "inst2"
         inst2.autostart = False
@@ -269,15 +271,20 @@ class InstanceSecurityMutationsTestCase(TestCase):
         def slow_moveto(*args, **kwargs):
             time.sleep(0.05)
 
-        with patch("instances.utils.connection_manager.host_is_up", return_value=True), \
-             patch("instances.utils.wvmInstances") as mock_instances_cls, \
+        with patch("instances.utils.wvmInstances") as mock_instances_cls, \
              patch("instances.utils.wvmInstance"), \
              patch("instances.utils.transaction.atomic"), \
              patch("instances.utils.addlogmsg"), \
              patch("instances.utils.Instance") as mock_instance_model:
 
             mock_instances_cls.return_value.moveto.side_effect = slow_moveto
-            mock_instance_model.objects.filter.return_value.first.return_value = None
+            # under the locks each VM is still on its compute; the
+            # destination has no record of it
+            def rows(**query):
+                found = MagicMock(compute_id={"inst1": 101, "inst2": 102}[query["id"]]) if "id" in query else None
+                return MagicMock(**{"first.return_value": found})
+
+            mock_instance_model.objects.filter.side_effect = rows
 
             t1 = threading.Thread(target=worker_1_to_2)
             t2 = threading.Thread(target=worker_2_to_1)

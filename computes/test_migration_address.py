@@ -10,6 +10,7 @@ from django.urls import reverse
 
 from computes.models import Compute
 from computes.validators import validate_migration_address
+from instances.models import Instance
 from instances.utils import migrate_instance
 
 
@@ -46,13 +47,11 @@ class MigrationAddressTests(TestCase):
         source = Compute.objects.create(name="ma-src", hostname="10.0.0.8", login="root", password="", type=2)
         dest = Compute.objects.create(name="ma-dst", hostname="kvm9", login="root", password="", type=2,
                                       migration_address="198.51.100.9")
-        vm = MagicMock(compute=source, autostart=False)
-        vm.name = "vm"
-        with patch("instances.utils.connection_manager.host_is_up", return_value=True), \
+        vm = Instance.objects.create(compute=source, name="vm", uuid="u-ma")
+        user = get_user_model().objects.create_superuser("ma-mig", "mm@example.com", "pw")
+        with patch.object(Compute, "status", True), \
              patch("instances.utils.wvmInstances") as instances, \
              patch("instances.utils.wvmInstance"), \
-             patch("instances.utils.Instance") as model:
-            model.objects.filter.return_value.first.return_value = None
-            user = get_user_model().objects.create_superuser("ma-mig", "mm@example.com", "pw")
+             patch.object(Instance, "proxy", MagicMock()):
             migrate_instance(dest, vm, user, live=True)
         self.assertEqual(instances.return_value.moveto.call_args.kwargs["uri"], "tcp://198.51.100.9")

@@ -85,10 +85,8 @@ class QuotaTests(TestCase):
     def test_a_user_over_quota_can_still_shrink(self):
         for n in range(5):
             self.own(self.up, n)  # 10 vCPUs used of 8
-        # (the TCP probe of the previous code would skip these VMs and hide the case)
-        with patch("instances.utils.connection_manager.host_is_up", return_value=True):
-            self.assertEqual(self.check(0, -1, 0, 0), ("", 0))
-            self.assertEqual(self.check(0, 0, -512, 0), ("", 0))
+        self.assertEqual(self.check(0, -1, 0, 0), ("", 0))
+        self.assertEqual(self.check(0, 0, -512, 0), ("", 0))
 
     def test_unlimited_users_are_not_checked(self):
         UserAttributes.objects.filter(user=self.user).update(max_instances=-1, max_cpus=-1, max_memory=0, max_disk_size=-1)

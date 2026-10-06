@@ -12,7 +12,6 @@ from django.utils.translation import gettext_lazy as _
 from libvirt import libvirtError
 from logs.views import addlogmsg
 from vrtManager import util
-from vrtManager.connection import connection_manager
 from vrtManager.instance import wvmInstance, wvmInstances
 
 from .models import Instance
@@ -165,16 +164,17 @@ def migrate_instance(
     used, or the error). Returns the mode."""
     if new_compute == instance.compute:
         raise util.OperationError(_("The instance is already on %(compute)s") % {"compute": new_compute.name})
-    if not connection_manager.host_is_up(new_compute.type, new_compute.hostname):
+    if not new_compute.status:
         raise util.OperationError(_("%(compute)s is not reachable") % {"compute": new_compute.name})
-    source_host = instance.compute.hostname
-    c1, c2 = (
-        (instance.compute, new_compute)
-        if instance.compute.id < new_compute.id
-        else (new_compute, instance.compute)
-    )
+    source = instance.compute
+    c1, c2 = (source, new_compute) if source.id < new_compute.id else (new_compute, source)
     with libvirt_compute_lock(c1):
         with libvirt_compute_lock(c2):
+            # another request may have moved it while this one waited (its
+            # record may then be gone, merged into one on the destination)
+            current = Instance.objects.filter(id=instance.id).first()
+            if current is None or current.compute_id != source.id:
+                raise util.OperationError(_("The instance is no longer on %(compute)s") % {"compute": source.name})
             conn_migrate = None
             try:
                 conn_migrate = wvmInstances(
@@ -184,7 +184,7 @@ def migrate_instance(
                     new_compute.type,
                 )
 
-                autostart = instance.autostart
+                autostart = instance.proxy.get_autostart()
                 mode = conn_migrate.moveto(
                     instance.proxy,
                     instance.name,
@@ -200,65 +200,81 @@ def migrate_instance(
                     "target": migration_target(new_compute),
                     "error": error,
                 }
-                addlogmsg(user.username, source_host, instance.name, msg)
+                addlogmsg(user.username, source.hostname, instance.name, msg)
                 raise
             finally:
                 if conn_migrate is not None:
                     conn_migrate.close()
 
-            conn_new = None
-            try:
-                conn_new = wvmInstance(
-                    new_compute.hostname,
-                    new_compute.login,
-                    new_compute.password,
-                    new_compute.type,
-                    instance.name,
-                    uuid=instance.uuid,
-                )
-
-                if autostart:
+            # The VM runs on new_compute now: what follows must not stop it
+            # from being recorded there.
+            msg = _("Instance is migrated(%(mode)s) to %(target)s") % {
+                "mode": mode,
+                "target": migration_target(new_compute),
+            }
+            if autostart:
+                conn_new = None
+                try:
+                    conn_new = wvmInstance(
+                        new_compute.hostname,
+                        new_compute.login,
+                        new_compute.password,
+                        new_compute.type,
+                        instance.name,
+                        uuid=instance.uuid,
+                    )
                     conn_new.set_autostart(1)
-            finally:
-                if conn_new is not None:
-                    conn_new.close()
+                except (libvirtError, OSError) as error:
+                    msg = _("%(msg)s; setting its autostart there failed: %(error)s") % {"msg": msg, "error": error}
+                finally:
+                    if conn_new is not None:
+                        conn_new.close()
 
-            with transaction.atomic():
-                target_inst = Instance.objects.filter(
-                    compute=new_compute, uuid=instance.uuid
-                ).first()
-                if target_inst and target_inst.id != instance.id:
-                    for ui in UserInstance.objects.filter(instance=instance):
-                        existing_ui = UserInstance.objects.filter(
-                            instance=target_inst, user=ui.user
-                        ).first()
-                        if not existing_ui:
-                            ui.instance = target_inst
-                            ui.save()
-                        else:
-                            updated = False
-                            if ui.is_change and not existing_ui.is_change:
-                                existing_ui.is_change = True
-                                updated = True
-                            if ui.is_delete and not existing_ui.is_delete:
-                                existing_ui.is_delete = True
-                                updated = True
-                            if ui.is_vnc and not existing_ui.is_vnc:
-                                existing_ui.is_vnc = True
-                                updated = True
-                            if updated:
-                                existing_ui.save()
-                            ui.delete()
-                    instance.delete()
-                    instance.id = target_inst.id
-                    instance.compute = new_compute
-                else:
-                    instance.compute = new_compute
-                    instance.save()
+            try:
+                record_migration(instance, new_compute)
+            except Exception as error:
+                failed = _("%(msg)s, but recording it failed: %(error)s") % {"msg": msg, "error": error}
+                addlogmsg(user.username, source.hostname, instance.name, failed)
+                raise
 
-    msg = _("Instance is migrated(%(mode)s) to %(target)s") % {"mode": mode, "target": migration_target(new_compute)}
-    addlogmsg(user.username, source_host, instance.name, msg)
+    addlogmsg(user.username, source.hostname, instance.name, msg)
     return mode
+
+
+def record_migration(instance, new_compute):
+    """Moves instance to new_compute in the database. A record the list of
+    new_compute made for it meanwhile takes its owners and template mark."""
+    with transaction.atomic():
+        target_inst = Instance.objects.filter(compute=new_compute, uuid=instance.uuid).first()
+        if target_inst and target_inst.id != instance.id:
+            for ui in UserInstance.objects.filter(instance=instance):
+                existing_ui = UserInstance.objects.filter(instance=target_inst, user=ui.user).first()
+                if not existing_ui:
+                    ui.instance = target_inst
+                    ui.save()
+                else:
+                    updated = False
+                    if ui.is_change and not existing_ui.is_change:
+                        existing_ui.is_change = True
+                        updated = True
+                    if ui.is_delete and not existing_ui.is_delete:
+                        existing_ui.is_delete = True
+                        updated = True
+                    if ui.is_vnc and not existing_ui.is_vnc:
+                        existing_ui.is_vnc = True
+                        updated = True
+                    if updated:
+                        existing_ui.save()
+                    ui.delete()
+            if instance.is_template and not target_inst.is_template:
+                target_inst.is_template = True
+                target_inst.save(update_fields=["is_template"])
+            instance.delete()
+            instance.id = target_inst.id
+            instance.compute = new_compute
+        else:
+            instance.compute = new_compute
+            instance.save()
 
 
 def migration_target(compute):

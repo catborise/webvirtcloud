@@ -23,7 +23,7 @@ class MigrationLogTests(TestCase):
         self.vm = Instance.objects.create(compute=self.source, name="vm", uuid="u-ml")
 
     def migrate(self, outcome, **request):
-        with patch("instances.utils.connection_manager.host_is_up", return_value=True), \
+        with patch.object(Compute, "status", True), \
              patch("instances.utils.wvmInstances") as instances, \
              patch("instances.utils.wvmInstance"), \
              patch.object(Instance, "proxy", MagicMock()), \
@@ -45,6 +45,7 @@ class MigrationLogTests(TestCase):
         self.migrate("live", live=True)
         self.assertEqual(Logs.objects.get().message, "Instance is migrated(live) to 198.51.100.9 via 203.0.113.9")
         self.vm.compute = self.source
+        self.vm.save()
         self.dest.migration_address = "198.51.100.9"  # the host name itself
         self.migrate("live", live=True)
         self.assertEqual(Logs.objects.latest("id").message, "Instance is migrated(live) to 198.51.100.9")
