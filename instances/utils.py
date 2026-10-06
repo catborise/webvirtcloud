@@ -191,6 +191,7 @@ def migrate_instance(
                     autoconverge,
                     compress,
                     postcopy,
+                    uri=new_compute.migration_uri,
                 )
             finally:
                 if conn_migrate is not None:

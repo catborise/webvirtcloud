@@ -1,4 +1,5 @@
 import re
+from ipaddress import ip_address
 
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
@@ -24,3 +25,17 @@ def validate_name(value):
     have_symbol = wrong_name.match("[^a-zA-Z0-9._-]+")
     if have_symbol:
         raise ValidationError(_("The hostname must not contain any special characters"))
+
+
+_hostname = re.compile(r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.?")
+
+
+def validate_migration_address(value):
+    """An IP address (no IPv6 scope) or a host name: no scheme, port or brackets."""
+    try:
+        if not getattr(ip_address(value), "scope_id", None):
+            return
+    except ValueError:
+        if _hostname.fullmatch(value):
+            return
+    raise ValidationError(_("Enter an IP address or a host name, without a scheme or port"))

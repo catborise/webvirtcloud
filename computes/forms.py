@@ -50,4 +50,4 @@ class SocketComputeForm(forms.ModelForm):
 
     class Meta:
         model = Compute
-        fields = ["name", "details", "hostname", "type"]
+        fields = ["name", "details", "hostname", "type", "migration_address"]

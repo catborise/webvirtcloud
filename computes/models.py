@@ -1,8 +1,11 @@
+from ipaddress import ip_address
+
 from django.db.models import CharField, IntegerField, Model
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 from libvirt import virConnect
 
+from computes.validators import validate_migration_address
 from vrtManager.connection import connection_manager
 from vrtManager.hostdetails import wvmHostDetails
 
@@ -14,6 +17,30 @@ class Compute(Model):
     password = CharField(_("password"), max_length=14, blank=True, null=True)
     details = CharField(_("details"), max_length=64, null=True, blank=True)
     type = IntegerField()
+    migration_address = CharField(
+        _("migration address"),
+        max_length=64,
+        blank=True,
+        default="",
+        validators=[validate_migration_address],
+        help_text=_(
+            "IP address or host name the other hosts send migrating VMs to; "
+            "empty: the host's own host name, which they must be able to resolve"
+        ),
+    )
+
+    @property
+    def migration_uri(self):
+        """The native migration URI for VMs migrated to this host, or None for
+        libvirt's default."""
+        if not self.migration_address:
+            return None
+        try:
+            if ip_address(self.migration_address).version == 6:
+                return f"tcp://[{self.migration_address}]"
+        except ValueError:
+            pass
+        return f"tcp://{self.migration_address}"
 
     @cached_property
     def status(self):

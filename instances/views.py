@@ -687,6 +687,8 @@ def migrate(request, pk):
             "hostname": target_host.hostname,
             "method": migration_method,
         }
+        if target_host.migration_address:
+            msg = _("%(msg)s via %(address)s") % {"msg": msg, "address": target_host.migration_address}
         addlogmsg(request.user.username, current_host, instance.name, msg)
 
     return get_safe_redirect(

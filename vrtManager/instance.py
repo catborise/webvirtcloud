@@ -117,7 +117,10 @@ class wvmInstances(wvmConnect):
         autoconverge=False,
         compress=False,
         postcopy=False,
+        uri=None,
     ):
+        """uri: the native migration URI (tcp://address) on the destination;
+        None lets libvirt use the destination's own hostname."""
         # The source definition always goes: one left behind points at the
         # same (shared) disks as the migrated VM and could be started again.
         flags = VIR_MIGRATE_PERSIST_DEST | VIR_MIGRATE_UNDEFINE_SOURCE
@@ -144,7 +147,7 @@ class wvmInstances(wvmConnect):
                 "Destination host emulator is different. Cannot be migrated"
             )
 
-        dom.migrate(self.wvm, flags, None, None, 0)
+        dom.migrate(self.wvm, flags, None, uri, 0)
 
     def graphics_type(self, name):
         inst = self.get_instance(name)

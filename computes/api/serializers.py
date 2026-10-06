@@ -22,4 +22,4 @@ class ComputeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Compute
-        fields = ["id", "name", "hostname", "login", "password", "type", "details"]
+        fields = ["id", "name", "hostname", "login", "password", "type", "details", "migration_address"]

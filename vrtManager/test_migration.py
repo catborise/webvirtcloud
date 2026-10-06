@@ -50,3 +50,11 @@ class MigrationFlagsTestCase(unittest.TestCase):
                 flags = source.instance.calls[0][0]
                 self.assertTrue(flags & libvirt.VIR_MIGRATE_UNDEFINE_SOURCE)
                 self.assertTrue(flags & libvirt.VIR_MIGRATE_PERSIST_DEST)
+
+    def test_the_migration_uri_is_passed_on(self):
+        source = FakeSource(1)
+        destination().moveto(source, "vm", live=True, unsafe=False, offline=False, uri="tcp://192.0.2.12")
+        self.assertEqual(source.instance.calls[0][1], "tcp://192.0.2.12")
+        source = FakeSource(1)
+        destination().moveto(source, "vm", live=True, unsafe=False, offline=False)
+        self.assertIsNone(source.instance.calls[0][1])
