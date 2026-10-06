@@ -43,3 +43,8 @@ class AppSettingsTestCase(TestCase):
         self.client.force_login(regular_user)
         response = self.client.get(reverse("appsettings"))
         self.assertEqual(response.status_code, 403)
+
+    def test_clones_are_not_migrated_automatically(self):
+        # a clone stays on the host of the VM it was made from; the setting
+        # that sent it to a random host is removed by migration 0015
+        self.assertFalse(AppSettings.objects.filter(key="CLONE_INSTANCE_AUTO_MIGRATE").exists())

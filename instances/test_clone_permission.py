@@ -107,6 +107,19 @@ class ClonePermissionTestCase(TestCase):
         self.assertEqual(res.status_code, 403)
         proxy.clone_instance.assert_not_called()
 
+    def test_a_clone_stays_on_the_host_of_its_vm(self):
+        # the removed "VM Clone Auto Migrate" setting sent it to a random host
+        other = Compute.objects.create(name="other-host", hostname="198.51.100.20", login="", password="", type=4)
+        with self.mocked_libvirt() as proxy, \
+             patch("instances.views.utils.migrate_instance") as migrate, \
+             patch.object(app_settings, "CLONE_INSTANCE_AUTO_MIGRATE", "True", create=True), \
+             patch("instances.views.Compute.objects.order_by") as random_host:
+            random_host.return_value.first.return_value = other
+            self._clone(self.owner_change, self._valid_post())
+        proxy.clone_instance.assert_called_once()
+        migrate.assert_not_called()
+        self.assertEqual(Instance.objects.get(name="clone-vm").compute, self.instance.compute)
+
     def test_viewer_can_clone_a_template(self):
         self.instance.is_template = True
         self.instance.save(update_fields=["is_template"])

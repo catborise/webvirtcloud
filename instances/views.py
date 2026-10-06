@@ -1854,13 +1854,6 @@ def clone(request, pk):
                 request.user.username, instance.compute.name, new_instance.name, msg
             )
 
-            if app_settings.CLONE_INSTANCE_AUTO_MIGRATE == "True":
-                new_compute = Compute.objects.order_by("?").first()
-                if new_compute != instance.compute:
-                    utils.migrate_instance(
-                        new_compute, new_instance, request.user, offline=True
-                    )
-
             return redirect(reverse("instances:instance", args=[new_instance.id]))
         except (libvirtError, ValueError, OSError) as e:  # OSError includes a lock timeout
             messages.error(request, error_text(request, e))
