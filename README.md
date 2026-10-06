@@ -413,6 +413,8 @@ to `MIDDLEWARE` in your existing `webvirtcloud/settings.py`, after
 middleware, if present). A system check rejects a missing or misplaced middleware.
 The template is not copied over an existing settings file during an upgrade.
 
+Failed logins are limited with `django-axes` (installed from `conf/requirements.txt`). Copy the `axes` entries of `webvirtcloud/settings.py.template` into your `webvirtcloud/settings.py`: `"axes"` in `INSTALLED_APPS`, `"axes.middleware.AxesMiddleware"` at the end of `MIDDLEWARE`, `"axes.backends.AxesStandaloneBackend"` first in `AUTHENTICATION_BACKENDS`, and the `AXES_*` settings; then run `migrate`. The number of failed logins and the lock time are on the Settings page; unlock a user with `python3 manage.py axes_reset_username <username>`. Behind a proxy other than the bundled nginx, the proxy must set `X-Real-IP` to the client address and its address must be listed in `LOGIN_TRUSTED_PROXIES`.
+
 Migration `accounts.0007` transfers the first-login requirement from any existing
 `data/admin_password` file to the user record. Run migrations as a user who can read
 that file. Thereafter, deleting or losing access to the file does not bypass the

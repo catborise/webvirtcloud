@@ -1,4 +1,4 @@
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
 from appsettings.models import AppSettings
@@ -7,7 +7,7 @@ from appsettings.settings import app_settings, get_settings
 
 class AppSettingsTestCase(TestCase):
     def setUp(self):
-        self.client.login(username="admin", password="admin")
+        self.client.login(request=RequestFactory().get("/"), username="admin", password="admin")
 
     def test_get_settings_populates_singleton(self):
         AppSettings.objects.update_or_create(

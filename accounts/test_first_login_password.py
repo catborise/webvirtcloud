@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from unittest.mock import patch
 
@@ -29,7 +29,7 @@ class FirstLoginPasswordChangeTestCase(TestCase):
         UserAttributes.objects.create(user=self.admin, must_change_password=True)
 
     def test_login_with_generated_password_redirects_every_page_to_change_form(self):
-        self.client.login(username="firstadmin", password=GENERATED)
+        self.client.login(request=RequestFactory().get("/"), username="firstadmin", password=GENERATED)
         for url in (reverse("index"), reverse("instances:index"), reverse("accounts:profile")):
             with self.subTest(url=url):
                 response = self.client.get(url)
@@ -39,7 +39,7 @@ class FirstLoginPasswordChangeTestCase(TestCase):
         self.assertEqual(self.client.get(reverse("accounts:change_password")).status_code, 200)
 
     def test_changing_the_password_lifts_the_redirect_and_deletes_the_file(self):
-        self.client.login(username="firstadmin", password=GENERATED)
+        self.client.login(request=RequestFactory().get("/"), username="firstadmin", password=GENERATED)
         self.client.post(
             reverse("accounts:change_password"),
             {
@@ -57,7 +57,7 @@ class FirstLoginPasswordChangeTestCase(TestCase):
         get_user_model().objects.create_superuser(
             username="otheradmin", email="otheradmin@example.com", password="Other-pass-789"
         )
-        self.client.login(username="otheradmin", password="Other-pass-789")
+        self.client.login(request=RequestFactory().get("/"), username="otheradmin", password="Other-pass-789")
         self.assertEqual(self.client.get(reverse("instances:index")).status_code, 200)
         self.assertTrue(self.password_file.exists())
 
@@ -71,7 +71,7 @@ class FirstLoginPasswordChangeTestCase(TestCase):
 
     def test_unreadable_password_file_is_not_used_during_login(self):
         with patch("accounts.apps.admin_password_path", side_effect=AssertionError("must not read file")):
-            self.client.login(username="firstadmin", password=GENERATED)
+            self.client.login(request=RequestFactory().get("/"), username="firstadmin", password=GENERATED)
         self.assertRedirects(
             self.client.get(reverse("accounts:profile")),
             reverse("accounts:change_password"), fetch_redirect_response=False,

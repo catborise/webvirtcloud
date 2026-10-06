@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.contrib.auth import authenticate, get_user_model
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 
 from accounts.apps import create_admin
 from accounts.models import UserAttributes
@@ -41,7 +41,7 @@ class GeneratedAdminPasswordTestCase(TestCase):
             self.assertEqual(stat.S_IMODE(password_file.stat().st_mode), 0o600)
             self.assertNotIn(password, output)
             self.assertIn(str(password_file), output)
-            self.assertIsNotNone(authenticate(username="admin", password=password))
+            self.assertIsNotNone(authenticate(RequestFactory().get("/"), username="admin", password=password))
             self.assertTrue(UserAttributes.objects.get(user__username="admin").must_change_password)
 
     def test_does_not_follow_a_planted_symlink(self):

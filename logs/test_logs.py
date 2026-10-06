@@ -1,6 +1,6 @@
 import json
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client, RequestFactory, TestCase
 from django.urls import reverse
 
 from computes.models import Compute
@@ -40,7 +40,7 @@ class LogsTestCase(TestCase):
     def test_vm_logs_superuser_access(self):
         addlogmsg("admin", "localhost", "test-vm", "Created VM")
         client = Client()
-        client.login(username="admin_logs", password="adminpassword")
+        client.login(request=RequestFactory().get("/"), username="admin_logs", password="adminpassword")
 
         response = client.get(reverse("vm_logs", args=["test-vm"]))
         self.assertEqual(response.status_code, 200)
@@ -54,7 +54,7 @@ class LogsTestCase(TestCase):
 
     def test_vm_logs_non_superuser_forbidden(self):
         client = Client()
-        client.login(username="normal_logs", password="userpassword")
+        client.login(request=RequestFactory().get("/"), username="normal_logs", password="userpassword")
 
         response = client.get(reverse("vm_logs", args=["test-vm"]))
         # superuser_only decorator redirects non-superusers to index or login

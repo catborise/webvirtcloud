@@ -5,7 +5,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 
@@ -659,7 +659,7 @@ class StorageUploadSecurityTests(TestCase):
 class StorageUploadViewTests(TestCase):
     def setUp(self):
         self.admin = User.objects.create_superuser(username="storage_admin", password="password", email="storage_admin@example.com")
-        self.client.login(username="storage_admin", password="password")
+        self.client.login(request=RequestFactory().get("/"), username="storage_admin", password="password")
         self.compute = Compute.objects.create(name="LocalCompute", hostname="localhost", type=1, login="u", password="p")
 
     @patch("storages.views.wvmStorage")
@@ -830,7 +830,7 @@ class StorageUploadViewTests(TestCase):
 
         # 4. Upload with same upload_id but by a different superuser cannot bypass/claim
         User.objects.create_superuser(username="other_admin", password="password", email="other@example.com")
-        self.client.login(username="other_admin", password="password")
+        self.client.login(request=RequestFactory().get("/"), username="other_admin", password="password")
         res4 = self.client.post(url, {
             "iso_upload": "1",
             "file": chunk_retry,

@@ -4,7 +4,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.shortcuts import reverse
-from django.test import Client, TestCase
+from django.test import Client, RequestFactory, TestCase
 from instances.models import Instance
 
 
@@ -46,7 +46,7 @@ class AccountsTestCase(TestCase):
         super().tearDownClass()
 
     def setUp(self):
-        self.client.login(username="admin", password="admin")
+        self.client.login(request=RequestFactory().get("/"), username="admin", password="admin")
         permission = Permission.objects.get(codename="change_password")
         self.test_user.user_permissions.add(permission)
         self.rsa_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAgQC6OOdbfv27QVnSC6sKxGaHb6YFc+3gxCkyVR3cTSXE/n5BEGf8aOgBpepULWa1RZfxYHY14PlKULDygdXSdrrR2kNSwoKz/Oo4d+3EE92L7ocl1+djZbptzgWgtw1OseLwbFik+iKlIdqPsH+IUQvX7yV545ZQtAP8Qj1R+uCqkw== test@test"
@@ -107,7 +107,7 @@ class AccountsTestCase(TestCase):
 
         self.client.logout()
 
-        logged_in = self.client.login(username="test", password="newpw")
+        logged_in = self.client.login(request=RequestFactory().get("/"), username="test", password="newpw")
         self.assertTrue(logged_in)
 
     def test_user_instance_create_update_delete(self):

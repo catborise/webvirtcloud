@@ -66,6 +66,7 @@ INSTALLED_APPS = [
     "logs",
     "qr_code",
     "rest_framework",
+    "axes",
 ]
 
 MIDDLEWARE = [
@@ -84,6 +85,8 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "appsettings.middleware.AppSettingsMiddleware",
     "webvirtcloud.middleware.ExceptionMiddleware",
+    # last, as django-axes requires
+    "axes.middleware.AxesMiddleware",
 ]
 
 ROOT_URLCONF = "webvirtcloud.urls"
@@ -124,11 +127,26 @@ DATABASES = {
 }
 
 AUTHENTICATION_BACKENDS = [
+    # first: refuses logins that are locked out
+    "axes.backends.AxesStandaloneBackend",
     "django.contrib.auth.backends.ModelBackend",
     #"django_auth_ldap.backend.LDAPBackend",
 ]
 
 LOGIN_URL = "/accounts/login/"
+
+# Failed logins (django-axes): a user is locked for the address the logins
+# come from. The limit and the lock time are on the Settings page
+# (LOGIN_FAILURE_LIMIT, LOGIN_LOCKOUT_MINUTES); unlock with
+# "manage.py axes_reset_username <username>".
+AXES_FAILURE_LIMIT = "accounts.lockout.failure_limit"
+AXES_COOLOFF_TIME = "accounts.lockout.cooloff_time"
+AXES_LOCKOUT_PARAMETERS = [["username", "ip_address"]]
+AXES_RESET_ON_SUCCESS = True
+AXES_CLIENT_IP_CALLABLE = "accounts.lockout.client_ip"
+# Reverse proxies other than a local one whose X-Real-IP header gives the
+# client address, e.g. ["10.0.0.5", "172.18.0.0/16"]
+LOGIN_TRUSTED_PROXIES = []
 
 LOGOUT_REDIRECT_URL = "/accounts/login/"
 

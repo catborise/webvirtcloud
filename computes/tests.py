@@ -1,7 +1,7 @@
 import os
 from django.core.exceptions import ObjectDoesNotExist
 from django.shortcuts import reverse
-from django.test import TestCase, TransactionTestCase
+from django.test import RequestFactory, TestCase, TransactionTestCase
 
 from vrtManager.connection import CONN_SOCKET, connection_manager
 from .models import Compute
@@ -14,7 +14,7 @@ TEST_COMPUTE_TYPE = int(os.environ.get("TEST_LIBVIRT_TYPE", CONN_SOCKET))
 
 class ComputesTestCase(TestCase):
     def setUp(self):
-        self.client.login(username="admin", password="admin")
+        self.client.login(request=RequestFactory().get("/"), username="admin", password="admin")
         self.compute, _ = Compute.objects.get_or_create(
             name="computes-test-compute",
             defaults={

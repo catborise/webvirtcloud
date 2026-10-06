@@ -1,14 +1,14 @@
 from django.contrib.auth.models import Group, User
 from django.core.exceptions import ObjectDoesNotExist
 from django.shortcuts import reverse
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 
 from accounts.models import UserAttributes
 
 
 class AdminTestCase(TestCase):
     def setUp(self):
-        self.client.login(username="admin", password="admin")
+        self.client.login(request=RequestFactory().get("/"), username="admin", password="admin")
 
     def test_group_list(self):
         response = self.client.get(reverse("admin:group_list"))

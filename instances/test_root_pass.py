@@ -2,7 +2,7 @@ import json
 import socket
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
 from computes.models import Compute
@@ -11,7 +11,7 @@ from instances.models import Instance
 
 class SetRootPassTestCase(TestCase):
     def setUp(self):
-        self.client.login(username="admin", password="admin")
+        self.client.login(request=RequestFactory().get("/"), username="admin", password="admin")
         self.compute = Compute.objects.create(
             name="test_compute_root_pass",
             hostname="localhost",
