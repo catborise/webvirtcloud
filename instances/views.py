@@ -16,12 +16,13 @@ from admin.decorators import superuser_only
 from appsettings.models import AppSettings
 from appsettings.settings import app_settings
 from computes.models import Compute
+from computes.validators import validate_hostname, validate_login
 from computes.utils import libvirt_compute_lock, libvirt_instance_lock, user_quota_lock
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import permission_required
 from django.contrib.auth.models import User
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404, HttpResponse, JsonResponse
 from django.db.models import prefetch_related_objects
 from django.shortcuts import get_object_or_404, redirect, render
@@ -194,14 +195,26 @@ def status(request, pk):
     return JsonResponse({"status": instance.proxy.get_status()})
 
 
+def _valid_ssh_target(compute):
+    """The login and hostname reach ssh as a command-line argument; a compute
+    whose values would inject an ssh option (an existing or bypassed row that
+    the field validators did not cover) is skipped rather than run."""
+    try:
+        validate_login(compute.login)
+        validate_hostname(compute.hostname)
+    except ValidationError:
+        return False
+    return True
+
+
 def drbd_status(request, pk):
     instance = get_instance(request.user, pk)
     result = "None DRBD"
 
-    if instance.compute.type == 2:
+    if instance.compute.type == 2 and _valid_ssh_target(instance.compute):
         conn = instance.compute.login + "@" + instance.compute.hostname
         remoteDrbdStatus = subprocess.run(
-            ["ssh", conn, "sudo", "/usr/sbin/drbdadm", "status", "&&", "exit"],
+            ["ssh", "--", conn, "sudo", "/usr/sbin/drbdadm", "status"],
             stdout=subprocess.PIPE,
             text=True,
         )

@@ -4,30 +4,42 @@ from ipaddress import ip_address
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 
-have_symbol = re.compile("[^a-zA-Z0-9._-]+")
-wrong_ip = re.compile("^0.|^255.")
-wrong_name = re.compile("[^a-zA-Z0-9._-]+")
+# one or more dot-separated RFC 1123 labels, optional trailing dot
+_hostname = re.compile(r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.?")
+_login = re.compile(r"[A-Za-z0-9._][A-Za-z0-9._-]*")
+_name = re.compile(r"[A-Za-z0-9._-]+")
 
 
 def validate_hostname(value):
-    sym = have_symbol.match(value)
-    wip = wrong_ip.match(value)
+    """An IPv4 address or a host name that goes safely into a libvirt
+    connection URI. No scheme, port, path, query, whitespace or IPv6 literal:
+    those would change the URI (an injected ?command=, ?no_verify=, a port or
+    a userinfo separator). IPv6 is rejected until the URI building brackets
+    it."""
+    try:
+        if ip_address(value).version == 4:
+            return
+    except ValueError:
+        if _hostname.fullmatch(value):
+            return
+    raise ValidationError(_("Enter an IPv4 address or a host name, without a scheme, port or path"))
 
-    if sym:
+
+def validate_login(value):
+    """A user name that goes safely into a libvirt connection URI and an ssh
+    command line. Empty is allowed (TCP falls back to the server's own
+    authentication, the socket transport ignores the login); otherwise only
+    letters, digits, ".", "_" and "-", and never a leading "-" (an ssh
+    option)."""
+    if value and not _login.fullmatch(value):
         raise ValidationError(
-            _('Hostname must contain only numbers, or the domain name separated by "."')
+            _("The login may contain only letters, digits, '.', '_' and '-', and may not start with '-'")
         )
-    elif wip:
-        raise ValidationError(_("Wrong IP address"))
 
 
 def validate_name(value):
-    have_symbol = wrong_name.match("[^a-zA-Z0-9._-]+")
-    if have_symbol:
-        raise ValidationError(_("The hostname must not contain any special characters"))
-
-
-_hostname = re.compile(r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.?")
+    if not _name.fullmatch(value):
+        raise ValidationError(_("The name must not contain any special characters"))
 
 
 def validate_migration_address(value):

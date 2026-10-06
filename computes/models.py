@@ -5,15 +5,15 @@ from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 from libvirt import virConnect
 
-from computes.validators import validate_migration_address
+from computes.validators import validate_hostname, validate_login, validate_migration_address
 from vrtManager.connection import connection_manager
 from vrtManager.hostdetails import wvmHostDetails
 
 
 class Compute(Model):
     name = CharField(_("name"), max_length=64, unique=True)
-    hostname = CharField(_("hostname"), max_length=64)
-    login = CharField(_("login"), max_length=20)
+    hostname = CharField(_("hostname"), max_length=64, validators=[validate_hostname])
+    login = CharField(_("login"), max_length=20, blank=True, validators=[validate_login])
     password = CharField(_("password"), max_length=14, blank=True, null=True)
     details = CharField(_("details"), max_length=64, null=True, blank=True)
     type = IntegerField()
