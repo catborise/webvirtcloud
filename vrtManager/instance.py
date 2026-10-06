@@ -27,7 +27,6 @@ try:
         VIR_MIGRATE_LIVE,
         VIR_MIGRATE_OFFLINE,
         VIR_MIGRATE_PERSIST_DEST,
-        VIR_MIGRATE_POSTCOPY,
         VIR_MIGRATE_UNDEFINE_SOURCE,
         VIR_MIGRATE_UNSAFE,
         VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY,
@@ -111,35 +110,45 @@ class wvmInstances(wvmConnect):
         dom = self.get_instance(name)
         dom.resume()
 
-    def moveto(
-        self,
-        conn,
-        name,
-        live,
-        unsafe,
-        offline,
-        autoconverge=False,
-        compress=False,
-        postcopy=False,
-        uri=None,
-    ):
-        """uri: the native migration URI (tcp://address) on the destination;
-        None lets libvirt use the destination's own hostname."""
+    def moveto(self, conn, name, live, unsafe, offline, autoconverge=False, compress=False, uri=None):
+        """Migrates the VM of conn (a wvmInstance on the source) here.
+
+        The mode follows the VM's state, read once: a running VM migrates
+        live or, without live, paused for the transfer (non-live); a paused
+        VM stays paused; a shut-off VM moves offline. A request that does not
+        fit the state is refused. unsafe, autoconverge (live only) and
+        compress apply to a running VM. uri: the native migration URI
+        (tcp://address) on the destination; None lets libvirt use the
+        destination's own hostname. Returns the mode and options used, for
+        the log."""
+        state = conn.get_status()
+        if state == 5:
+            if live:
+                raise util.OperationError("A shut-off VM cannot be migrated live")
+            mode = ["offline"]
+        elif state in (1, 3):
+            if offline:
+                raise util.OperationError("A running or paused VM cannot be migrated offline")
+            mode = ["live" if live else "non-live"]
+        else:
+            raise util.OperationError("The VM can be migrated when it is running, paused or shut off")
+
         # The source definition always goes: one left behind points at the
         # same (shared) disks as the migrated VM and could be started again.
         flags = VIR_MIGRATE_PERSIST_DEST | VIR_MIGRATE_UNDEFINE_SOURCE
-        if live and conn.get_status() != 5:
-            flags |= VIR_MIGRATE_LIVE
-        if unsafe and conn.get_status() == 1:
-            flags |= VIR_MIGRATE_UNSAFE
-        if offline and conn.get_status() == 5:
+        if state == 5:
             flags |= VIR_MIGRATE_OFFLINE
-        if not offline and autoconverge:
-            flags |= VIR_MIGRATE_AUTO_CONVERGE
-        if not offline and compress and conn.get_status() == 1:
-            flags |= VIR_MIGRATE_COMPRESSED
-        if not offline and postcopy and conn.get_status() == 1:
-            flags |= VIR_MIGRATE_POSTCOPY
+        elif live:
+            flags |= VIR_MIGRATE_LIVE
+        if state == 1:
+            for wanted, flag, label in (
+                (unsafe, VIR_MIGRATE_UNSAFE, "unsafe"),
+                (autoconverge and live, VIR_MIGRATE_AUTO_CONVERGE, "auto converge"),
+                (compress, VIR_MIGRATE_COMPRESSED, "compressed"),
+            ):
+                if wanted:
+                    flags |= flag
+                    mode.append(label)
 
         dom = conn.instance
 
@@ -151,13 +160,15 @@ class wvmInstances(wvmConnect):
                 "Destination host emulator is different. Cannot be migrated"
             )
 
-        if conn.get_status() == 5:
+        if state == 5:
             # Workaround for a libvirt bug (RHEL-156800), see move_definition.
             # Once supported hosts all run a fixed libvirt, this branch and
-            # move_definition can go: VIR_MIGRATE_OFFLINE is set above.
+            # move_definition can go: the flags above are those for
+            # dom.migrate.
             self.move_definition(dom)
-            return
-        dom.migrate(self.wvm, flags, None, uri, 0)
+        else:
+            dom.migrate(self.wvm, flags, None, uri, 0)
+        return ", ".join(mode)
 
     def move_definition(self, dom):
         """Migrates a shut-off VM: that is only its definition, as the disks

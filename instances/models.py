@@ -252,7 +252,6 @@ class MigrateInstance(models.Model):
     offline = models.BooleanField(_("Offline"))
     autoconverge = models.BooleanField(_("Auto Converge"), default=True)
     compress = models.BooleanField(_("Compress"), default=False)
-    postcopy = models.BooleanField(_("Post Copy"), default=False)
     unsafe = models.BooleanField(_("Unsafe"), default=False)
 
     class Meta:

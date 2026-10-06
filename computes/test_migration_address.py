@@ -10,9 +10,7 @@ from django.urls import reverse
 
 from computes.models import Compute
 from computes.validators import validate_migration_address
-from instances.models import Instance
 from instances.utils import migrate_instance
-from logs.models import Logs
 
 
 class MigrationAddressTests(TestCase):
@@ -55,19 +53,6 @@ class MigrationAddressTests(TestCase):
              patch("instances.utils.wvmInstance"), \
              patch("instances.utils.Instance") as model:
             model.objects.filter.return_value.first.return_value = None
-            migrate_instance(dest, vm, None, live=True)
+            user = get_user_model().objects.create_superuser("ma-mig", "mm@example.com", "pw")
+            migrate_instance(dest, vm, user, live=True)
         self.assertEqual(instances.return_value.moveto.call_args.kwargs["uri"], "tcp://198.51.100.9")
-
-    def test_the_log_names_the_migration_address(self):
-        self.client.force_login(get_user_model().objects.create_superuser("ma-log", "ml@example.com", "pw"))
-        source = Compute.objects.create(name="ml-src", hostname="198.51.100.8", login="root", password="", type=2)
-        cases = {"": "to 198.51.100.9", "203.0.113.9": "to 198.51.100.9 via 203.0.113.9"}
-        for address, text in cases.items():
-            with self.subTest(address=address):
-                dest = Compute.objects.create(name=f"ml-dst{address}", hostname="198.51.100.9", login="root",
-                                              password="", type=2, migration_address=address)
-                vm = Instance.objects.create(compute=source, name="vm", uuid=f"u-{address}")
-                with patch("instances.views.utils.migrate_instance"):
-                    self.client.post(reverse("instances:migrate", args=[vm.id]),
-                                     {"compute_id": dest.id, "live_migrate": "true"})
-                self.assertTrue(Logs.objects.latest("id").message.endswith(text), Logs.objects.latest("id").message)

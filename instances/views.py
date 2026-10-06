@@ -660,36 +660,16 @@ def migrate(request, pk):
     offline = request.POST.get("offline_migrate", False)
     autoconverge = request.POST.get("autoconverge", False)
     compress = request.POST.get("compress", False)
-    postcopy = request.POST.get("postcopy", False)
 
-    current_host = instance.compute.hostname
     if not compute_id.isdigit():
         raise Http404
     target_host = get_object_or_404(Compute, pk=compute_id)
 
     try:
-        utils.migrate_instance(
-            target_host,
-            instance,
-            request.user,
-            live,
-            unsafe,
-            offline,
-            autoconverge,
-            compress,
-            postcopy,
-        )
+        # migrate_instance logs the outcome
+        utils.migrate_instance(target_host, instance, request.user, live, unsafe, offline, autoconverge, compress)
     except (libvirtError, OSError) as err:  # OSError includes a lock timeout
         messages.error(request, err)
-    else:
-        migration_method = "live" if live else "offline"
-        msg = _("Instance is migrated(%(method)s) to %(hostname)s") % {
-            "hostname": target_host.hostname,
-            "method": migration_method,
-        }
-        if target_host.migration_address:
-            msg = _("%(msg)s via %(address)s") % {"msg": msg, "address": target_host.migration_address}
-        addlogmsg(request.user.username, current_host, instance.name, msg)
 
     return get_safe_redirect(
         request, default=reverse("instances:instance", args=[instance.id])

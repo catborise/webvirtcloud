@@ -626,14 +626,6 @@
                 <div class="row">
                     <div class="col-sm-6 offset-3">
                         <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" name="postcopy" value="true" id="postcopy" {% if instance.status != 1 %}disabled{% endif %}>
-                            <label class="form-check-label" for="postcopy">{% trans "Post copy" %}</label>
-                        </div>
-                    </div>
-                </div>
-                <div class="row">
-                    <div class="col-sm-6 offset-3">
-                        <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" name="autoconverge" value="true" id="autoconverge" {% if instance.status != 1 %}disabled{% endif %}>
                             <label class="form-check-label" for="autoconverge" title="{% trans 'Forces CPU convergence during live migration' %}">{% trans "Auto converge" %}</label>
                         </div>

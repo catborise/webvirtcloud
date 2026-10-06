@@ -101,6 +101,5 @@ class MigrateSerializer(serializers.ModelSerializer):
             "offline",
             "autoconverge",
             "compress",
-            "postcopy",
             "unsafe",
         ]

@@ -191,26 +191,14 @@ class MigrateViewSet(viewsets.ViewSet):
         if serializer.is_valid():
             instance = serializer.validated_data["instance"]
             target_host = serializer.validated_data["target_compute"]
-            live = serializer.validated_data["live"]
-            unsafe = serializer.validated_data["unsafe"]
-            offline = serializer.validated_data["offline"]
-            autoconverge = serializer.validated_data["autoconverge"]
-            postcopy = serializer.validated_data["postcopy"]
-            compress = serializer.validated_data["compress"]
+            options = {
+                name: serializer.validated_data.get(name, False)
+                for name in ("live", "unsafe", "offline", "autoconverge", "compress")
+            }
+            # migrate_instance logs the outcome; it returns when it is done
+            mode = migrate_instance(target_host, instance, request.user, **options)
 
-            migrate_instance(
-                target_host,
-                instance,
-                request.user,
-                live,
-                unsafe,
-                offline,
-                autoconverge,
-                compress,
-                postcopy,
-            )
-
-            return Response({"status": "instance migrate is started"})
+            return Response({"status": f"instance is migrated ({mode})"})
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

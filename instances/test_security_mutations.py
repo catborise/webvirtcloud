@@ -273,6 +273,7 @@ class InstanceSecurityMutationsTestCase(TestCase):
              patch("instances.utils.wvmInstances") as mock_instances_cls, \
              patch("instances.utils.wvmInstance"), \
              patch("instances.utils.transaction.atomic"), \
+             patch("instances.utils.addlogmsg"), \
              patch("instances.utils.Instance") as mock_instance_model:
 
             mock_instances_cls.return_value.moveto.side_effect = slow_moveto

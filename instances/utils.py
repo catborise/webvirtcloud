@@ -10,6 +10,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from libvirt import libvirtError
+from logs.views import addlogmsg
 from vrtManager import util
 from vrtManager.connection import connection_manager
 from vrtManager.instance import wvmInstance, wvmInstances
@@ -159,12 +160,14 @@ def migrate_instance(
     offline=False,
     autoconverge=False,
     compress=False,
-    postcopy=False,
 ):
+    """Migrates instance to new_compute and logs the outcome (the mode
+    used, or the error). Returns the mode."""
     if new_compute == instance.compute:
         raise util.OperationError(_("The instance is already on %(compute)s") % {"compute": new_compute.name})
     if not connection_manager.host_is_up(new_compute.type, new_compute.hostname):
         raise util.OperationError(_("%(compute)s is not reachable") % {"compute": new_compute.name})
+    source_host = instance.compute.hostname
     c1, c2 = (
         (instance.compute, new_compute)
         if instance.compute.id < new_compute.id
@@ -182,7 +185,7 @@ def migrate_instance(
                 )
 
                 autostart = instance.autostart
-                conn_migrate.moveto(
+                mode = conn_migrate.moveto(
                     instance.proxy,
                     instance.name,
                     live,
@@ -190,9 +193,15 @@ def migrate_instance(
                     offline,
                     autoconverge,
                     compress,
-                    postcopy,
                     uri=new_compute.migration_uri,
                 )
+            except Exception as error:
+                msg = _("Instance migration to %(target)s failed: %(error)s") % {
+                    "target": migration_target(new_compute),
+                    "error": error,
+                }
+                addlogmsg(user.username, source_host, instance.name, msg)
+                raise
             finally:
                 if conn_migrate is not None:
                     conn_migrate.close()
@@ -246,6 +255,18 @@ def migrate_instance(
                 else:
                     instance.compute = new_compute
                     instance.save()
+
+    msg = _("Instance is migrated(%(mode)s) to %(target)s") % {"mode": mode, "target": migration_target(new_compute)}
+    addlogmsg(user.username, source_host, instance.name, msg)
+    return mode
+
+
+def migration_target(compute):
+    """The destination for the log: its host name, and the migration address
+    when one is set and differs."""
+    if compute.migration_address not in ("", compute.hostname):
+        return _("%(hostname)s via %(address)s") % {"hostname": compute.hostname, "address": compute.migration_address}
+    return compute.hostname
 
 
 def refr(compute):

@@ -106,7 +106,10 @@ class FakeSource:
         self.state = state
         self.instance = FakeDomain(**domain)
 
+    reads = 0
+
     def get_status(self):
+        self.reads += 1
         return self.state
 
     def get_arch(self):
@@ -206,3 +209,42 @@ class ShutOffMigrationTestCase(unittest.TestCase):
         self.assertEqual(source.instance.redefined, ["<domain><name>vm</name></domain>"])
         self.assertEqual(source.instance.restored_autostart, 1)
         self.assertIsNotNone(host.new[0].undefined)
+
+
+class MigrationModeTestCase(unittest.TestCase):
+    """The state is read once; a request that does not fit it is refused
+    before anything changes, and moveto names the mode it used."""
+
+    def migrate(self, state, **request):
+        source = FakeSource(state)
+        options = {"live": False, "unsafe": False, "offline": False, **request}
+        mode = destination().moveto(source, "vm", **options)
+        return mode, source.instance.calls[0][0] if source.instance.calls else None
+
+    def test_refused_requests(self):
+        for state, request in ((5, {"live": True}), (1, {"offline": True}), (3, {"offline": True}),
+                               (1, {"live": True, "offline": True}), (6, {}), (4, {}), (7, {}), (0, {})):
+            with self.subTest(state=state, request=request):
+                source = FakeSource(state)
+                with self.assertRaises(util.OperationError):
+                    destination().moveto(source, "vm", unsafe=False, **{"live": False, "offline": False, **request})
+                self.assertEqual(source.instance.calls, [])
+
+    def test_modes(self):
+        live, unsafe = libvirt.VIR_MIGRATE_LIVE, libvirt.VIR_MIGRATE_UNSAFE
+        converge, compressed = libvirt.VIR_MIGRATE_AUTO_CONVERGE, libvirt.VIR_MIGRATE_COMPRESSED
+        mode, flags = self.migrate(1, live=True, autoconverge=True, compress=True, unsafe=True)
+        self.assertEqual(mode, "live, unsafe, auto converge, compressed")
+        self.assertEqual(flags & (live | unsafe | converge | compressed), live | unsafe | converge | compressed)
+        source = FakeSource(1)
+        destination().moveto(source, "vm", live=True, unsafe=False, offline=False)
+        self.assertEqual(source.reads, 1)
+        mode, flags = self.migrate(1, compress=True, autoconverge=True)
+        self.assertEqual(mode, "non-live, compressed")
+        self.assertEqual(flags & (live | converge | compressed), compressed)
+        # a paused VM stays paused; the tuning options are for running VMs
+        mode, flags = self.migrate(3, live=True, autoconverge=True, compress=True, unsafe=True)
+        self.assertEqual(mode, "live")
+        self.assertEqual(flags & (live | unsafe | converge | compressed), live)
+        self.assertEqual(self.migrate(5), ("offline", None))
+        self.assertEqual(self.migrate(5, offline=True), ("offline", None))
