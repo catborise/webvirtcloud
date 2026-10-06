@@ -1,7 +1,9 @@
 import os
+from pathlib import Path
 
 import sass
 from admin.decorators import superuser_only
+from django.conf import settings
 from django.contrib import messages
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
@@ -9,6 +11,13 @@ from django.utils.translation import gettext_noop as _
 from logs.views import addlogmsg
 
 from appsettings.models import AppSettings
+
+
+def sass_dir_in_project(value):
+    """True if the SASS_DIR value is an existing directory inside the project:
+    the page lists its themes and writes wvc-main.scss into it."""
+    path = (Path(settings.BASE_DIR) / value).resolve()
+    return path.is_dir() and path.is_relative_to(Path(settings.BASE_DIR).resolve())
 
 
 @superuser_only
@@ -21,11 +30,14 @@ def appsettings(request):
     sass_dir = AppSettings.objects.get(key="SASS_DIR")
     bootstrap_theme = AppSettings.objects.get(key="BOOTSTRAP_THEME")
     themes_list = []
-    try:
-        themes_list = os.listdir(sass_dir.value + "/wvc-themes")
-    except FileNotFoundError as err:
-        messages.error(request, err)
-        addlogmsg(request.user.username, "-", "", err)
+    if not sass_dir_in_project(sass_dir.value):
+        messages.error(request, _("SASS directory path must be a directory inside the project: %(dir)s") % {"dir": sass_dir.value})
+    else:
+        try:
+            themes_list = os.listdir(sass_dir.value + "/wvc-themes")
+        except FileNotFoundError as err:
+            messages.error(request, err)
+            addlogmsg(request.user.username, "-", "", err)
 
     # Bootstrap settings related with filesystems, because of that they are excluded from other settings
     appsettings = AppSettings.objects.exclude(
@@ -34,6 +46,13 @@ def appsettings(request):
 
     if request.method == "POST":
         if "SASS_DIR" in request.POST:
+            if not sass_dir_in_project(request.POST.get("SASS_DIR", "")):
+                messages.error(
+                    request,
+                    _("SASS directory path must be a directory inside the project: %(dir)s")
+                    % {"dir": request.POST.get("SASS_DIR", "")},
+                )
+                return HttpResponseRedirect(request.get_full_path())
             try:
                 sass_dir.value = request.POST.get("SASS_DIR", "")
                 sass_dir.save()
