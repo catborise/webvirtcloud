@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [master]
 
+# the jobs only read the code
+permissions:
+  contents: read
+
 jobs:
   ruff:
     name: Ruff
