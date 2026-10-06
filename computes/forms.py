@@ -7,7 +7,15 @@ from computes.models import Compute
 from .validators import validate_hostname
 
 
-class TcpComputeForm(forms.ModelForm):
+class KeepPasswordMixin:
+    """The form never shows the stored password: left empty on an edit, it
+    stays as it is."""
+
+    def clean_password(self):
+        return self.cleaned_data["password"] or self.instance.password
+
+
+class TcpComputeForm(KeepPasswordMixin, forms.ModelForm):
     hostname = forms.CharField(validators=[validate_hostname])
     type = forms.IntegerField(widget=forms.HiddenInput, initial=CONN_TCP)
 
@@ -26,7 +34,7 @@ class SshComputeForm(forms.ModelForm):
         exclude = ["password"]
 
 
-class TlsComputeForm(forms.ModelForm):
+class TlsComputeForm(KeepPasswordMixin, forms.ModelForm):
     hostname = forms.CharField(validators=[validate_hostname])
     type = forms.IntegerField(widget=forms.HiddenInput, initial=CONN_TLS)
 
