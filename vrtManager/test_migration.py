@@ -211,15 +211,29 @@ class ShutOffMigrationTestCase(unittest.TestCase):
         destination(host).moveto(source, "vm", live=False, unsafe=False, offline=True)
         self.assertEqual(host.defined, ["<domain><name>vm</name></domain>"])
         self.assertEqual(source.instance.calls, [])
-        self.assertEqual(source.instance.undefined, libvirt.VIR_DOMAIN_UNDEFINE_KEEP_NVRAM)
+        self.assertEqual(source.instance.undefined, 0)
 
-    def test_tpm_state_stays_on_the_source(self):
-        source = FakeSource(5, xml="<domain><devices><tpm model='tpm-crb'/></devices></domain>")
-        destination().moveto(source, "vm", live=False, unsafe=False, offline=True)
-        self.assertEqual(
-            source.instance.undefined,
-            libvirt.VIR_DOMAIN_UNDEFINE_KEEP_NVRAM | libvirt.VIR_DOMAIN_UNDEFINE_KEEP_TPM,
-        )
+    def test_a_vm_with_nvram_or_tpm_state_is_refused(self):
+        """That state stays on the source host: the VM would start on the
+        destination with new UEFI variables and a new TPM."""
+        cases = {
+            "nvram": "<os><nvram>/var/lib/libvirt/qemu/nvram/vm_VARS.fd</nvram></os>",
+            "tpm": "<devices><tpm model='tpm-crb'><backend type='emulator' version='2.0'/></tpm></devices>",
+        }
+        for case, xml in cases.items():
+            with self.subTest(case=case):
+                host = FakeHost()
+                source = FakeSource(5, xml=f"<domain>{xml}</domain>")
+                with self.assertRaisesRegex(util.OperationError, "migrate it live"):
+                    destination(host).moveto(source, "vm", live=False, unsafe=False, offline=True)
+                self.assertEqual(host.defined, [])
+                self.assertIsNone(source.instance.undefined)
+
+    def test_a_tpm_without_local_state_moves(self):
+        xml = "<domain><devices><tpm model='tpm-tis'><backend type='passthrough'/></tpm></devices></domain>"
+        host = FakeHost()
+        destination(host).moveto(FakeSource(5, xml=xml), "vm", live=False, unsafe=False, offline=True)
+        self.assertEqual(host.defined, [xml])
 
     def test_refused_before_anything_changes(self):
         cases = {

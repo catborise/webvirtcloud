@@ -18,8 +18,6 @@ try:
         VIR_DOMAIN_XML_SECURE,
         VIR_DOMAIN_XML_INACTIVE,
         VIR_DOMAIN_XML_MIGRATABLE,
-        VIR_DOMAIN_UNDEFINE_KEEP_NVRAM,
-        VIR_DOMAIN_UNDEFINE_KEEP_TPM,
         VIR_ERR_NO_DOMAIN,
         VIR_ERR_NO_STORAGE_POOL,
         VIR_ERR_NO_STORAGE_VOL,
@@ -156,6 +154,8 @@ class wvmInstances(wvmConnect):
                     mode.append(label)
 
         dom = conn.instance
+        if state == 5:
+            self.refuse_local_state(dom.XMLDesc(0))
         definitions = {dom.XMLDesc(0)}
         if state != 5:
             definitions.add(dom.XMLDesc(VIR_DOMAIN_XML_INACTIVE))
@@ -183,6 +183,25 @@ class wvmInstances(wvmConnect):
         else:
             self.migrate_within(dom, flags, uri, timeout)
         return ", ".join(mode)
+
+    @staticmethod
+    def refuse_local_state(xml):
+        """A shut-off VM moves without its UEFI variables (NVRAM) and TPM
+        state, which libvirt keeps in files of the source host: on the
+        destination it would start with new ones (lost boot entries and
+        enrolled keys, a new TPM that no longer unlocks disks). A live
+        migration carries both."""
+        tree = ElementTree.fromstring(xml)
+        state = []
+        if tree.find("os/nvram") is not None:
+            state.append("NVRAM")
+        if tree.find("devices/tpm/backend[@type='emulator']") is not None:
+            state.append("TPM")
+        if state:
+            raise util.OperationError(
+                f"A shut-off VM with {' and '.join(state)} state cannot be migrated: the state stays on the source "
+                "host. Start the VM and migrate it live."
+            )
 
     def migrate_within(self, dom, flags, uri, timeout):
         """dom.migrate, cancelled when it has not finished after timeout
@@ -290,8 +309,8 @@ class wvmInstances(wvmConnect):
 
     def move_definition(self, dom):
         """Migrates a shut-off VM: that is only its definition, as the disks
-        are on storage both hosts share. NVRAM and TPM state stay on the
-        source. The destination's qemu migration hook does not run for it.
+        are on storage both hosts share (moveto refuses a VM with NVRAM or
+        TPM state). The destination's qemu migration hook does not run for it.
 
         Workaround, to be removed in a later version: libvirt's own offline
         migration (VIR_MIGRATE_OFFLINE) fails with "operation failed: domain
@@ -315,13 +334,10 @@ class wvmInstances(wvmConnect):
                 raise util.OperationError(f"The destination host already has a VM {key}")
 
         xml = dom.XMLDesc(VIR_DOMAIN_XML_SECURE | VIR_DOMAIN_XML_MIGRATABLE)
-        keep = VIR_DOMAIN_UNDEFINE_KEEP_NVRAM
-        if ElementTree.fromstring(xml).find("devices/tpm") is not None:
-            keep |= VIR_DOMAIN_UNDEFINE_KEEP_TPM  # libvirt >= 8.9 knows the flag
         autostart = dom.autostart()
         new = self.wvm.defineXML(xml)
         try:
-            dom.undefineFlags(keep)
+            dom.undefineFlags(0)
             try:
                 started = dom.isActive()
             except libvirtError as error:
@@ -333,11 +349,11 @@ class wvmInstances(wvmConnect):
                 dom.connect().defineXML(xml).setAutostart(autostart)
                 raise util.OperationError("The VM was started on the source host during the migration")
         except Exception as error:
-            self.undo_definition(dom, new, keep, error)
+            self.undo_definition(dom, new, error)
             raise
 
     @staticmethod
-    def undo_definition(dom, new, keep, error):
+    def undo_definition(dom, new, error):
         """After a failed move, the VM is defined on one host only: the
         destination definition goes only while the source still has its own."""
         try:
@@ -349,7 +365,7 @@ class wvmInstances(wvmConnect):
                 f"{error}; the VM may now be defined only on the destination host: check both hosts"
             ) from error
         try:
-            new.undefineFlags(keep)
+            new.undefineFlags(0)
         except libvirtError as undo_error:
             raise util.OperationError(
                 f"{error}; the VM is now defined on both hosts, remove it from the destination: {undo_error}"
