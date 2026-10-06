@@ -657,7 +657,6 @@ def migrate(request, pk):
     compute_id = request.POST.get("compute_id", "")
     live = request.POST.get("live_migrate", False)
     unsafe = request.POST.get("unsafe_migrate", False)
-    xml_del = request.POST.get("xml_delete", False)
     offline = request.POST.get("offline_migrate", False)
     autoconverge = request.POST.get("autoconverge", False)
     compress = request.POST.get("compress", False)
@@ -675,7 +674,6 @@ def migrate(request, pk):
             request.user,
             live,
             unsafe,
-            xml_del,
             offline,
             autoconverge,
             compress,
@@ -1878,7 +1876,7 @@ def clone(request, pk):
                 new_compute = Compute.objects.order_by("?").first()
                 if new_compute != instance.compute:
                     utils.migrate_instance(
-                        new_compute, new_instance, request.user, xml_del=True, offline=True
+                        new_compute, new_instance, request.user, offline=True
                     )
 
             return redirect(reverse("instances:instance", args=[new_instance.id]))

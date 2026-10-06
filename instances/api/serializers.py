@@ -91,7 +91,6 @@ class CreateInstanceSerializer(serializers.ModelSerializer):
 class MigrateSerializer(serializers.ModelSerializer):
     instance = Instance.objects.all().prefetch_related("userinstance_set")
     live = serializers.BooleanField(initial=True)
-    xml_del = serializers.BooleanField(initial=True)
 
     class Meta:
         model = MigrateInstance
@@ -99,7 +98,6 @@ class MigrateSerializer(serializers.ModelSerializer):
             "instance",
             "target_compute",
             "live",
-            "xml_del",
             "offline",
             "autoconverge",
             "compress",

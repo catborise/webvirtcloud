@@ -618,14 +618,6 @@
                 <div class="row">
                     <div class="col-sm-6 offset-3">
                         <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" name="xml_delete" value="true" id="xml_delete" checked>
-                            <label class="form-check-label" for="xml_delete">{% trans "Delete original" %}</label>
-                        </div>
-                    </div>
-                </div>
-                <div class="row">
-                    <div class="col-sm-6 offset-3">
-                        <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" name="offline_migrate" value="true" id="offline_migrate" {% if instance.status == 5 %}checked{% else %}disabled{% endif %}>
                             <label class="form-check-label" for="offline_migrate">{% trans "Offline migration" %}</label>
                         </div>

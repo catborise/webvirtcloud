@@ -193,7 +193,6 @@ class MigrateViewSet(viewsets.ViewSet):
             target_host = serializer.validated_data["target_compute"]
             live = serializer.validated_data["live"]
             unsafe = serializer.validated_data["unsafe"]
-            xml_del = serializer.validated_data["xml_del"]
             offline = serializer.validated_data["offline"]
             autoconverge = serializer.validated_data["autoconverge"]
             postcopy = serializer.validated_data["postcopy"]
@@ -205,7 +204,6 @@ class MigrateViewSet(viewsets.ViewSet):
                 request.user,
                 live,
                 unsafe,
-                xml_del,
                 offline,
                 autoconverge,
                 compress,

@@ -249,7 +249,6 @@ class MigrateInstance(models.Model):
     )
 
     live = models.BooleanField(_("Live"))
-    xml_del = models.BooleanField(_("Undefine XML"), default=True)
     offline = models.BooleanField(_("Offline"))
     autoconverge = models.BooleanField(_("Auto Converge"), default=True)
     compress = models.BooleanField(_("Compress"), default=False)

@@ -113,13 +113,14 @@ class wvmInstances(wvmConnect):
         name,
         live,
         unsafe,
-        undefine,
         offline,
         autoconverge=False,
         compress=False,
         postcopy=False,
     ):
-        flags = VIR_MIGRATE_PERSIST_DEST
+        # The source definition always goes: one left behind points at the
+        # same (shared) disks as the migrated VM and could be started again.
+        flags = VIR_MIGRATE_PERSIST_DEST | VIR_MIGRATE_UNDEFINE_SOURCE
         if live and conn.get_status() != 5:
             flags |= VIR_MIGRATE_LIVE
         if unsafe and conn.get_status() == 1:
@@ -132,8 +133,6 @@ class wvmInstances(wvmConnect):
             flags |= VIR_MIGRATE_COMPRESSED
         if not offline and postcopy and conn.get_status() == 1:
             flags |= VIR_MIGRATE_POSTCOPY
-        if undefine:
-            flags |= VIR_MIGRATE_UNDEFINE_SOURCE
 
         dom = conn.instance
 
