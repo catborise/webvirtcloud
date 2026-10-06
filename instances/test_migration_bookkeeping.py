@@ -2,17 +2,20 @@
 destination with the app's connection, re-reads the VM under the compute
 locks, and records a finished migration even when autostart fails."""
 
+import re
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from accounts.models import UserInstance
 from computes.models import Compute
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import DatabaseError
 from django.test import TestCase
 from logs.models import Logs
 
 from instances.models import Instance
-from instances.utils import migrate_instance
+from instances.utils import MIGRATION_TIME_LIMIT, migrate_instance
 from vrtManager import util
 
 
@@ -85,3 +88,10 @@ class MigrationBookkeepingTests(TestCase):
         found.refresh_from_db()
         self.assertTrue(found.is_template)
         self.assertEqual(UserInstance.objects.get(user=owner).instance_id, found.id)
+
+    def test_a_migration_is_cancelled_before_the_web_server_ends_the_request(self):
+        self.migrate()
+        self.assertEqual(self.moveto.call_args.kwargs["timeout"], MIGRATION_TIME_LIMIT)
+        gunicorn = (Path(settings.BASE_DIR) / "gunicorn.conf.py").read_text()
+        request_timeout = int(re.search(r"^timeout = (\d+)", gunicorn, re.M).group(1))
+        self.assertLess(MIGRATION_TIME_LIMIT, request_timeout - 30)  # time to answer and log

@@ -1,7 +1,9 @@
 """Migration: the source definition never stays behind; a shut-off VM's
 definition is moved by the app, not by libvirt's offline migration."""
 
+import threading
 import unittest
+from unittest.mock import patch
 
 import libvirt
 from django.conf import settings
@@ -400,3 +402,64 @@ class DestinationDisksTestCase(unittest.TestCase):
         xml = with_disks("<disk type='volume' device='disk'><source pool='p' volume='v'/><target dev='vdc'/></disk>")
         with self.assertRaisesRegex(util.OperationError, "vdc \\(p/v\\)"):
             self.migrate(host, xml)
+
+
+class SlowDomain(FakeDomain):
+    """A migration that does not finish until its job is aborted."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.aborted = threading.Event()
+
+    def migrate(self, dconn, flags, dname, uri, bandwidth):
+        if not self.aborted.wait(5):
+            raise AssertionError("the migration was not aborted")
+        raise libvirt.libvirtError("operation aborted: job 'migration out' canceled by client")
+
+    def abortJob(self):
+        self.aborted.set()
+
+
+class MigrationTimeLimitTestCase(unittest.TestCase):
+    """A migration that does not converge is cancelled after the time limit,
+    before the web server ends the request; the VM stays on the source."""
+
+    def test_a_migration_over_the_limit_is_cancelled(self):
+        source = FakeSource(1)
+        source.instance = SlowDomain()
+        with self.assertRaisesRegex(util.OperationError, "did not finish within 0.05 s and was cancelled.*auto converge"):
+            destination().moveto(source, "vm", live=True, unsafe=False, offline=False, timeout=0.05)
+        self.assertTrue(source.instance.aborted.is_set())
+
+    def test_a_migration_within_the_limit_stops_its_timer(self):
+        timers = []
+
+        class Timer(threading.Timer):
+            def __init__(self, *args):
+                super().__init__(*args)
+                self.joined = False
+                timers.append(self)
+
+            def join(self, timeout=None):
+                self.joined = True
+                super().join(timeout)
+
+        source = FakeSource(1)
+        with patch("vrtManager.instance.threading.Timer", Timer):
+            destination().moveto(source, "vm", live=True, unsafe=False, offline=False, timeout=5)
+        self.assertEqual(len(source.instance.calls), 1)
+        self.assertTrue(timers[0].finished.is_set() and timers[0].joined)
+        self.assertFalse(timers[0].is_alive())
+
+    def test_a_failure_the_cancel_did_not_cause_keeps_its_error(self):
+        source = FakeSource(1)
+        source.instance = SlowDomain()
+
+        def refused():
+            source.instance.aborted.set()  # migrate() gives up, but the abort itself failed
+            raise libvirt.libvirtError("cannot abort migration in confirm phase")
+
+        source.instance.abortJob = refused
+        with self.assertRaisesRegex(libvirt.libvirtError, "operation aborted") as caught:
+            destination().moveto(source, "vm", live=True, unsafe=False, offline=False, timeout=0.05)
+        self.assertNotIsInstance(caught.exception, util.OperationError)

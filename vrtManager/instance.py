@@ -4,6 +4,7 @@ import json
 import logging
 import os.path
 import string
+import threading
 import time
 
 logger = logging.getLogger(__name__)
@@ -113,7 +114,7 @@ class wvmInstances(wvmConnect):
         dom = self.get_instance(name)
         dom.resume()
 
-    def moveto(self, conn, name, live, unsafe, offline, autoconverge=False, compress=False, uri=None):
+    def moveto(self, conn, name, live, unsafe, offline, autoconverge=False, compress=False, uri=None, timeout=None):
         """Migrates the VM of conn (a wvmInstance on the source) here.
 
         The mode follows the VM's state, read once: a running VM migrates
@@ -122,8 +123,9 @@ class wvmInstances(wvmConnect):
         fit the state is refused. unsafe, autoconverge (live only) and
         compress apply to a running VM. uri: the native migration URI
         (tcp://address) on the destination; None lets libvirt use the
-        destination's own hostname. Returns the mode and options used, for
-        the log."""
+        destination's own hostname. timeout: seconds after which a migration
+        that has not finished is cancelled (None: no limit). Returns the mode
+        and options used, for the log."""
         state = conn.get_status()
         if state == 5:
             if live:
@@ -179,8 +181,42 @@ class wvmInstances(wvmConnect):
             # dom.migrate.
             self.move_definition(dom)
         else:
-            dom.migrate(self.wvm, flags, None, uri, 0)
+            self.migrate_within(dom, flags, uri, timeout)
         return ", ".join(mode)
+
+    def migrate_within(self, dom, flags, uri, timeout):
+        """dom.migrate, cancelled when it has not finished after timeout
+        seconds: a VM that changes its memory faster than the network carries
+        it never finishes, and the request would be ended by the web server
+        with no word. Cancelled, the VM stays on the source."""
+        cancelled = threading.Event()
+
+        def cancel():
+            with contextlib.suppress(libvirtError):  # finished meanwhile
+                dom.abortJob()
+                cancelled.set()
+
+        timer = threading.Timer(timeout, cancel) if timeout else None
+        if timer:
+            timer.daemon = True
+            timer.start()
+        try:
+            dom.migrate(self.wvm, flags, None, uri, 0)
+        except libvirtError as error:
+            if timer:
+                timer.cancel()
+                timer.join()  # a cancel under way ends before the locks go
+            if cancelled.is_set():
+                raise util.OperationError(
+                    f"The migration did not finish within {timeout} s and was cancelled ({error}); the VM stays on "
+                    "the source host. A VM that changes its memory faster than the network carries it needs auto "
+                    "converge."
+                ) from error
+            raise
+        finally:
+            if timer:
+                timer.cancel()
+                timer.join()
 
     def missing_disks(self, definitions):
         """(target, source) of the disks in the VM definitions (XML) that are
