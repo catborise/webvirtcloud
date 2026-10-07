@@ -109,5 +109,46 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # Files that exist in a used checkout and must never enter the image
+      - name: Plant Secret Sentinels
+        run: |
+          mkdir -p data
+          for f in data/secret_key data/admin_password webvirtcloud/settings.py.bak \
+                   'webvirtcloud/settings.py~' webvirtcloud/.settings.py.swp; do
+            echo sentinel > "$f"
+          done
+
       - name: Build Image
         run: docker build -t webvirtcloud:ci .
+
+      - name: No Runtime Data In Image
+        run: |
+          docker run --rm --entrypoint sh webvirtcloud:ci -c '
+            cd /srv/webvirtcloud
+            for f in data/secret_key data/admin_password webvirtcloud/settings.py.bak \
+                     "webvirtcloud/settings.py~" webvirtcloud/.settings.py.swp; do
+              if [ -e "$f" ]; then echo "$f is in the image"; exit 1; fi
+            done'
+
+      # The default profile, and the HTTPS profile behind a TLS proxy
+      - name: Start Containers
+        run: |
+          docker run -d --name wvc -p 127.0.0.1:8080:80 webvirtcloud:ci
+          docker run -d --name wvc-https -e WEBVIRTCLOUD_HTTPS=1 webvirtcloud:ci
+
+      - name: Wait Until Healthy
+        run: |
+          for c in wvc wvc-https; do
+            for i in $(seq 40); do
+              [ "$(docker inspect -f '{{.State.Health.Status}}' $c)" = healthy ] && continue 2
+              sleep 5
+            done
+            docker inspect -f '{{json .State.Health}}' $c || true
+            docker exec $c sv status /etc/service/nginx /etc/service/webvirtcloud /etc/service/novnc || true
+            docker logs $c || true
+            exit 1
+          done
+
+      - name: Import Compiled Dependencies
+        run: docker exec wvc /srv/webvirtcloud/venv/bin/python3 -c "import libvirt, ldap, lxml.etree, psycopg, sass"
+

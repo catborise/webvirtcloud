@@ -1,3 +1,28 @@
+FROM phusion/baseimage:noble-1.0.2 AS build
+
+# Compilers and headers for libvirt-python and python-ldap; they stay in this stage.
+# hadolint ignore=DL3008
+RUN apt-get update -qqy \
+    && DEBIAN_FRONTEND=noninteractive apt-get -qyy install \
+	--no-install-recommends \
+	python3-venv \
+	python3-dev \
+	libvirt-dev \
+	zlib1g-dev \
+	pkg-config \
+	gcc \
+	libldap2-dev \
+	libssl-dev \
+	libsasl2-dev \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+WORKDIR /srv/webvirtcloud
+COPY conf/requirements.txt conf/requirements.txt
+# hadolint ignore=DL3013,DL3042
+RUN python3 -m venv venv \
+    && venv/bin/pip install --no-cache-dir -U pip wheel \
+    && venv/bin/pip install --no-cache-dir -r conf/requirements.txt
+
 FROM phusion/baseimage:noble-1.0.2
 
 EXPOSE 80
@@ -8,44 +33,24 @@ CMD ["/sbin/my_init"]
 
 RUN echo 'APT::Get::Clean=always;' >> /etc/apt/apt.conf.d/99AutomaticClean
 
+# Shared libraries of the compiled wheels, and nginx; no compilers or headers.
 # hadolint ignore=DL3008
 RUN apt-get update -qqy \
     && DEBIAN_FRONTEND=noninteractive apt-get -qyy install \
 	--no-install-recommends \
-	git \
-	python3-venv \
-	python3-pip \
-	python3-dev \
-	libvirt-dev \
-	zlib1g-dev \
+	python3 \
 	nginx \
-	pkg-config \
-	gcc \
-	libldap2-dev \
-	libssl-dev \
-	libsasl2-dev \
+	libvirt0 \
 	libsasl2-modules \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Setup webvirtcloud
 WORKDIR /srv/webvirtcloud
-
-# Install Python dependencies first; libvirt-python and python-ldap build from source
-COPY conf/requirements.txt conf/requirements.txt
-# hadolint ignore=DL3013,DL3042,SC1091
-RUN python3 -m venv venv && \
-	. venv/bin/activate && \
-	pip3 install --no-cache-dir -U pip wheel && \
-	pip3 install --no-cache-dir -r conf/requirements.txt
-
-# Copy application source
+COPY --from=build /srv/webvirtcloud/venv venv
 COPY . /srv/webvirtcloud
 
 # Run collectstatic with temporary dummy key, then remove temporary settings file
-# hadolint ignore=SC1091
-RUN . venv/bin/activate && \
-	cp webvirtcloud/settings.py.template webvirtcloud/settings.py && \
-	SECRET_KEY="build-dummy-key-only-for-collectstatic" python3 manage.py collectstatic --noinput && \
+RUN cp webvirtcloud/settings.py.template webvirtcloud/settings.py && \
+	SECRET_KEY="build-dummy-key-only-for-collectstatic" venv/bin/python3 manage.py collectstatic --noinput && \
 	rm -f webvirtcloud/settings.py && \
 	chown -R www-data:www-data /srv/webvirtcloud
 
@@ -72,6 +77,11 @@ RUN chmod +x /etc/my_init.d/10_webvirtcloud_init.sh \
 	/etc/service/nginx-log-forwarder/run \
 	/etc/service/novnc/run \
 	/etc/service/webvirtcloud/run
+
+# X-Forwarded-Proto: https keeps the probe from being redirected when the
+# HTTPS profile is on (nginx passes the header on; see conf/nginx).
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+	CMD /srv/webvirtcloud/venv/bin/python3 -c "import urllib.request as u; u.urlopen(u.Request('http://127.0.0.1/accounts/login/', headers={'X-Forwarded-Proto': 'https'}), timeout=5)"
 
 # Declare mountable data directory for persistent SQLite and SSH keys
 VOLUME ["/srv/webvirtcloud/data", "/var/www/.ssh"]

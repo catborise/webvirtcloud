@@ -16,8 +16,13 @@
 **/env*
 **/.env*
 
-# Local databases and runtime data
+# Local databases and runtime data (secret key, admin password, update backups)
 **/*.sqlite3*
+data
+**/*.bak
+**/*~
+**/*.swp
+**/*.swo
 **/staticfiles
 **/*.log
 **/console/cert.pem*
