@@ -84,8 +84,21 @@ Run WebVirtCloud in a container with persistent volumes for data and SSH keys:
 git clone https://github.com/retspen/webvirtcloud
 cd webvirtcloud
 
-# 2. Start services:
+# 2. Create docker-compose.override.yml (below) with your settings
+
+# 3. Start services:
 docker compose up -d
+```
+
+Local settings go in `docker-compose.override.yml`, which Compose merges into
+`docker-compose.yml` and which `git pull` never touches. At least list the
+names/IPs the panel is reached by:
+
+```yaml
+services:
+  webvirtcloud:
+    environment:
+      - ALLOWED_HOSTS=wvc.example.com,192.0.2.10
 ```
 
 Access the panel at `http://<server-ip>` and noVNC console at port `6080`.
@@ -105,6 +118,13 @@ mkdir -p data
 python3 conf/runit/secret_generator.py > data/secret_key
 chmod 600 data/secret_key
 ```
+
+### Allowed hosts
+
+The template answers only to localhost. After copying it in step 3 below, list
+the names/IPs the panel and the cloud-init datasource are reached by in
+`webvirtcloud/settings.py`, e.g.
+`ALLOWED_HOSTS = ["wvc.example.com", "192.0.2.10", "localhost", "127.0.0.1", "[::1]"]`.
 
 ### Ubuntu 20.04 / 22.04 / 24.04 LTS & Debian 11 / 12
 
@@ -442,6 +462,15 @@ of `webvirtcloud/settings.py.template` into your `webvirtcloud/settings.py`, set
 (`sudo nginx -t && sudo systemctl reload nginx`). Re-running the installer
 replaces that file, including any TLS directives you added to it.
 
+`ALLOWED_HOSTS` no longer defaults to `"*"`: the template allows localhost, the
+installer adds the server's name and IPs, and the `ALLOWED_HOSTS` env var
+(comma-separated) adds more. Docker: set `ALLOWED_HOSTS` in
+`docker-compose.override.yml` to the names/IPs you open the panel and the cloud-init datasource with; requests
+for any other host get 400. Bare metal (your settings.py is kept): replace
+`ALLOWED_HOSTS = ["*"]` with the names/IPs the panel and the datasource are
+reached by, and copy the `if extra_hosts := ...` lines below it from the
+template so the env var works.
+
 ```bash
 # Go to Installation Directory
 cd /srv/webvirtcloud
@@ -451,6 +480,18 @@ pip3 install -U -r conf/requirements.txt
 python3 manage.py migrate
 python3 manage.py collectstatic --noinput
 sudo systemctl restart supervisor    # supervisord on RHEL / openSUSE
+```
+
+Docker: each new container generates `settings.py` from the template and runs
+the migrations at start; the database and the secret key stay in the `data`
+volume. Keep your variables (at least `ALLOWED_HOSTS`) in
+`docker-compose.override.yml` (see Docker Deployment), then:
+
+```bash
+cd webvirtcloud
+docker compose cp webvirtcloud:/srv/webvirtcloud/data/db.sqlite3 ./db.sqlite3.bak
+git pull
+docker compose up -d --build
 ```
 
 > **Note on Settings Upgrade:**

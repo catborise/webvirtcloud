@@ -29,7 +29,11 @@ DEBUG = False
 
 MAC_OUI = '52:54:10'
 
-ALLOWED_HOSTS = ["*"]
+# Host names the panel answers to. The installer writes the server's; add more
+# (comma-separated, "*" for any) through the environment.
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
+if extra_hosts := os.getenv("ALLOWED_HOSTS"):
+    ALLOWED_HOSTS.extend([host.strip() for host in extra_hosts.split(",") if host.strip()])
 
 CSRF_TRUSTED_ORIGINS = ["http://localhost", "http://127.0.0.1", "http://localhost:8000", "http://127.0.0.1:8000"]
 if extra_origins := os.getenv("CSRF_TRUSTED_ORIGINS"):

@@ -7,11 +7,11 @@ import subprocess
 import sys
 
 from django.conf import settings
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 # Env vars that change the settings; removed from the inherited environment so
 # every case starts from the defaults.
-CONFIG_VARS = ["WEBVIRTCLOUD_HTTPS"]
+CONFIG_VARS = ["WEBVIRTCLOUD_HTTPS", "ALLOWED_HOSTS"]
 
 
 def _env(env):
@@ -68,3 +68,20 @@ class HttpsProfileTestCase(TestCase):
         with override_settings(SECURE_SSL_REDIRECT=True):
             response = self.client.get("/accounts/login/", HTTP_X_FORWARDED_PROTO="https")
             self.assertNotEqual(response.status_code, 301)
+
+
+class AllowedHostsTestCase(SimpleTestCase):
+    def hosts(self, env):
+        return load_settings(env, ["ALLOWED_HOSTS"])["ALLOWED_HOSTS"]
+
+    def test_allowed_hosts_default_is_not_any_host(self):
+        hosts = self.hosts({})
+        self.assertNotIn("*", hosts)
+        self.assertIn("localhost", hosts)
+
+    def test_allowed_hosts_extended_from_env(self):
+        hosts = self.hosts({"ALLOWED_HOSTS": " wvc.example.com, ,192.0.2.10 "})
+        self.assertEqual(hosts[-2:], ["wvc.example.com", "192.0.2.10"])
+
+    def test_allowed_hosts_star_escape(self):
+        self.assertIn("*", self.hosts({"ALLOWED_HOSTS": "*"}))

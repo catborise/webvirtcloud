@@ -58,3 +58,16 @@ wvc_install_nginx() {
   cp "$snippet" "$etc/conf.d/webvirtcloud.conf"
   return 0
 }
+
+# Python list literal for ALLOWED_HOSTS: the FQDN, the loopbacks and the given
+# IPs. IPv6 addresses are bracketed, as Django compares them.
+wvc_allowed_hosts() {
+  local host out="" seen=" "
+  for host in "$1" localhost 127.0.0.1 ::1 "${@:2}"; do
+    case "$host" in *:*) host="[$host]" ;; esac
+    case "$seen" in *" $host "*) continue ;; esac
+    seen+="$host "
+    out+="${out:+, }'$host'"
+  done
+  echo "[$out]"
+}

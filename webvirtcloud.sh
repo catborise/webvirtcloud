@@ -318,6 +318,9 @@ install_webvirtcloud () {
       done
     fi
     sed -i "s|^\\(CSRF_TRUSTED_ORIGINS = \\).*|\\1\[ \'http://$fqdn\', $host_ip ]|" "$APP_PATH/webvirtcloud/settings.py"
+    # shellcheck disable=SC2046
+    allowed_hosts="$(wvc_allowed_hosts "$fqdn" $(hostname -I 2>/dev/null))"
+    sed -i "s|^ALLOWED_HOSTS = .*|ALLOWED_HOSTS = $allowed_hosts|" "$APP_PATH/webvirtcloud/settings.py"
   else
     echo "* Keeping existing settings.py (not overwritten)."
   fi

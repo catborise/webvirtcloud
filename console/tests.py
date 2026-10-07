@@ -268,6 +268,7 @@ class ConsoleViewsTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["ws_path"], "")
 
+    @override_settings(ALLOWED_HOSTS=["panel.example.com"])
     @patch("console.views.wvmInstance")
     def test_console_ws_host_strip_port(self, mock_wvm):
         mock_conn = MagicMock()

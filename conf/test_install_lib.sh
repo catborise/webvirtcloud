@@ -66,5 +66,9 @@ echo "OP_EDIT" > "$etc3/nginx.conf"
 wvc_install_nginx "$tmp/main_tpl" "$tmp/snippet" "$etc3"
 check "no-orig second run keeps operator edit" "[ \"\$(cat '$etc3/nginx.conf')\" = OP_EDIT ]"
 
+# wvc_allowed_hosts: fqdn + loopbacks + IPs, IPv6 bracketed, no duplicates
+check "allowed hosts list" "[ \"\$(wvc_allowed_hosts wvc.example.com 192.0.2.10 2001:db8::1 127.0.0.1)\" = \"['wvc.example.com', 'localhost', '127.0.0.1', '[::1]', '192.0.2.10', '[2001:db8::1]']\" ]"
+check "allowed hosts without ips" "[ \"\$(wvc_allowed_hosts wvc.example.com)\" = \"['wvc.example.com', 'localhost', '127.0.0.1', '[::1]']\" ]"
+
 [ "$fail" = 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
