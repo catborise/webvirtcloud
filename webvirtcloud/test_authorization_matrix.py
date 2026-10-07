@@ -100,16 +100,10 @@ CHANGE_VM = {
     "instances:rootpasswd",
     "instances:add_public_key",
     "instances:change_options",
-    # Reached, but a no-op without is_vnc (can_manage_console).
-    "instances:update_console",
-    # Reached, but a no-op without instances.snapshot_instances.
-    "instances:snapshot",
-    "instances:delete_snapshot",
-    "instances:revert_snapshot",
-    "instances:create_external_snapshot",
-    "instances:delete_external_snapshot",
-    "instances:revert_external_snapshot",
 }
+# Also needs is_vnc (can_manage_console). Snapshots also need
+# instances.snapshot_instances, which no role here has: refused to all.
+CONSOLE_SETTINGS = {"instances:update_console"}
 DELETE_VM = {"instances:destroy"}
 
 ROLE_EXPECTATIONS = {
@@ -123,7 +117,7 @@ ROLE_EXPECTATIONS = {
         True,
         False,
         {"is_change": True, "is_vnc": True},
-        VIEW_VM | POWER_AND_CONSOLE | CHANGE_VM,
+        VIEW_VM | POWER_AND_CONSOLE | CHANGE_VM | CONSOLE_SETTINGS,
     ),
 }
 

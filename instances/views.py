@@ -1297,19 +1297,18 @@ def mount_iso(request, pk):
 @serialize_instance_mutation
 def snapshot(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    if request.user.has_perm(
-        "instances.snapshot_instances"
-    ):
-        name = request.POST.get("name", "")
-        desc = request.POST.get("description", "")
-        try:
-            instance.proxy.create_snapshot(name, desc)
-        except libvirtError as err:
-            # e.g. UEFI firmware whose NVRAM format does not allow internal snapshots
-            messages.error(request, _("Snapshot was not created: %(err)s") % {"err": error_text(request, err)})
-        else:
-            msg = _("Create snapshot: %(snap)s") % {"snap": name}
-            addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    if not request.user.has_perm("instances.snapshot_instances"):
+        raise PermissionDenied
+    name = request.POST.get("name", "")
+    desc = request.POST.get("description", "")
+    try:
+        instance.proxy.create_snapshot(name, desc)
+    except libvirtError as err:
+        # e.g. UEFI firmware whose NVRAM format does not allow internal snapshots
+        messages.error(request, _("Snapshot was not created: %(err)s") % {"err": error_text(request, err)})
+    else:
+        msg = _("Create snapshot: %(snap)s") % {"snap": name}
+        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     return _back(request, pk, "managesnapshot")
 
 
@@ -1317,13 +1316,12 @@ def snapshot(request, pk):
 @serialize_instance_mutation
 def delete_snapshot(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    if request.user.has_perm(
-        "instances.snapshot_instances"
-    ):
-        snap_name = request.POST.get("name", "")
-        instance.proxy.snapshot_delete(snap_name)
-        msg = _("Delete snapshot: %(snap)s") % {"snap": snap_name}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    if not request.user.has_perm("instances.snapshot_instances"):
+        raise PermissionDenied
+    snap_name = request.POST.get("name", "")
+    instance.proxy.snapshot_delete(snap_name)
+    msg = _("Delete snapshot: %(snap)s") % {"snap": snap_name}
+    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     return _back(request, pk, "managesnapshot")
 
 
@@ -1331,20 +1329,19 @@ def delete_snapshot(request, pk):
 @serialize_instance_mutation
 def revert_snapshot(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    if request.user.has_perm(
-        "instances.snapshot_instances"
-    ):
-        snap_name = request.POST.get("name", "")
-        try:
-            instance.proxy.snapshot_revert(snap_name)
-        except libvirtError as err:
-            messages.error(request, _("Snapshot was not reverted: %(err)s") % {"err": error_text(request, err)})
-            return _back(request, pk, "managesnapshot")
-        msg = _("Successful revert snapshot: ")
-        msg += snap_name
-        messages.success(request, msg)
-        msg = _("Revert snapshot: %(snap)s") % {"snap": snap_name}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    if not request.user.has_perm("instances.snapshot_instances"):
+        raise PermissionDenied
+    snap_name = request.POST.get("name", "")
+    try:
+        instance.proxy.snapshot_revert(snap_name)
+    except libvirtError as err:
+        messages.error(request, _("Snapshot was not reverted: %(err)s") % {"err": error_text(request, err)})
+        return _back(request, pk, "managesnapshot")
+    msg = _("Successful revert snapshot: ")
+    msg += snap_name
+    messages.success(request, msg)
+    msg = _("Revert snapshot: %(snap)s") % {"snap": snap_name}
+    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     return _back(request, pk, "managesnapshot")
 
 
@@ -1352,14 +1349,13 @@ def revert_snapshot(request, pk):
 @serialize_instance_mutation
 def create_external_snapshot(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    if request.user.has_perm(
-        "instances.snapshot_instances"
-    ):
-        name = request.POST.get("name", "")
-        desc = request.POST.get("description", "")
-        instance.proxy.create_external_snapshot("s1." + name, instance, desc=desc)
-        msg = _("Create external snapshot: %(snap)s") % {"snap": name}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    if not request.user.has_perm("instances.snapshot_instances"):
+        raise PermissionDenied
+    name = request.POST.get("name", "")
+    desc = request.POST.get("description", "")
+    instance.proxy.create_external_snapshot("s1." + name, instance, desc=desc)
+    msg = _("Create external snapshot: %(snap)s") % {"snap": name}
+    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     return _back(request, pk, "managesnapshot")
 
 
@@ -1367,18 +1363,17 @@ def create_external_snapshot(request, pk):
 @serialize_instance_mutation
 def revert_external_snapshot(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    if request.user.has_perm(
-        "instances.snapshot_instances"
-    ):
-        instance_state = True if instance.proxy.get_status() != 5 else False
-        name = request.POST.get("name", "")
-        date = request.POST.get("date", "")
-        desc = request.POST.get("desc", "")
-        instance.proxy.force_shutdown() if instance_state else None
-        instance.proxy.revert_external_snapshot(name, date, desc)
-        instance.proxy.start() if instance_state else None
-        msg = _("Revert external snapshot: %(snap)s") % {"snap": name}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    if not request.user.has_perm("instances.snapshot_instances"):
+        raise PermissionDenied
+    instance_state = True if instance.proxy.get_status() != 5 else False
+    name = request.POST.get("name", "")
+    date = request.POST.get("date", "")
+    desc = request.POST.get("desc", "")
+    instance.proxy.force_shutdown() if instance_state else None
+    instance.proxy.revert_external_snapshot(name, date, desc)
+    instance.proxy.start() if instance_state else None
+    msg = _("Revert external snapshot: %(snap)s") % {"snap": name}
+    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     return _back(request, pk, "managesnapshot")
 
 
@@ -1386,20 +1381,19 @@ def revert_external_snapshot(request, pk):
 @serialize_instance_mutation
 def delete_external_snapshot(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
+    if not request.user.has_perm("instances.snapshot_instances"):
+        raise PermissionDenied
     instance_state = True if instance.proxy.get_status() == 5 else False
-    if request.user.has_perm(
-        "instances.snapshot_instances"
-    ):
-        name = request.POST.get("name", "")
+    name = request.POST.get("name", "")
 
-        instance.proxy.start(VIR_DOMAIN_START_PAUSED) if instance_state else None
+    instance.proxy.start(VIR_DOMAIN_START_PAUSED) if instance_state else None
 
-        try:
-            instance.proxy.delete_external_snapshot(name)
-            msg = _("Delete external snapshot: %(snap)s") % {"snap": name}
-            addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-        finally:
-            instance.proxy.force_shutdown() if instance_state else None
+    try:
+        instance.proxy.delete_external_snapshot(name)
+        msg = _("Delete external snapshot: %(snap)s") % {"snap": name}
+        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    finally:
+        instance.proxy.force_shutdown() if instance_state else None
 
     return _back(request, pk, "managesnapshot")
 
@@ -1925,64 +1919,65 @@ def clone(request, pk):
 def update_console(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
 
-    if utils.can_manage_console(request.user, instance):
-        form = ConsoleForm(request.POST or None, can_set_listener=request.user.is_superuser)
-        if form.is_valid():
+    if not utils.can_manage_console(request.user, instance):
+        raise PermissionDenied
+    form = ConsoleForm(request.POST or None, can_set_listener=request.user.is_superuser)
+    if form.is_valid():
+        if (
+            "generate_password" in form.changed_data
+            or "clear_password" in form.changed_data
+            or "password" in form.changed_data
+        ):
+            if form.cleaned_data["generate_password"]:
+                password = randomPasswd()
+            elif form.cleaned_data["clear_password"]:
+                password = ""
+            else:
+                password = form.cleaned_data["password"]
+
+            # A console that listens beyond localhost (set by an
+            # administrator) keeps its password unless an administrator
+            # removes it. The definition being changed is the persistent one.
             if (
-                "generate_password" in form.changed_data
-                or "clear_password" in form.changed_data
-                or "password" in form.changed_data
+                not password
+                and not request.user.is_superuser
+                and not instance.proxy.console_listens_locally()
             ):
-                if form.cleaned_data["generate_password"]:
-                    password = randomPasswd()
-                elif form.cleaned_data["clear_password"]:
-                    password = ""
-                else:
-                    password = form.cleaned_data["password"]
-
-                # A console that listens beyond localhost (set by an
-                # administrator) keeps its password unless an administrator
-                # removes it. The definition being changed is the persistent one.
-                if (
-                    not password
-                    and not request.user.is_superuser
-                    and not instance.proxy.console_listens_locally()
-                ):
-                    messages.error(
-                        request,
-                        _("The console listens beyond localhost; only an administrator can remove its password."),
-                    )
-                elif not instance.proxy.set_console_passwd(password):
-                    msg = _(
-                        "Error setting console password. "
-                        + "You should check that your instance have an graphic device."
-                    )
-                    messages.error(request, msg)
-                else:
-                    msg = _("Set VNC password")
-                    addlogmsg(
-                        request.user.username, instance.compute.name, instance.name, msg
-                    )
-
-            if "keymap" in form.changed_data or "clear_keymap" in form.changed_data:
-                if form.cleaned_data["clear_keymap"]:
-                    instance.proxy.set_console_keymap("")
-                else:
-                    instance.proxy.set_console_keymap(form.cleaned_data["keymap"])
-
-                msg = _("Set VNC keymap")
+                messages.error(
+                    request,
+                    _("The console listens beyond localhost; only an administrator can remove its password."),
+                )
+            elif not instance.proxy.set_console_passwd(password):
+                msg = _(
+                    "Error setting console password. "
+                    + "You should check that your instance have an graphic device."
+                )
+                messages.error(request, msg)
+            else:
+                msg = _("Set VNC password")
                 addlogmsg(
                     request.user.username, instance.compute.name, instance.name, msg
                 )
 
-            if "listen_on" in form.changed_data:
-                instance.proxy.set_console_listener_addr(form.cleaned_data["listen_on"])
-                msg = _("Set VNC listen address")
-                addlogmsg(
-                    request.user.username, instance.compute.name, instance.name, msg
-                )
-        else:
-            messages.error(request, _("Console settings were not saved: %(errors)s") % {"errors": form.errors.as_text()})
+        if "keymap" in form.changed_data or "clear_keymap" in form.changed_data:
+            if form.cleaned_data["clear_keymap"]:
+                instance.proxy.set_console_keymap("")
+            else:
+                instance.proxy.set_console_keymap(form.cleaned_data["keymap"])
+
+            msg = _("Set VNC keymap")
+            addlogmsg(
+                request.user.username, instance.compute.name, instance.name, msg
+            )
+
+        if "listen_on" in form.changed_data:
+            instance.proxy.set_console_listener_addr(form.cleaned_data["listen_on"])
+            msg = _("Set VNC listen address")
+            addlogmsg(
+                request.user.username, instance.compute.name, instance.name, msg
+            )
+    else:
+        messages.error(request, _("Console settings were not saved: %(errors)s") % {"errors": form.errors.as_text()})
 
     return get_safe_redirect(
         request, default=reverse("instances:instance", args=[instance.id]) + "#vncsettings"
