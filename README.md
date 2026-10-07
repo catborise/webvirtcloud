@@ -400,6 +400,23 @@ datasource:
 
 The serial (xterm.js) console is unavailable until `console/socketiod` is rewritten with authentication. Existing installs: set `autostart=false` for `[program:socketiod]`, comment out `location /socket.io/` in nginx, and set `SOCKETIO_HOST = "127.0.0.1"` in `settings.py`.
 
+### Configuration from the Environment
+
+Docker passes the `environment:` of `docker-compose.yml` and
+`docker-compose.override.yml` to every process in the container. On bare metal, either edit `webvirtcloud/settings.py`, or set the
+same `environment=` line in both `[program:webvirtcloud]` and `[program:novncd]`
+of the supervisor config (novncd reads the database too) and export the
+variables before running `manage.py` (e.g. `migrate`):
+
+| Variable | Effect |
+| --- | --- |
+| `ALLOWED_HOSTS` | extra host names/IPs (comma-separated, `*` for any) |
+| `CSRF_TRUSTED_ORIGINS` | extra trusted origins, e.g. `https://wvc.example.com` |
+| `WEBVIRTCLOUD_HTTPS=1` | HTTPS profile (secure cookies, redirect, HSTS) |
+| `WEBVIRTCLOUD_DB_HOST` | use PostgreSQL; `WEBVIRTCLOUD_DB_PORT`/`_NAME`/`_USER`/`_PASSWORD` (defaults 5432/webvirtcloud/webvirtcloud/empty) |
+| `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS` | SMTP for e-mail OTP |
+| `WEBVIRTCLOUD_LOG_FILE` | log file path (default `data/webvirtcloud.log`) |
+
 ### Reverse-Proxy & Port Forwarding
 
 If WebVirtCloud runs behind a reverse proxy terminating SSL or forwarding port 80/443, set the public noVNC port in `webvirtcloud/settings.py` (default 6080). The bundled nginx config already proxies `/novncd/`:
@@ -470,6 +487,10 @@ for any other host get 400. Bare metal (your settings.py is kept): replace
 `ALLOWED_HOSTS = ["*"]` with the names/IPs the panel and the datasource are
 reached by, and copy the `if extra_hosts := ...` lines below it from the
 template so the env var works.
+
+Environment-driven database and email settings: copy the `DATABASES` and
+`EMAIL` blocks of the template into your `webvirtcloud/settings.py` to use them.
+PostgreSQL is for new installs; moving an existing sqlite database is not covered.
 
 ```bash
 # Go to Installation Directory

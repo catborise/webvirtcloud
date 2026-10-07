@@ -11,7 +11,12 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 # Env vars that change the settings; removed from the inherited environment so
 # every case starts from the defaults.
-CONFIG_VARS = ["WEBVIRTCLOUD_HTTPS", "ALLOWED_HOSTS"]
+CONFIG_VARS = [
+    "WEBVIRTCLOUD_HTTPS", "ALLOWED_HOSTS",
+    "EMAIL_HOST", "EMAIL_PORT", "EMAIL_HOST_USER", "EMAIL_HOST_PASSWORD", "EMAIL_USE_TLS",
+    "WEBVIRTCLOUD_DB_HOST", "WEBVIRTCLOUD_DB_PORT", "WEBVIRTCLOUD_DB_NAME",
+    "WEBVIRTCLOUD_DB_USER", "WEBVIRTCLOUD_DB_PASSWORD",
+]
 
 
 def _env(env):
@@ -85,3 +90,42 @@ class AllowedHostsTestCase(SimpleTestCase):
 
     def test_allowed_hosts_star_escape(self):
         self.assertIn("*", self.hosts({"ALLOWED_HOSTS": "*"}))
+
+
+class EmailEnvTestCase(SimpleTestCase):
+    def test_email_from_env(self):
+        names = ["EMAIL_HOST", "EMAIL_PORT", "EMAIL_HOST_USER", "EMAIL_HOST_PASSWORD", "EMAIL_USE_TLS"]
+        env = {"EMAIL_HOST": "smtp.example.com", "EMAIL_PORT": "25", "EMAIL_HOST_USER": "wvc",
+               "EMAIL_HOST_PASSWORD": "secret", "EMAIL_USE_TLS": "0"}
+        self.assertEqual(load_settings(env, names), {
+            "EMAIL_HOST": "smtp.example.com", "EMAIL_PORT": 25, "EMAIL_HOST_USER": "wvc",
+            "EMAIL_HOST_PASSWORD": "secret", "EMAIL_USE_TLS": False,
+        })
+
+
+class DatabaseEnvTestCase(SimpleTestCase):
+    def db(self, env):
+        return load_settings(env, ["DATABASES"])["DATABASES"]["default"]
+
+    def test_sqlite_is_the_default(self):
+        db = self.db({})
+        self.assertEqual(db["ENGINE"], "django.db.backends.sqlite3")
+        self.assertTrue(db["NAME"].endswith("db.sqlite3"))
+
+    def test_postgres_from_env(self):
+        db = self.db({"WEBVIRTCLOUD_DB_HOST": "db.example.com", "WEBVIRTCLOUD_DB_PORT": "6432",
+                      "WEBVIRTCLOUD_DB_NAME": "wvc", "WEBVIRTCLOUD_DB_USER": "wvcuser",
+                      "WEBVIRTCLOUD_DB_PASSWORD": "secret"})
+        self.assertEqual(
+            {k: db[k] for k in ("ENGINE", "HOST", "PORT", "NAME", "USER", "PASSWORD")},
+            {"ENGINE": "django.db.backends.postgresql", "HOST": "db.example.com", "PORT": "6432",
+             "NAME": "wvc", "USER": "wvcuser", "PASSWORD": "secret"},
+        )
+
+    def test_postgres_defaults(self):
+        db = self.db({"WEBVIRTCLOUD_DB_HOST": "db.example.com"})
+        self.assertEqual(
+            {k: db[k] for k in ("ENGINE", "PORT", "NAME", "USER", "PASSWORD")},
+            {"ENGINE": "django.db.backends.postgresql", "PORT": "5432",
+             "NAME": "webvirtcloud", "USER": "webvirtcloud", "PASSWORD": ""},
+        )

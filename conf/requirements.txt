@@ -14,7 +14,7 @@ libsass==0.23.0
 libvirt-python>=9.0.0
 lxml>=6.1
 paramiko==5.0.0
-#psycopg2-binary
+psycopg[binary]==3.3.6
 python-engineio==4.14.0
 python-socketio==5.17.0
 websockify==0.13.0
