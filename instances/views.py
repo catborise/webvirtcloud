@@ -366,6 +366,14 @@ def get_safe_redirect(request, default=None):
     return redirect(_same_origin_referer(request, default or reverse("instances:index")))
 
 
+def _is_int(value):
+    try:
+        int(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def _back(request, pk, tab):
     """Back to the page the form was on, at the given tab; the VM page if
     the Referer is missing or from another site."""
@@ -744,6 +752,11 @@ def add_public_key(request, pk):
 
     if request.method == "POST":
         sshkeyid = request.POST.get("sshkeyid", "")
+        if not _is_int(sshkeyid):
+            messages.error(request, _("Select an SSH public key"))
+            return get_safe_redirect(
+                request, default=reverse("instances:instance", args=[instance.id]) + "#access"
+            )
         publickey = get_object_or_404(UserSSHKey, id=sshkeyid, user=request.user)
         data = {
             "action": "publickey",
@@ -782,6 +795,9 @@ def resizevm_cpu(request, pk):
 
     new_vcpu = request.POST.get("vcpu", "")
     new_cur_vcpu = request.POST.get("cur_vcpu", "")
+    if not _is_int(new_vcpu) or not _is_int(new_cur_vcpu):
+        messages.error(request, _("Enter a whole number of vCPUs"))
+        return redirect(reverse("instances:instance", args=[instance.id]) + "#resize")
 
     quota_msg = utils.check_user_quota(
         request.user, 0, int(new_vcpu) - vcpu, 0, 0
@@ -830,6 +846,9 @@ def resize_memory(request, pk):
     # shuts down meanwhile does not get an unchecked one.
     if instance.proxy.get_status() == VIR_DOMAIN_RUNNING:
         new_memory = memory
+    if not _is_int(new_memory) or not _is_int(new_cur_memory):
+        messages.error(request, _("Enter a whole number for memory"))
+        return redirect(reverse("instances:instance", args=[instance.id]) + "#resize")
     quota_msg = utils.check_user_quota(request.user, 0, 0, int(new_memory) - memory, 0)
     if not request.user.is_superuser and quota_msg:
         msg = quota_refused(quota_msg, _(
@@ -1592,9 +1611,13 @@ def change_network(request, pk):
 def add_network(request, pk):
     instance = get_instance(request.user, pk)
 
+    network = request.POST.get("add-net-network")
+    if not network:
+        messages.error(request, _("No network selected"))
+        return _back(request, pk, "network")
     mac = request.POST.get("add-net-mac")
     nwfilter = request.POST.get("add-net-nwfilter")
-    (source, source_type) = utils.get_network_tuple(request.POST.get("add-net-network"))
+    (source, source_type) = utils.get_network_tuple(network)
     model = request.POST.get("add-net-model")
 
     if source_type == "iface":
@@ -1651,10 +1674,14 @@ def set_qos(request, pk):
     average = request.POST.get("qos_average") or 0
     peak = request.POST.get("qos_peak") or 0
     burst = request.POST.get("qos_burst") or 0
-    keys = request.POST.keys()
-    mac_key = [key for key in keys if "mac" in key]
-    if mac_key:
-        mac = request.POST.get(mac_key[0])
+    mac_key = [key for key in request.POST if "mac" in key]
+    mac = request.POST.get(mac_key[0]) if mac_key else None
+    if not mac or qos_dir not in ("inbound", "outbound"):
+        messages.error(request, _("Select a network interface and a QoS direction"))
+        return _back(request, pk, "network")
+    if not all(_is_int(rate) for rate in (average, peak, burst)):
+        messages.error(request, _("QoS rates must be whole numbers"))
+        return _back(request, pk, "network")
 
     instance.proxy.set_qos(mac, qos_dir, average, peak, burst)
     if instance.proxy.get_status() == 5:
@@ -1681,6 +1708,9 @@ def unset_qos(request, pk):
     instance = get_instance(request.user, pk)
     qos_dir = request.POST.get("qos_direction", "")
     mac = request.POST.get("net-mac")
+    if not mac or qos_dir not in ("inbound", "outbound"):
+        messages.error(request, _("Select a network interface and a QoS direction"))
+        return _back(request, pk, "network")
     instance.proxy.unset_qos(mac, qos_dir)
 
     if instance.proxy.get_status() == 5:
