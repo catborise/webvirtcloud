@@ -25,3 +25,7 @@ data/
 
 # collectstatic output
 /staticfiles/
+
+# Local planning and agent workspace (superpowers)
+/docs/superpowers/
+/.superpowers/
