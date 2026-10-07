@@ -178,6 +178,12 @@ LOCALE_PATHS = [
     "locale/",
 ]
 
+# Resolve the application log path and make sure its directory exists, so a
+# clean checkout, CI, or a Docker build (none of which create data/) does not
+# fail when logging is configured.
+WEBVIRTCLOUD_LOG_FILE = os.getenv("WEBVIRTCLOUD_LOG_FILE", str(BASE_DIR / "data" / "webvirtcloud.log"))
+os.makedirs(os.path.dirname(WEBVIRTCLOUD_LOG_FILE), exist_ok=True)
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -192,10 +198,12 @@ LOGGING = {
             'class': 'django.utils.log.AdminEmailHandler'
             },
         'default': {
-            'level':'INFO',
-            'class':'logging.handlers.RotatingFileHandler',
-            'filename': 'webvirtcloud.log',
-            'formatter':'standard',
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': WEBVIRTCLOUD_LOG_FILE,
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 5,
+            'formatter': 'standard',
         },
     },
     'loggers': {
