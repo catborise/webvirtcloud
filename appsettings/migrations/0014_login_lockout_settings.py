@@ -1,3 +1,4 @@
+from django.core.management.color import no_style
 from django.db import migrations
 
 
@@ -12,6 +13,12 @@ SETTINGS = [
 def add_settings(apps, schema_editor):
     setting = apps.get_model("appsettings", "AppSettings")
     db_alias = schema_editor.connection.alias
+    # Earlier migrations inserted the default rows with fixed ids, which a
+    # PostgreSQL id sequence does not see: move it past them before inserting
+    # without an id (a no-op on sqlite).
+    with schema_editor.connection.cursor() as cursor:
+        for sql in schema_editor.connection.ops.sequence_reset_sql(no_style(), [setting]):
+            cursor.execute(sql)
     for name, key, value, description in SETTINGS:
         setting.objects.using(db_alias).get_or_create(
             key=key, defaults={"name": name, "value": value, "choices": "", "description": description}

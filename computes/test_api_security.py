@@ -34,14 +34,14 @@ class APISecurityTestCase(TestCase):
             name="api-test-compute",
             hostname="127.0.0.1",
             login="libvirt_user",
-            password="secret_hypervisor_password",
+            password="hv-secret-pw",
             type=1,
         )
         self.empty_compute = Compute.objects.create(
             name="empty-test-compute",
             hostname="127.0.0.1",
             login="libvirt_user",
-            password="secret_hypervisor_password",
+            password="hv-secret-pw",
             type=1,
         )
         self.flavor = Flavor.objects.create(
