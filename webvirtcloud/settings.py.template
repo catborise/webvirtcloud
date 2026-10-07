@@ -315,6 +315,11 @@ OTP_ENABLED = False
 # REST Framework & OpenAPI (drf-spectacular)
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Session only: a password alone (HTTP Basic) must not reach the API, as it
+    # would skip the OTP second factor the login form enforces.
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
 }
 
 SPECTACULAR_SETTINGS = {

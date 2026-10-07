@@ -38,8 +38,6 @@ ALLOWED_FOR_ANY_USER = {
     "accounts:change_password": "the user's own password; new users get the permission by default",
     "accounts:ssh_key_create": "the user's own SSH keys",
     "set_language": "UI language switch",
-    "rest_framework:login": "DRF browsable API login",
-    "rest_framework:logout": "DRF browsable API logout",
     "console": "renders an error without a valid token; access is checked per VM",
     "ds_openstack_index": "cloud-init datasource, fetched by VMs",
     "ds_openstack_metadata": "cloud-init datasource, fetched by VMs",
@@ -59,7 +57,6 @@ ALLOWED_FOR_ANY_USER = {
 ALLOWED_FOR_ANONYMOUS = {
     "accounts:login": "login page",
     "accounts:email_otp": "part of the login flow (its own issues are tracked separately)",
-    "rest_framework:login": "DRF browsable API login page",
     "ds_openstack_index": "cloud-init datasource, fetched by VMs that do not log in",
     "ds_openstack_metadata": "cloud-init datasource, fetched by VMs that do not log in",
     "ds_openstack_userdata": "cloud-init datasource, fetched by VMs that do not log in",
