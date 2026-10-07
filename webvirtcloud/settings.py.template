@@ -35,8 +35,19 @@ CSRF_TRUSTED_ORIGINS = ["http://localhost", "http://127.0.0.1", "http://localhos
 if extra_origins := os.getenv("CSRF_TRUSTED_ORIGINS"):
     CSRF_TRUSTED_ORIGINS.extend([origin.strip() for origin in extra_origins.split(",") if origin.strip()])
 
-# Honor X-Forwarded-Proto header for request.is_secure() when behind a reverse proxy (Nginx, Traefik, etc.)
+# Honor X-Forwarded-Proto for request.is_secure(). gunicorn listens on
+# 127.0.0.1 only, so the bundled nginx is the one client that sets it.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Production profile for a panel served over HTTPS: secure cookies, HTTP to
+# HTTPS redirect and HSTS. Off by default (plain HTTP).
+if os.getenv("WEBVIRTCLOUD_HTTPS") == "1":
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_SSL_REDIRECT = True
+    # VMs fetch cloud-init metadata over plain HTTP
+    SECURE_REDIRECT_EXEMPT = [r"^datasource/"]
+    SECURE_HSTS_SECONDS = 31536000
 
 # Application definition
 INSTALLED_APPS = [

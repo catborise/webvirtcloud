@@ -394,6 +394,12 @@ When the panel is served over HTTPS on a hostname other than localhost, add it t
 environment=CSRF_TRUSTED_ORIGINS="https://webvirtcloud.example.com"
 ```
 
+For a panel served over HTTPS, also set `WEBVIRTCLOUD_HTTPS=1` (same place). It
+makes the session and CSRF cookies HTTPS-only, redirects HTTP to HTTPS (except
+`/datasource/`, which VMs fetch over HTTP) and sends HSTS for one year. TLS can
+end at the bundled nginx or at a proxy in front of it; such a proxy must send
+`X-Forwarded-Proto: https`.
+
 ## How To Update
 
 Back up `db.sqlite3` before updating (in Docker it lives in the `data` volume).
@@ -427,6 +433,14 @@ that file. Thereafter, deleting or losing access to the file does not bypass the
 requirement. If provisioning cannot write a new private password file, it stops
 without creating an admin account or printing its password; fix the directory
 permissions and rerun migrations.
+
+HTTPS deployments: copy the `SECURE_PROXY_SSL_HEADER` / `WEBVIRTCLOUD_HTTPS` block
+of `webvirtcloud/settings.py.template` into your `webvirtcloud/settings.py`, set
+`WEBVIRTCLOUD_HTTPS=1` in the service environment, copy the `map` block and the
+`X-Forwarded-Proto` line of `conf/nginx/webvirtcloud.conf` into
+`/etc/nginx/conf.d/webvirtcloud.conf`, and reload nginx
+(`sudo nginx -t && sudo systemctl reload nginx`). Re-running the installer
+replaces that file, including any TLS directives you added to it.
 
 ```bash
 # Go to Installation Directory
