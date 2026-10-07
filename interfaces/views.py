@@ -1,8 +1,8 @@
-import contextlib
 from django.contrib import messages
 from django.shortcuts import render, get_object_or_404
 from django.http import HttpResponseRedirect
 from django.urls import reverse
+from django.utils.translation import gettext_lazy as _
 from libvirt import libvirtError
 from computes.models import Compute
 from interfaces.forms import AddInterface
@@ -30,9 +30,12 @@ def interfaces(request, compute_id):
         )
         ifaces = conn.get_ifaces()
 
-        netdevs = []
-        with contextlib.suppress(Exception):
+        netdevs, netdev_error = [], None
+        try:
             netdevs = conn.get_net_devices()
+        except Exception as err:
+            netdev_error = err
+            messages.error(request, _("The network devices of this host could not be read: %(error)s") % {"error": err})
 
         for iface in ifaces:
             interf = wvmInterface(
@@ -45,7 +48,8 @@ def interfaces(request, compute_id):
             ifaces_all.append(interf.get_details())
 
         if request.method == "POST":
-            if "create" in request.POST:
+            # without the host's devices nothing can be checked, so nothing is created
+            if "create" in request.POST and netdev_error is None:
                 form = AddInterface(request.POST, netdevs=netdevs)
                 if form.is_valid():
                     data = form.cleaned_data

@@ -225,3 +225,30 @@ class CreateViewTestCase(TestCase):
                     {**BASE, "netdev": netdev, "ipv6_type": "none", "create": ""},
                 )
                 self.assertEqual(conn.create_iface.called, created)
+
+    def test_unreadable_host_devices_are_reported_not_blamed_on_the_input(self):
+        admin = get_user_model().objects.create_superuser("iface_admin2", "b@example.com", "x")
+        compute = Compute.objects.create(name="iface-c2", hostname="127.0.0.1:1", login="root", password="", type=1)
+        self.client.force_login(admin)
+        with patch("interfaces.views.wvmInterfaces") as conn_cls:
+            conn = conn_cls.return_value
+            conn.get_ifaces.return_value = []
+            conn.get_net_devices.side_effect = RuntimeError("nodedev driver not running")
+            response = self.client.post(
+                reverse("interfaces", args=[compute.id]),
+                {**BASE, "netdev": "eth0", "ipv6_type": "none", "create": ""},
+            )
+        self.assertFalse(conn.create_iface.called)
+        messages = [str(m) for m in response.context["messages"]]
+        self.assertTrue(any("nodedev driver not running" in m for m in messages), messages)
+        self.assertFalse(any("not on this host" in m for m in messages), messages)
+
+
+class EthernetDeviceTestCase(SimpleTestCase):
+    def test_an_ethernet_interface_needs_no_bridge_member(self):
+        self.assertTrue(form(itype="ethernet", name="eth0", netdev="", ipv6_type="none").is_valid())
+
+    def test_a_bridge_needs_a_member(self):
+        f = form(netdev="", ipv6_type="none")
+        self.assertFalse(f.is_valid())
+        self.assertIn("netdev", f.errors)

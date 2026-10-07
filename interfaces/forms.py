@@ -14,7 +14,8 @@ class AddInterface(forms.Form):
         required=True,
         choices=(("none", "none"), ("onboot", "onboot"), ("hotplug", "hotplug")),
     )
-    netdev = forms.CharField(max_length=15, required=True)
+    # a bridge's member; an ethernet interface configures the device in name
+    netdev = forms.CharField(max_length=15, required=False)
     ipv4_type = forms.ChoiceField(
         required=True,
         choices=(("dhcp", "dhcp"), ("static", "static"), ("none", "none")),
@@ -93,6 +94,8 @@ class AddInterface(forms.Form):
 
     def clean_netdev(self):
         netdev = self.cleaned_data["netdev"]
+        if not netdev:
+            return netdev
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", netdev) or netdev in (".", ".."):
             raise forms.ValidationError(
                 _("The device name may have up to 15 letters, digits and . _ -")
@@ -111,7 +114,9 @@ class AddInterface(forms.Form):
                 self.add_error("stp", _("A bridge needs STP on or off"))
             if cleaned.get("delay") is None and "delay" not in self.errors:
                 self.add_error("delay", _("A bridge needs a forward delay"))
-            if netdev and netdev not in self.netdevs:
+            if not netdev and "netdev" not in self.errors:
+                self.add_error("netdev", _("A bridge needs a device"))
+            elif netdev and netdev not in self.netdevs:
                 self.add_error("netdev", _("The device is not on this host"))
             elif netdev and netdev == name:
                 self.add_error("netdev", _("A bridge cannot contain itself"))
