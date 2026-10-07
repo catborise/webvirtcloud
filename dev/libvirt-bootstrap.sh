@@ -264,6 +264,10 @@ __gather_linux_system_info
 
 # Simplify distro name naming on functions
 DISTRO_NAME_L=$(echo "$DISTRO_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-zA-Z0-9_ ]//g' | sed -re 's/([[:space:]])+/_/g')
+# Rocky Linux and AlmaLinux use the CentOS install functions
+case "${DISTRO_NAME_L}" in
+    rocky|almalinux) DISTRO_NAME_L="centos" ;;
+esac
 DISTRO_MAJOR_VERSION="$(echo "$DISTRO_VERSION" | sed 's/^\([0-9]*\).*/\1/g')"
 DISTRO_MINOR_VERSION="$(echo "$DISTRO_VERSION" | sed 's/^\([0-9]*\).\([0-9]*\).*/\2/g')"
 PREFIXED_DISTRO_MAJOR_VERSION="_${DISTRO_MAJOR_VERSION}"
@@ -458,6 +462,11 @@ daemons_running_centos() {
             systemctl stop libvirtd.service > /dev/null 2>&1
             systemctl start libvirtd.service
         fi
+    elif [ "$DISTRO_MAJOR_VERSION" -ge 10 ]; then
+        # EL10 runs the modular daemons; virtproxyd serves remote TCP (SASL).
+        # supervisord runs gstfsd, so it must start at boot too.
+        systemctl enable --now virtqemud.socket virtproxyd.socket virtproxyd-tcp.socket || return 1
+        systemctl enable supervisord.service || return 1
     else
         if [ -f /usr/lib/systemd/system/libvirtd-tcp.socket ]; then
             systemctl stop libvirtd-tcp.socket > /dev/null 2>&1
@@ -476,7 +485,7 @@ daemons_running_centos() {
     fi
     if [ -f /usr/lib/systemd/system/supervisord.service ]; then
         systemctl stop supervisord.service > /dev/null 2>&1
-        systemctl start supervisord.service
+        systemctl start supervisord.service || return 1
     fi
     return 0
 }

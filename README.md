@@ -228,7 +228,7 @@ Sign in at `http://<server-ip>`; you must set a new password at the first login,
 
 A compute node is a KVM host the panel manages over libvirt.
 
-1. Install KVM and libvirt. The bootstrap script handles Ubuntu, Debian, CentOS, Fedora, openSUSE and SLES; on RHEL, Rocky Linux or AlmaLinux install the `qemu-kvm` and `libvirt` packages and enable `libvirtd` yourself:
+1. Install KVM and libvirt. The bootstrap script handles Ubuntu, Debian, CentOS, Fedora, Rocky Linux and AlmaLinux 10, openSUSE and SLES. On RHEL, which needs EPEL from its release RPM, install the `qemu-kvm` and `libvirt` packages yourself and enable `virtqemud.socket` (plus `virtproxyd-tcp.socket` for TCP):
 
    ```bash
    curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/dev/libvirt-bootstrap.sh | sudo sh
