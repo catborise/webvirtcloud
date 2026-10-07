@@ -332,6 +332,8 @@ def get_volumes(request, compute_id, pool):
         )
         conn.refresh()
         data["vols"] = sorted(conn.get_volumes())
-    except libvirtError:
-        pass
+    except libvirtError as err:
+        # do not answer 200 with an empty list when the listing failed: the
+        # caller cannot tell "no volumes" from "could not read the pool"
+        return JsonResponse({"error": str(err)}, status=400)
     return JsonResponse(data)

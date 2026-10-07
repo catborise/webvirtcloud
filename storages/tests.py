@@ -841,3 +841,32 @@ class StorageUploadViewTests(TestCase):
         })
         self.assertEqual(res4.status_code, 400)
         self.assertIn("ISO image already exists", res4.json().get("error", ""))
+
+
+class GetVolumesViewTests(TestCase):
+    """get_volumes must not answer 200 with an empty list when the pool cannot
+    be read: the caller could not tell that apart from a pool with no volumes."""
+
+    def setUp(self):
+        self.admin = get_user_model().objects.create_superuser(
+            username="vols_admin", password="password", email="vols_admin@example.com"
+        )
+        self.client.login(request=RequestFactory().get("/"), username="vols_admin", password="password")
+        self.compute = Compute.objects.create(name="VolCompute", hostname="localhost", type=1, login="u", password="p")
+        self.url = reverse("volumes", args=[self.compute.id, "default"])
+
+    @patch("storages.views.wvmStorage")
+    def test_listing_failure_is_not_a_200(self, mock_wvm):
+        from libvirt import libvirtError
+
+        mock_wvm.return_value.get_volumes.side_effect = libvirtError("pool is gone")
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("error", response.json())
+
+    @patch("storages.views.wvmStorage")
+    def test_listing_success_returns_the_volumes(self, mock_wvm):
+        mock_wvm.return_value.get_volumes.return_value = ["b.qcow2", "a.qcow2"]
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["vols"], ["a.qcow2", "b.qcow2"])
