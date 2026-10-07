@@ -28,10 +28,12 @@ class SetRootPassTestCase(TestCase):
     def test_set_root_pass_post(self, mock_proxy, mock_socket_cls):
         # Renamed on the host: gstfsd must get the name of this UUID's domain
         mock_proxy.instance.name.return_value = "renamed-on-host"
-        mock_proxy.get_status.return_value = 5  # status: running
+        mock_proxy.get_status.return_value = 5  # shut off
         mock_sock = MagicMock()
         mock_socket_cls.return_value = mock_sock
-        mock_sock.recv.return_value = json.dumps({"return": "success"}).encode()
+        replies = iter([json.dumps({"return": "success"}).encode(), b""] * 2)
+        # one reply, then gstfsd closes the connection
+        mock_sock.recv.side_effect = lambda size: next(replies)
 
         response = self.client.post(
             reverse("instances:rootpasswd", args=[self.instance.id]),
@@ -41,8 +43,8 @@ class SetRootPassTestCase(TestCase):
         self.assertEqual(response.status_code, 302)
 
         # Check socket sent the command with hashed password
-        self.assertTrue(mock_sock.send.called)
-        sent_bytes = mock_sock.send.call_args[0][0]
+        self.assertTrue(mock_sock.sendall.called)
+        sent_bytes = mock_sock.sendall.call_args[0][0]
         data = json.loads(sent_bytes.decode())
         self.assertEqual(data["action"], "password")
         self.assertEqual(data["vname"], "renamed-on-host")
@@ -65,13 +67,15 @@ class SetRootPassTestCase(TestCase):
         mock_proxy.get_status.return_value = 5
         mock_sock = MagicMock()
         mock_socket_cls.return_value = mock_sock
-        mock_sock.recv.return_value = json.dumps({"return": "success"}).encode()
+        replies = iter([json.dumps({"return": "success"}).encode(), b""] * 2)
+        # one reply, then gstfsd closes the connection
+        mock_sock.recv.side_effect = lambda size: next(replies)
         url = reverse("instances:rootpasswd", args=[self.instance.id])
 
         self.client.post(url, {"passwd": "samePassword1"})
         self.client.post(url, {"passwd": "samePassword1"})
 
-        hashes = [json.loads(c[0][0].decode())["passwd"] for c in mock_sock.send.call_args_list]
+        hashes = [json.loads(c[0][0].decode())["passwd"] for c in mock_sock.sendall.call_args_list]
         self.assertEqual(len(hashes), 2)
         self.assertNotEqual(hashes[0], hashes[1])
 

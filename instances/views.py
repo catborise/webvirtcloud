@@ -707,17 +707,20 @@ def migrate(request, pk):
 
 
 GSTFSD_PORT = 16510
-GSTFSD_TIMEOUT = 120  # gstfsd starts a guestfs appliance, which takes a while
+GSTFSD_TIMEOUT = 120  # gstfsd answers within its 100 s limit for a request (GSTFSD_DEADLINE)
 
 
 def gstfsd_request(hostname, data):
     """Send one request to gstfsd and return its JSON reply, or an error reply."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(GSTFSD_TIMEOUT)
     try:
-        s.connect((hostname, GSTFSD_PORT))
-        s.send(json.dumps(data).encode())
-        return json.loads(s.recv(1024).strip())
+        # the host name may resolve to IPv4 or IPv6
+        s = socket.create_connection((hostname, GSTFSD_PORT), timeout=GSTFSD_TIMEOUT)
+    except OSError as err:
+        return {"return": "error", "message": _("gstfsd error: %(err)s") % {"err": err}}
+    try:
+        s.sendall(json.dumps(data).encode())
+        # gstfsd sends one reply and closes the connection
+        return json.loads(b"".join(iter(lambda: s.recv(4096), b"")))
     except (OSError, ValueError) as err:
         return {"return": "error", "message": _("gstfsd error: %(err)s") % {"err": err}}
     finally:
