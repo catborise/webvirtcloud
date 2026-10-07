@@ -174,22 +174,23 @@ install_packages () {
 }
 
 configure_nginx () {
-  # Remove default configuration 
-  rm /etc/nginx/nginx.conf
+  # shellcheck source=conf/install-lib.sh
+  . "$APP_PATH/conf/install-lib.sh"
+
   if [ -f /etc/nginx/sites-enabled/default ]; then
     rm /etc/nginx/sites-enabled/default
   fi
 
   chown -R "$nginx_group":"$nginx_group" /var/lib/nginx
-  # Copy new configuration and webvirtcloud.conf
-  echo "  * Copying Nginx configuration"
+  # Install the main nginx config on first run only (keeping a backup), always
+  # refresh the app snippet; a re-run never clobbers an edited main config.
+  echo "  * Installing Nginx configuration"
   local nginx_template_conf
   nginx_template_conf="${APP_PATH}/conf/nginx/${distro}_${codename}_nginx.conf"
   if ! test -f "${nginx_template_conf}"; then
     nginx_template_conf="${APP_PATH}/conf/nginx/${distro}_nginx.conf"
   fi
-  cp "${nginx_template_conf}" /etc/nginx/nginx.conf
-  cp "$APP_PATH"/conf/nginx/webvirtcloud.conf /etc/nginx/conf.d/
+  wvc_install_nginx "${nginx_template_conf}" "$APP_PATH/conf/nginx/webvirtcloud.conf" /etc/nginx
 
   if [ -n "$fqdn" ]; then
      fqdn_escape="$(echo -n "$fqdn"|sed -e 's/[](){}<>=:\!\?\+\|\/\&$*.^[]/\\&/g')"
@@ -277,10 +278,6 @@ activate_python_environment () {
     source venv/bin/activate
 }
 
-generate_secret_key() {
-  "$PYTHON" -c 'import secrets; print(secrets.token_urlsafe(50))'
-}
-
 
 install_webvirtcloud () {
   create_user
@@ -292,32 +289,43 @@ install_webvirtcloud () {
     echo "* $APP_NAME already present in $APP_PATH."
   fi
 
+  # shellcheck source=conf/install-lib.sh
+  . "$APP_PATH/conf/install-lib.sh"
+
+  echo "* Ensuring Django secret key (data/secret_key, kept across re-runs)."
+  wvc_ensure_secret_key "$APP_PATH/data" "$PYTHON"
+
   echo "* Configuring settings.py file."
-  cp "$APP_PATH/webvirtcloud/settings.py.template" "$APP_PATH/webvirtcloud/settings.py"
-  
-  secret_key=$(generate_secret_key)
-  echo "* Secret for Django generated."
-  tzone_escape="$(echo -n "$tzone"|sed -e 's/[](){}<>=:\!\?\+\|\/\&$*.^[]/\\&/g')"
-  secret_key_escape="$(echo -n "$secret_key"|sed -e 's/[](){}<>=:\!\?\+\|\/\&$*.^[]/\\&/g')"
-  novncd_port_escape="$(echo -n "$novncd_port"|sed -e 's/[](){}<>=:\!\?\+\|\/\&$*.^[]/\\&/g')"
-  novncd_public_port_escape="$(echo -n "$novncd_public_port"|sed -e 's/[](){}<>=:\!\?\+\|\/\&$*.^[]/\\&/g')"
-  novncd_host_escape="$(echo -n "$novncd_host"|sed -e 's/[](){}<>=:\!\?\+\|\/\&$*.^[]/\\&/g')"
+  if wvc_ensure_settings "$APP_PATH/webvirtcloud/settings.py.template" "$APP_PATH/webvirtcloud/settings.py" >/dev/null; then
+    # first install only: apply instance values. SECRET_KEY is NOT written here;
+    # settings.py reads data/secret_key, so the key persists across re-runs.
+    tzone_escape="$(echo -n "$tzone"|sed -e 's/[](){}<>=:\!\?\+\|\/\&$*.^[]/\\&/g')"
+    novncd_port_escape="$(echo -n "$novncd_port"|sed -e 's/[](){}<>=:\!\?\+\|\/\&$*.^[]/\\&/g')"
+    novncd_public_port_escape="$(echo -n "$novncd_public_port"|sed -e 's/[](){}<>=:\!\?\+\|\/\&$*.^[]/\\&/g')"
+    novncd_host_escape="$(echo -n "$novncd_host"|sed -e 's/[](){}<>=:\!\?\+\|\/\&$*.^[]/\\&/g')"
 
-  #TODO escape SED delimiter in variables
-  sed -i "s|^\\(TIME_ZONE = \\).*|\\1$tzone_escape|" "$APP_PATH/webvirtcloud/settings.py"
-  sed -i "s|^\\(SECRET_KEY = \\).*|\\1\'$secret_key_escape\'|" "$APP_PATH/webvirtcloud/settings.py"
-  sed -i "s|^\\(WS_PORT = \\).*|\\1$novncd_port_escape|" "$APP_PATH/webvirtcloud/settings.py"
-  sed -i "s|^\\(WS_PUBLIC_PORT = \\).*|\\1$novncd_public_port_escape|" "$APP_PATH/webvirtcloud/settings.py"
-  sed -i "s|^\\(WS_HOST = \\).*|\\1\'$novncd_host_escape\'|" "$APP_PATH/webvirtcloud/settings.py"
+    #TODO escape SED delimiter in variables
+    sed -i "s|^\\(TIME_ZONE = \\).*|\\1$tzone_escape|" "$APP_PATH/webvirtcloud/settings.py"
+    sed -i "s|^\\(WS_PORT = \\).*|\\1$novncd_port_escape|" "$APP_PATH/webvirtcloud/settings.py"
+    sed -i "s|^\\(WS_PUBLIC_PORT = \\).*|\\1$novncd_public_port_escape|" "$APP_PATH/webvirtcloud/settings.py"
+    sed -i "s|^\\(WS_HOST = \\).*|\\1\'$novncd_host_escape\'|" "$APP_PATH/webvirtcloud/settings.py"
 
-  # set CSRF TRUSTED ORIGINS
-  host_ip="'http://127.0.0.1', "
-  if command -v hostname >/dev/null 2>&1; then
-    for i in $(hostname -I 2>/dev/null); do
-      host_ip+="'http://$i', " 
-    done
+    # set CSRF TRUSTED ORIGINS
+    host_ip="'http://127.0.0.1', "
+    if command -v hostname >/dev/null 2>&1; then
+      for i in $(hostname -I 2>/dev/null); do
+        host_ip+="'http://$i', "
+      done
+    fi
+    sed -i "s|^\\(CSRF_TRUSTED_ORIGINS = \\).*|\\1\[ \'http://$fqdn\', $host_ip ]|" "$APP_PATH/webvirtcloud/settings.py"
+  else
+    echo "* Keeping existing settings.py (not overwritten)."
   fi
-  sed -i "s|^\\(CSRF_TRUSTED_ORIGINS = \\).*|\\1\[ \'http://$fqdn\', $host_ip ]|" "$APP_PATH/webvirtcloud/settings.py"
+
+  # Restrict modes before the long-running pip/migrate steps, so settings and the
+  # key are not left world-readable during installation. The db is hardened again
+  # after migrate creates it.
+  wvc_harden_modes "$APP_PATH/webvirtcloud/settings.py" "" "$APP_PATH/data"
 
   echo "* Checking up Python3 version."
   check_python
@@ -336,6 +344,9 @@ install_webvirtcloud () {
 
   echo "* Django Collect Static"
   log "$PYTHON $APP_PATH/manage.py collectstatic --noinput"
+
+  echo "* Restricting file modes on secret, settings and database."
+  wvc_harden_modes "$APP_PATH/webvirtcloud/settings.py" "$APP_PATH/db.sqlite3" "$APP_PATH/data"
 
   chown -R "$nginx_group":"$nginx_group" "$APP_PATH"
 }
