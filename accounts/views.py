@@ -24,7 +24,7 @@ from accounts.forms import EmailOTPForm, ProfileForm, UserSSHKeyForm
 from accounts.models import User, UserAttributes, UserInstance, UserSSHKey
 
 from . import forms
-from .utils import get_user_totp_device, send_email_with_otp
+from .utils import get_existing_totp_device, get_user_totp_device, send_email_with_otp
 from django.contrib.auth.views import LoginView
 from logs.views import addlogmsg
 
@@ -221,10 +221,14 @@ def email_otp(request):
         # the cache is per process: with several workers the bound is per worker
         if len(users) == 1 and cache.add(f"email_otp:{users[0].pk}", True, EMAIL_OTP_INTERVAL):
             user = users[0]
-            try:
-                send_email_with_otp(user, get_user_totp_device(user))
-            except Exception:
-                logging.getLogger(__name__).exception("Could not mail the OTP QR code to user %s", user.pk)
+            # resend only to a user who already enrolled: creating a device here
+            # would let anyone who knows an email force OTP on that account
+            device = get_existing_totp_device(user)
+            if device is not None:
+                try:
+                    send_email_with_otp(user, device)
+                except Exception:
+                    logging.getLogger(__name__).exception("Could not mail the OTP QR code to user %s", user.pk)
 
         messages.success(
             request, _("OTP Sent to %(email)s") % {"email": form.cleaned_data["email"]}

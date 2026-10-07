@@ -9,6 +9,16 @@ from django_otp import devices_for_user
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 
+def get_existing_totp_device(user):
+    """The user's confirmed TOTP device, or None. Unlike get_user_totp_device
+    it never creates one, so an unauthenticated caller cannot turn a
+    password-only account into an OTP-required one."""
+    for device in devices_for_user(user, confirmed=True):
+        if isinstance(device, TOTPDevice):
+            return device
+    return None
+
+
 def get_user_totp_device(user):
     devices = devices_for_user(user)
     for device in devices:

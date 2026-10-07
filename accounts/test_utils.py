@@ -6,7 +6,7 @@ from django.core import mail
 from django.test import TestCase
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
-from accounts.utils import get_user_totp_device, send_email_with_otp, validate_ssh_key
+from accounts.utils import (get_existing_totp_device, get_user_totp_device, send_email_with_otp, validate_ssh_key)
 
 
 class AccountsUtilsTestCase(TestCase):
@@ -59,6 +59,18 @@ class AccountsUtilsTestCase(TestCase):
         device2 = get_user_totp_device(self.user)
         self.assertEqual(device1.id, device2.id)
         self.assertEqual(TOTPDevice.objects.filter(user=self.user).count(), 1)
+
+    def test_get_existing_totp_device_returns_none_without_a_device(self):
+        self.assertIsNone(get_existing_totp_device(self.user))
+        self.assertEqual(TOTPDevice.objects.filter(user=self.user).count(), 0)
+
+    def test_get_existing_totp_device_ignores_unconfirmed(self):
+        TOTPDevice.objects.create(user=self.user, confirmed=False)
+        self.assertIsNone(get_existing_totp_device(self.user))
+
+    def test_get_existing_totp_device_returns_confirmed(self):
+        device = TOTPDevice.objects.create(user=self.user, confirmed=True)
+        self.assertEqual(get_existing_totp_device(self.user).id, device.id)
 
     def test_send_email_with_otp(self):
         device = get_user_totp_device(self.user)

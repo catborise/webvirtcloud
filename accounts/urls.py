@@ -1,9 +1,9 @@
 from django.conf import settings
 from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import path
-from django_otp.forms import OTPAuthenticationForm
 
 from . import views
+from .otp import SingleDeviceOTPForm
 from .views import CustomLoginView
 
 app_name = "accounts"
@@ -44,7 +44,7 @@ if settings.OTP_ENABLED:
             "login/",
             LoginView.as_view(
                 template_name="accounts/otp_login.html",
-                authentication_form=OTPAuthenticationForm,
+                authentication_form=SingleDeviceOTPForm,
             ),
             name="login",
         ),

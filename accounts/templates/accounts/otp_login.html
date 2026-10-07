@@ -55,8 +55,9 @@
                 </div>
                 <div class="signin-input-group">
                     <span class="signin-input-icon"><i class="bi bi-key"></i></span>
-                    <input type="text" id="id_otp_token" class="signin-input form-control font-monospace" name="otp_token" placeholder="000000" inputmode="numeric" pattern="[0-9]*" maxlength="6" autofocus required>
+                    <input type="text" id="id_otp_token" class="signin-input form-control font-monospace" name="otp_token" placeholder="000000" inputmode="numeric" pattern="[0-9]*" maxlength="6" autofocus>
                 </div>
+                <small class="text-muted">{% trans "Leave empty if you have not set up two-factor authentication." %}</small>
             </div>
 
             <button id="btn-signin" class="btn btn-primary btn-signin-submit" type="submit">
