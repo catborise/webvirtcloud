@@ -492,6 +492,12 @@ Environment-driven database and email settings: copy the `DATABASES` and
 `EMAIL` blocks of the template into your `webvirtcloud/settings.py` to use them.
 PostgreSQL is for new installs; moving an existing sqlite database is not covered.
 
+The API docs (`/swagger/`, `/redoc/`, `/api/schema/`) now need a login: add
+`"SERVE_PERMISSIONS": ["rest_framework.permissions.IsAuthenticated"]` to
+`SPECTACULAR_SETTINGS` and `"DEFAULT_PERMISSION_CLASSES":
+["rest_framework.permissions.IsAuthenticated"]` to `REST_FRAMEWORK` in your
+`webvirtcloud/settings.py`.
+
 ```bash
 # Go to Installation Directory
 cd /srv/webvirtcloud
@@ -630,7 +636,7 @@ If you'd like to move a user from ldap to WebVirtCloud, just change its password
 
 WebVirtCloud provides a REST API powered by Django REST Framework and documented via `drf-spectacular`.
 
-You can access the interactive API documentation and schema endpoints in your browser:
+You can access the interactive API documentation and schema endpoints in your browser, after logging in:
 
 * **Swagger UI:** `http://<webvirtcloud-address:port>/swagger/`
 * **ReDoc UI:** `http://<webvirtcloud-address:port>/redoc/`

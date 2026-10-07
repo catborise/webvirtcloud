@@ -21,7 +21,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.db import transaction
 from django.test import Client, TestCase
-from django.urls import NoReverseMatch, URLPattern, URLResolver, get_resolver, reverse
+from django.urls import NoReverseMatch, URLPattern, URLResolver, get_resolver, resolve, reverse
 
 from accounts.models import UserInstance, UserSSHKey
 from computes.models import Compute
@@ -46,10 +46,10 @@ ALLOWED_FOR_ANY_USER = {
     "compute-instance-list": "API: filtered to the user's own instances",
     "instance-flavor-list": "API: flavor catalogue",
     "instance-flavor-detail": "API: flavor catalogue",
-    "schema": "OpenAPI schema (SERVE_PERMISSIONS not restricted yet)",
-    "schema-json": "OpenAPI schema (SERVE_PERMISSIONS not restricted yet)",
-    "schema-redoc": "API docs (SERVE_PERMISSIONS not restricted yet)",
-    "schema-swagger-ui": "API docs (SERVE_PERMISSIONS not restricted yet)",
+    "schema": "API docs: any authenticated user (SERVE_PERMISSIONS)",
+    "schema-json": "API docs: any authenticated user (SERVE_PERMISSIONS)",
+    "schema-redoc": "API docs: any authenticated user (SERVE_PERMISSIONS)",
+    "schema-swagger-ui": "API docs: any authenticated user (SERVE_PERMISSIONS)",
 }
 
 # URL name -> why an anonymous visitor may reach it. Everything else must
@@ -60,10 +60,6 @@ ALLOWED_FOR_ANONYMOUS = {
     "ds_openstack_index": "cloud-init datasource, fetched by VMs that do not log in",
     "ds_openstack_metadata": "cloud-init datasource, fetched by VMs that do not log in",
     "ds_openstack_userdata": "cloud-init datasource, fetched by VMs that do not log in",
-    "schema": "OpenAPI schema (SERVE_PERMISSIONS not restricted yet)",
-    "schema-json": "OpenAPI schema (SERVE_PERMISSIONS not restricted yet)",
-    "schema-redoc": "API docs (SERVE_PERMISSIONS not restricted yet)",
-    "schema-swagger-ui": "API docs (SERVE_PERMISSIONS not restricted yet)",
 }
 
 # Endpoints that expose a VM's console (or its VNC password) and therefore
@@ -234,7 +230,7 @@ class AuthorizationMatrixTestCase(TestCase):
                 response = method(url)
                 # DRF views opt out of login middleware and deny by their own
                 # permission classes.
-                api_denied = url.startswith("/api/") and response.status_code in (401, 403)
+                api_denied = hasattr(resolve(url).func, "cls") and response.status_code in (401, 403)
                 to_login = response.status_code == 302 and response["Location"].startswith(settings.LOGIN_URL)
                 if not (api_denied or to_login):
                     reachable.append(f"{method.__name__.upper()} {name} ({url}) -> {response.status_code}")
