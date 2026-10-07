@@ -287,6 +287,7 @@ Where to set them:
 
 - **Docker:** the `environment:` list of `docker-compose.override.yml`; every process in the container gets it.
 - **Installer and manual installation:** edit `webvirtcloud/settings.py`, or put the same `environment=` line in both `[program:webvirtcloud]` and `[program:novncd]` of the supervisor config (novncd reads the database too) and export the variables before running `manage.py`.
+- **gunicorn** runs at most 8 workers (fewer on hosts with under 4 CPUs); to change it, set `GUNICORN_CMD_ARGS="--workers N"` in the `[program:webvirtcloud]` environment or in `docker-compose.override.yml`.
 
 ### HTTPS and reverse proxy
 

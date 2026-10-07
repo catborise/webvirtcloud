@@ -73,14 +73,22 @@ backlog = 2048
 #
 
 
+# Sync workers, each holding its own libvirt connections and blocking for a
+# whole long operation; capped so a big host does not start dozens of them
+# against sqlite. Override with GUNICORN_CMD_ARGS="--workers N".
+MAX_WORKERS = 8
+
+
 def get_workers():
     procs = os.sysconf('SC_NPROCESSORS_ONLN')
-    return procs * 2 + 1 if procs > 0 else 3
+    return min(procs * 2 + 1, MAX_WORKERS) if procs > 0 else 3
 
 
 workers = get_workers()
 # worker_class = 'egg:gunicorn#eventlet'
 worker_connections = 1000
+# Must exceed instances.utils.MIGRATION_TIME_LIMIT (540 s) plus time to answer;
+# a lower value would kill a worker in the middle of a live migration.
 timeout = 600
 keepalive = 2
 
