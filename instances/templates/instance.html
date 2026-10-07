@@ -675,43 +675,31 @@
         return true;
     });
 </script>
+<script src="{% static 'js/instance_tabs.js' %}"></script>
 <script>
-    // Open the tab (and sub-tab) a redirect points to with #<pane id>
+    // Open the tab whose control targets "#<pane id>"
     function show_tab(target) {
-        var button = document.querySelector('button[data-bs-target="' + target + '"]');
-        if (button) {
-            bootstrap.Tab.getOrCreateInstance(button).show();
+        var controls = document.querySelectorAll('[data-bs-target], a[data-bs-toggle][href]');
+        for (var i = 0; i < controls.length; i++) {
+            var c = controls[i];
+            if ((c.getAttribute('data-bs-target') || c.getAttribute('href')) === target) {
+                bootstrap.Tab.getOrCreateInstance(c).show();
+                return;
+            }
         }
     }
-    var hash = location.hash;
-    var parents = {
-        '#poweron': '#power', '#poweroff': '#power', '#powercycle': '#power', '#suspend': '#power', '#resume': '#power',
-        '#resizevm_cpu': '#resize', '#resizevm_mem': '#resize', '#resizevm_disk': '#resize',
-        '#boot_opt': '#settings', '#disks': '#settings', '#network': '#settings', '#clone': '#settings',
-        '#xmledit': '#settings', '#vncsettings': '#settings', '#migrate': '#settings', '#options': '#settings',
-        '#users': '#settings',
-        '#takesnapshot': '#snapshots', '#takeextsnapshot': '#snapshots', '#managesnapshot': '#snapshots'
-    };
-    if (hash === '#resize') {
-        show_tab('#resize');
-    } else if (parents[hash]) {
-        show_tab(parents[hash]);
-        show_tab(hash);
-    }
-    // Settings opens on its first section the user has (Boot is superuser-only)
-    var settings_tabs = document.querySelector('#settings .nav-tabs');
-    if (settings_tabs && !settings_tabs.querySelector('.nav-link.active')) {
-        var first = settings_tabs.querySelector('.nav-link:not(#osinfo-tab)');
-        if (first) {
-            bootstrap.Tab.getOrCreateInstance(first).show();
-        }
-    }
+    // after the whole page is parsed: load_osinfo is defined further down
+    document.addEventListener('DOMContentLoaded', function () {
+        restoreInstanceTab(document, location.hash, show_tab, load_osinfo);
+    });
 </script>
 <script>
     function get_osinfo() {
         show_tab('#settings');
         show_tab('#osinfo');
-
+        load_osinfo();
+    }
+    function load_osinfo() {
         $.getJSON("{% url 'instances:osinfo' instance.id %}", function (data) {
             $.each(data, function() {
                 $('#oshostname').text(data['host-name']);

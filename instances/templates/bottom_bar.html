@@ -8,6 +8,7 @@
         </button>
         <div id="navbar_bottom" class="navbar-collapse collapse">
             <ul class="navbar-nav">
+                {% if request.user.is_superuser %}{# host pages and names are for administrators #}
                 <li class="nav-item">
                     <a class="nav-link" href="{% url 'overview' compute.id %}">
                         {% bs_icon 'server'%} 
@@ -17,6 +18,7 @@
                 <li class="nav-item">
                     <a class="nav-link" href="{% url 'instances' compute.id %}">{% bs_icon 'laptop'%}  {% trans "Instances" %}</a>
                 </li>
+                {% endif %}
                 <li class="nav-item active">
                     <a class="nav-link" href="{% url 'instances:instance' instance.id %}">{% bs_icon 'device-hdd'%}  {{ instance.name }}</a>
                 </li>

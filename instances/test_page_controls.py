@@ -8,6 +8,9 @@ or with is_change; snapshots with snapshot_instances and is_change, on a
 template only for staff. is_staff and the global view_instances permission
 alone are read-only.
 """
+import shutil
+import subprocess
+import unittest
 from unittest.mock import PropertyMock, patch
 
 from django.contrib.auth import get_user_model
@@ -30,7 +33,7 @@ SUPERUSER_ONLY = {"vcpu hotplug", "video model", "guest agent"}
 class PageControls:
     def setUp(self):
         AppSettings.objects.filter(
-            key__in=["SHOW_ACCESS_ROOT_PASSWORD", "SHOW_ACCESS_SSH_KEYS"]
+            key__in=["SHOW_ACCESS_ROOT_PASSWORD", "SHOW_ACCESS_SSH_KEYS", "VIEW_INSTANCE_DETAIL_BOTTOM_BAR"]
         ).update(value="True")
         self.compute = Compute.objects.create(
             name="ctl-compute", hostname="127.0.0.1:1", login="root", password="", type=1
@@ -72,6 +75,7 @@ class PageControls:
             proxy.get_status.return_value = status
             response = self.client.get(reverse("instances:instance", args=[self.instance.id]))
         self.assertEqual(response.status_code, 200)
+        self.last_page = response.content.decode()
         doc = lxml_html.fromstring(response.content)
         pk = self.instance.id
 
@@ -89,6 +93,8 @@ class PageControls:
             "resize": form("resize_memory"),
             "options": form("change_options"),
             "console settings": form("update_console"),
+            # host pages (superuser-only views)
+            "host links": bool(doc.xpath("//a[@href=$a]", a=reverse("overview", args=[self.compute.id]))),
             # a link to the destroy confirmation page
             "destroy": bool(doc.xpath("//a[@href=$a]", a=reverse("instances:destroy", args=[pk]))),
             "vcpu hotplug": form("set_vcpu"),
@@ -102,11 +108,26 @@ class PageControls:
 
 
 class PageControlsTestCase(PageControls, TestCase):
+    @unittest.skipUnless(shutil.which("node"), "node is not installed")
+    def test_the_page_scripts_parse(self):
+        superuser = get_user_model().objects.create_superuser("ctl_js", "ctl_js@example.com", "x")
+        viewer = self.user("ctl_js_viewer", perms=("view_instances",))
+        for user in (superuser, viewer):
+            self.controls(user)
+            scripts = lxml_html.fromstring(self.last_page).xpath("//script[not(@src)]/text()")
+            for number, script in enumerate(scripts):
+                with self.subTest(user=user.username, script=number):
+                    result = subprocess.run(
+                        ["node", "--check", "-"], input=script, capture_output=True, text=True, timeout=30
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_superuser_sees_every_control(self):
         superuser = get_user_model().objects.create_superuser("ctl_super", "ctl_super@example.com", "x")
         self.assertEqual(
             self.controls(superuser),
-            CONSOLE | POWER | CHANGE | SUPERUSER_ONLY | {"clone", "snapshots", "console settings", "destroy"},
+            CONSOLE | POWER | CHANGE | SUPERUSER_ONLY
+            | {"clone", "snapshots", "console settings", "destroy", "host links"},
         )
 
     def test_global_viewers_see_nothing_to_act_on(self):
