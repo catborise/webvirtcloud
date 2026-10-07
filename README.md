@@ -58,7 +58,7 @@ WebVirtCloud and `virt-manager`/`virsh` can manage the same libvirt host **concu
 
 ## Installation
 
-The panel runs on Ubuntu 22.04 / 24.04, Debian 12, RHEL / Rocky Linux / AlmaLinux / Oracle Linux 10, openSUSE Leap 15.x / Tumbleweed and SLES 15, on a virtual machine, a physical host or a KVM host itself. It needs Python 3.10 or newer. Pick one of the three ways below, then do the [first login](#first-login).
+The installer supports Ubuntu 22.04 / 24.04, Debian 12, RHEL / Rocky Linux / AlmaLinux / Oracle Linux 10, openSUSE Leap 15.x / Tumbleweed and SLES 15; the panel runs on a virtual machine, a physical host or a KVM host itself and needs Python 3.10 or newer. CI tests Python 3.10–3.13 on Ubuntu (sqlite, and PostgreSQL on 3.12) and the Docker image; the distro installs are not tested in CI. Pick one of the three ways below, then do the [first login](#first-login).
 
 ### Installer
 
@@ -398,73 +398,119 @@ sudo systemctl start runit.service
 
 ## Updating
 
+Every update starts with a backup in its own directory (mode 700, named by date) that holds the database, the commit it was taken from and, for installer and manual installations, `settings.py` and the nginx config. The database is copied with SQLite's backup API, which also finishes a write interrupted by a crash. This covers sqlite only; with PostgreSQL (`WEBVIRTCLOUD_DB_HOST`), back up that database yourself before updating.
+
 ### Docker
 
 Each new container builds `settings.py` from the template and runs the migrations at start; the database and the secret key stay in the `webvirtcloud-data` volume. Keep your settings in `docker-compose.override.yml` (at least `ALLOWED_HOSTS`, see [Docker](#docker)).
 
+Run the commands in the directory you installed from. Compose names the deployment after that directory (`webvirtcloud`), so another clone in a directory of the same name acts on the same containers and volumes.
+
 ```bash
-cd webvirtcloud
-git pull
-docker compose build
-docker compose stop
-docker compose cp webvirtcloud:/srv/webvirtcloud/data/db.sqlite3 ./db.sqlite3.bak
+cd webvirtcloud &&
+b=../webvirtcloud-backup-$(date +%Y%m%d-%H%M%S) &&
+mkdir -m 700 "$b" && git rev-parse HEAD > "$b/commit" &&
+git checkout master && git pull &&
+docker compose build &&
+docker compose stop &&
+docker compose run --rm --no-deps -T --entrypoint /srv/webvirtcloud/venv/bin/python3 webvirtcloud \
+  -c "import sqlite3,sys,tempfile; t=tempfile.mktemp(); sqlite3.connect('data/db.sqlite3').backup(sqlite3.connect(t)); sys.stdout.buffer.write(open(t,'rb').read())" > "$b/db.sqlite3" &&
 docker compose up -d
 ```
 
 ### Installer and manual installation
 
-`git pull` never overwrites `webvirtcloud/settings.py` or `/etc/nginx/conf.d/webvirtcloud.conf`; steps 2 and 4 bring them up to date. Run the steps from a root shell.
+`git pull` never overwrites `webvirtcloud/settings.py` or `/etc/nginx/conf.d/webvirtcloud.conf`; steps 2 and 4 bring them up to date. Run the steps from a root shell; they use `$b`, so in a new shell set it again to the backup directory.
 
 1. Stop the panel, back up and pull:
 
    ```bash
-   cd /srv/webvirtcloud
    supervisorctl stop webvirtcloud novncd
-   cp -p db.sqlite3 db.sqlite3.bak
-   cp -p webvirtcloud/settings.py webvirtcloud/settings.py.bak
    # once: root may use the repo, which belongs to the service user
    git config --global --add safe.directory /srv/webvirtcloud
-   git pull
+   b=/root/webvirtcloud-backup-$(date +%Y%m%d-%H%M%S)
+   cd /srv/webvirtcloud &&
+   ! supervisorctl status webvirtcloud novncd | grep RUNNING &&
+   mkdir -m 700 "$b" &&
+   venv/bin/python3 -c "import sqlite3,sys; sqlite3.connect('db.sqlite3').backup(sqlite3.connect(sys.argv[1]))" "$b/db.sqlite3" &&
+   cp -p webvirtcloud/settings.py /etc/nginx/conf.d/webvirtcloud.conf "$b"/ &&
+   git rev-parse HEAD > "$b/commit" &&
+   git checkout master && git pull
    ```
 
 2. Rebuild `settings.py` from the template (the file keeps its owner and mode), then put back your own values; the `diff` lists them:
 
    ```bash
    cat webvirtcloud/settings.py.template > webvirtcloud/settings.py
-   diff webvirtcloud/settings.py.bak webvirtcloud/settings.py
+   diff "$b/settings.py" webvirtcloud/settings.py
    ```
 
    Typical ones are `TIME_ZONE`, `WS_*`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS` and LDAP. Two need care:
    - a literal `SECRET_KEY = "..."` (older installers wrote it there): put the value into `data/secret_key` instead, or every user is signed out;
    - `SHOW_PROFILE_EDIT_PASSWORD`: keep it for this one `migrate` if you have it (migration `accounts.0008` reads it), then delete it.
 
-3. Install, migrate, and fix ownership and modes:
+3. Install, migrate, and fix ownership and modes (`nginx:nginx` instead of `www-data:www-data` on RHEL / openSUSE):
 
    ```bash
-   source venv/bin/activate
-   pip3 install -U -r conf/requirements.txt
-   python3 manage.py migrate
-   python3 manage.py collectstatic --noinput
-   chown -R www-data:www-data /srv/webvirtcloud    # nginx:nginx on RHEL / openSUSE
+   venv/bin/pip3 install -U -r conf/requirements.txt &&
+   venv/bin/python3 manage.py migrate &&
+   venv/bin/python3 manage.py collectstatic --noinput &&
+   chown -R www-data:www-data /srv/webvirtcloud &&
    chmod -R go-rwx data webvirtcloud/settings.py db.sqlite3
    ```
 
 4. Update the nginx config the same way as `settings.py`:
 
    ```bash
-   cp /etc/nginx/conf.d/webvirtcloud.conf /etc/nginx/conf.d/webvirtcloud.conf.bak
    cp conf/nginx/webvirtcloud.conf /etc/nginx/conf.d/webvirtcloud.conf
-   diff /etc/nginx/conf.d/webvirtcloud.conf.bak /etc/nginx/conf.d/webvirtcloud.conf
+   diff "$b/webvirtcloud.conf" /etc/nginx/conf.d/webvirtcloud.conf
    ```
 
    Put back your own lines (`server_name`, TLS, the noVNC port), then reload nginx and start the panel:
 
    ```bash
-   nginx -t && systemctl reload nginx
-   supervisorctl start webvirtcloud novncd
+   nginx -t && systemctl reload nginx && supervisorctl start webvirtcloud novncd
    ```
 
 Older versions collected static files into `static/`; `git clean -n static/` lists the leftovers, which can be deleted.
+
+### Restore and rollback
+
+Restoring puts back the database as it was at the backup; changes made since are lost. Migrations are not reversed. This covers sqlite; restore a PostgreSQL database from your own backup before rolling back the code. Set `b` to the backup directory to restore. To restore the database without rolling back the code, leave out the `git checkout` and `build` lines.
+
+Docker, in the directory you installed from:
+
+```bash
+cd webvirtcloud &&
+b=../webvirtcloud-backup-YYYYMMDD-HHMMSS &&
+docker compose stop &&
+docker compose run --rm --no-deps -T --entrypoint /srv/webvirtcloud/venv/bin/python3 webvirtcloud \
+  -c "import os,sqlite3,sys,tempfile; t=tempfile.mktemp(); open(t,'wb').write(sys.stdin.buffer.read()); [os.remove(p) for p in ('data/db.sqlite3-journal','data/db.sqlite3-wal','data/db.sqlite3-shm') if os.path.exists(p)]; sqlite3.connect(t).backup(sqlite3.connect('data/db.sqlite3'))" < "$b/db.sqlite3" &&
+git checkout "$(cat "$b/commit")" &&
+docker compose build &&
+docker compose up -d    # the container fixes ownership and modes at start
+```
+
+Installer and manual installation, from a root shell (`nginx:nginx` on RHEL / openSUSE):
+
+```bash
+b=/root/webvirtcloud-backup-YYYYMMDD-HHMMSS
+supervisorctl stop webvirtcloud novncd
+cd /srv/webvirtcloud &&
+! supervisorctl status webvirtcloud novncd | grep RUNNING &&
+git checkout "$(cat "$b/commit")" &&
+venv/bin/python3 -c "import os,sqlite3,sys; [os.remove(p) for p in ('db.sqlite3-journal','db.sqlite3-wal','db.sqlite3-shm') if os.path.exists(p)]; sqlite3.connect(sys.argv[1]).backup(sqlite3.connect('db.sqlite3'))" "$b/db.sqlite3" &&
+cp "$b/settings.py" webvirtcloud/settings.py &&
+cp "$b/webvirtcloud.conf" /etc/nginx/conf.d/webvirtcloud.conf &&
+venv/bin/pip3 install -r conf/requirements.txt &&
+venv/bin/python3 manage.py collectstatic --noinput &&
+chown -R www-data:www-data /srv/webvirtcloud &&
+chmod 600 db.sqlite3 webvirtcloud/settings.py &&
+nginx -t && systemctl reload nginx &&
+supervisorctl start webvirtcloud novncd
+```
+
+A rollback leaves the clone on a detached HEAD at the restored commit; the update steps record that commit before they switch back to `master`.
 
 ### Behavior changes
 
