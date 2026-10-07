@@ -89,7 +89,7 @@ EOF
 docker compose up -d
 ```
 
-The panel is at `http://<server-ip>`, the noVNC console on port `6080`. The database and secret key live in the `webvirtcloud-data` volume, the SSH keys in `webvirtcloud-ssh`. Other settings go in the same `environment:` list, see [Environment variables](#environment-variables).
+The panel and its console are at `http://<server-ip>`. The database and secret key live in the `webvirtcloud-data` volume, the SSH keys in `webvirtcloud-ssh`. Other settings go in the same `environment:` list, see [Environment variables](#environment-variables).
 
 ### Manual installation
 
@@ -281,7 +281,7 @@ If libvirt warns `Host SMBIOS information is not available`, install `dmidecode`
 | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS` | SMTP for e-mail OTP |
 | `WEBVIRTCLOUD_LOG_FILE` | log file (default `data/webvirtcloud.log`, rotated at 10 MB × 5) |
 | `SECRET_KEY` | Django secret key (default: the `data/secret_key` file) |
-| `WS_PUBLIC_PORT`, `WS_PUBLIC_HOST`, `WS_PUBLIC_PATH` | Docker only: public noVNC address |
+| `WS_PUBLIC_PORT`, `WS_PUBLIC_HOST`, `WS_PUBLIC_PATH` | Docker only: public console address; `WS_PUBLIC_PORT` must be the port the panel is published on (default 80) |
 
 Where to set them:
 
@@ -476,6 +476,7 @@ Older versions collected static files into `static/`; `git clean -n static/` lis
 - The admin's first-login password change survives losing `data/admin_password` (migration `accounts.0007`); run `migrate` as a user who can read that file.
 - "VM Clone Auto Migrate" is removed; a clone stays on its source host.
 - The log rotates (10 MB × 5) in `data/webvirtcloud.log`.
+- Docker no longer publishes port 6080; the console goes through nginx on the panel's port (`WS_PUBLIC_PORT`, default 80).
 
 ## Usage
 

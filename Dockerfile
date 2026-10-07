@@ -26,7 +26,10 @@ RUN python3 -m venv venv \
 FROM phusion/baseimage:noble-1.0.2
 
 EXPOSE 80
-EXPOSE 6080
+
+# The browser reaches the console through nginx on the panel's port (the init
+# script writes this into settings.py); set it to the published port if not 80.
+ENV WS_PUBLIC_PORT=80
 
 # Use baseimage-docker's init system.
 CMD ["/sbin/my_init"]
