@@ -192,7 +192,10 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 
-STATIC_ROOT = Path.joinpath(BASE_DIR, "static")
+# Source assets live in static/; collectstatic gathers them with the apps'
+# assets into staticfiles/ (gitignored), which WhiteNoise and nginx serve.
+STATICFILES_DIRS = [BASE_DIR / "static"]
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 
 BS_ICONS_CACHE = Path.joinpath(BASE_DIR, 'static/icon_cache')

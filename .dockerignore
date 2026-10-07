@@ -18,6 +18,7 @@
 
 # Local databases and runtime data
 **/*.sqlite3*
+**/staticfiles
 **/*.log
 **/console/cert.pem*
 **/dhcpd.*

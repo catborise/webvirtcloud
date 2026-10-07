@@ -295,10 +295,10 @@ mkdir -p data && python conf/runit/secret_generator.py > data/secret_key && chmo
 # Set ADMIN_PASSWORD beforehand to choose it yourself.
 python manage.py migrate
 
-python manage.py runserver 0.0.0.0:8000 --settings=webvirtcloud.settings-dev --nostatic
+python manage.py runserver 0.0.0.0:8000 --settings=webvirtcloud.settings-dev
 ```
 
-Open `http://127.0.0.1:8000`. `settings-dev` enables `DEBUG` and the Django Debug Toolbar. `--nostatic` is required: the CSS/JS live in `static/` (`STATIC_ROOT`), which WhiteNoise serves but runserver's own static handler does not.
+Open `http://127.0.0.1:8000`. `settings-dev` enables `DEBUG` and the Django Debug Toolbar.
 
 For the browser console, run `python console/novncd` (VNC, port 6080) in a separate terminal.
 
@@ -497,6 +497,15 @@ The API docs (`/swagger/`, `/redoc/`, `/api/schema/`) now need a login: add
 `SPECTACULAR_SETTINGS` and `"DEFAULT_PERMISSION_CLASSES":
 ["rest_framework.permissions.IsAuthenticated"]` to `REST_FRAMEWORK` in your
 `webvirtcloud/settings.py`.
+
+Static files are now collected into `staticfiles/` instead of `static/`. Add
+`STATICFILES_DIRS = [BASE_DIR / "static"]` and set
+`STATIC_ROOT = BASE_DIR / "staticfiles"` in your `webvirtcloud/settings.py`, run
+`collectstatic`, change the `/static/` location in
+`/etc/nginx/conf.d/webvirtcloud.conf` to `alias /srv/webvirtcloud/staticfiles/;`,
+and reload nginx (`sudo nginx -t && sudo systemctl reload nginx`). Untracked files left in
+`static/` by older `collectstatic` runs can be deleted (`git clean -n static/`
+lists them).
 
 ```bash
 # Go to Installation Directory

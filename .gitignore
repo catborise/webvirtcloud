@@ -22,3 +22,6 @@ ROADMAP.md
 
 # Runtime data (secret key, etc.)
 data/
+
+# collectstatic output
+/staticfiles/
