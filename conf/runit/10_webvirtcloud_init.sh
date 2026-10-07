@@ -46,3 +46,7 @@ echo "* Running database migrations..."
 chown -R www-data:www-data "$DATA_DIR" "/var/www/.ssh"
 chown www-data:www-data "$APP_DIR/webvirtcloud/settings.py" 2>/dev/null || true
 chmod 700 "/var/www/.ssh" 2>/dev/null || true
+# The database holds compute passwords and password hashes; keep it, the
+# secret key and settings private to the app user (as the installer does)
+chmod 700 "$DATA_DIR"
+chmod 600 "$DATA_DIR/db.sqlite3" "$APP_DIR/webvirtcloud/settings.py"
