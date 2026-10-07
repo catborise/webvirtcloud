@@ -137,6 +137,10 @@ def _instance_page(request, pk, instance, compute):
     # view_instances permission are read-only.
     can_open_console = utils.can_open_console(request.user, instance)
     can_power = request.user.is_superuser or userinstance is not None
+    # get_instance(perm_type="delete"): a template only for superusers and staff owners
+    can_delete = request.user.is_superuser or bool(
+        userinstance and userinstance.is_delete and (request.user.is_staff or not instance.is_template)
+    )
     # get_instance(perm_type="change"): a template only for superusers and staff owners
     can_change = request.user.is_superuser or bool(
         userinstance and userinstance.is_change and (request.user.is_staff or not instance.is_template)
@@ -393,9 +397,9 @@ def get_instance(user, pk, perm_type="view"):
     perm_type:
       - 'view': superuser, has_perm("instances.view_instances"), or UserInstance owner
       - 'power': superuser or UserInstance owner
-      - 'change': superuser or (UserInstance owner and is_change); a template
-        only for superusers and staff owners
+      - 'change': superuser or (UserInstance owner and is_change)
       - 'delete': superuser or (UserInstance owner and is_delete)
+      A template is changed or deleted only by superusers and staff owners.
     """
     valid_perms = {"view", "power", "change", "delete"}
     if perm_type not in valid_perms:
@@ -424,7 +428,7 @@ def get_instance(user, pk, perm_type="view"):
         if not (user_inst and user_inst.is_change) or (instance.is_template and not user.is_staff):
             raise PermissionDenied
     elif perm_type == "delete":
-        if not (user_inst and user_inst.is_delete):
+        if not (user_inst and user_inst.is_delete) or (instance.is_template and not user.is_staff):
             raise PermissionDenied
     else:
         raise PermissionDenied
@@ -573,11 +577,14 @@ def poweron(request, pk):
 @serialize_instance_mutation
 def powercycle(request, pk):
     instance = get_instance(request.user, pk, perm_type="power")
-    instance.proxy.force_shutdown()
-    instance.proxy.start()
-    addlogmsg(
-        request.user.username, instance.compute.name, instance.name, _("Power Cycle")
-    )
+    if instance.is_template:
+        messages.warning(request, _("Templates cannot be started."))
+    else:
+        instance.proxy.force_shutdown()
+        instance.proxy.start()
+        addlogmsg(
+            request.user.username, instance.compute.name, instance.name, _("Power Cycle")
+        )
     return get_safe_redirect(
         request, default=reverse("instances:instance", args=[instance.id])
     )
@@ -686,6 +693,8 @@ def destroy(request, pk):
         {
             "instance": instance,
             "userinstance": userinstance,
+            # get_instance(perm_type="delete") above already refused the rest
+            "can_delete": True,
         },
     )
 

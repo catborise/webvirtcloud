@@ -28,5 +28,5 @@ Notes:
 
 - Only superusers choose disk names and MAC addresses when cloning; for other users the server derives them.
 - `is_staff` gives no access to VMs and does not reveal console settings or VNC passwords by itself.
-- A template VM is changed (resize, root password, SSH keys, options, console settings, snapshots) only by superusers and by staff owners with `is_change`; other owners keep view, console and power (starting a template does nothing). Cloning a template needs only view access and `instances.clone_instances`.
+- A template VM is changed (resize, root password, SSH keys, options, console settings, snapshots) only by superusers and by staff owners with `is_change`, and deleted only by superusers and staff owners with `is_delete`; other owners keep view, console and power (power on and power cycle of a template are refused with a warning). Cloning a template needs only view access and `instances.clone_instances`.
 - On VM pages, users without ownership or `view_instances` get **404** (the VM's existence is not revealed), and users who can see a VM but lack the right for an action get **403**. Superuser-only pages answer **403** to everyone else; the console page answers **403** both for a missing VM and for a VM the user may not open.

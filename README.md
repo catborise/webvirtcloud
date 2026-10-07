@@ -521,7 +521,7 @@ A rollback leaves the clone on a detached HEAD at the restored commit; the updat
 - Changing one's own password is the "Can change password" permission (per user or group; new users have it); `SHOW_PROFILE_EDIT_PASSWORD` is gone.
 - The admin's first-login password change survives losing `data/admin_password` (migration `accounts.0007`); run `migrate` as a user who can read that file.
 - "VM Clone Auto Migrate" is removed; a clone stays on its source host.
-- A template VM is changed only by superusers and staff owners with change permission; other owners can still view, open the console and clone it.
+- A template VM is changed or deleted only by superusers and staff owners with the matching permission; other owners can still view, open the console and clone it. Power cycle no longer starts a template.
 - The log rotates (10 MB × 5) in `data/webvirtcloud.log`.
 - gstfsd finds the guest's operating system the way libguestfs inspects it, so a root on LVM works, and it always answers (an error when it finds no or several operating systems). Update `/usr/local/bin/gstfsd` on every compute (see [Adding a Compute Node](#adding-a-compute-node), step 3).
 - Docker no longer publishes port 6080; the console goes through nginx on the panel's port (`WS_PUBLIC_PORT`, default 80).

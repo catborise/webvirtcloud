@@ -9,7 +9,7 @@
 {% endblock page_heading %}
 
 {% block content %}
-{% if request.user.is_superuser or userinstance.is_delete %}
+{% if can_delete %}
     {% if instance.status == 3 %}
         <div class="alert alert-danger">
             {% trans "Instance is suspended, cannot destroy!" %}

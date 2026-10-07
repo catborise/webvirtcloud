@@ -89,6 +89,8 @@ class PageControls:
             "resize": form("resize_memory"),
             "options": form("change_options"),
             "console settings": form("update_console"),
+            # a link to the destroy confirmation page
+            "destroy": bool(doc.xpath("//a[@href=$a]", a=reverse("instances:destroy", args=[pk]))),
             "vcpu hotplug": form("set_vcpu"),
             "video model": form("set_video_model"),
             "guest agent": form("set_guest_agent"),
@@ -104,7 +106,7 @@ class PageControlsTestCase(PageControls, TestCase):
         superuser = get_user_model().objects.create_superuser("ctl_super", "ctl_super@example.com", "x")
         self.assertEqual(
             self.controls(superuser),
-            CONSOLE | POWER | CHANGE | SUPERUSER_ONLY | {"clone", "snapshots", "console settings"},
+            CONSOLE | POWER | CHANGE | SUPERUSER_ONLY | {"clone", "snapshots", "console settings", "destroy"},
         )
 
     def test_global_viewers_see_nothing_to_act_on(self):
@@ -149,6 +151,12 @@ class TemplatePageControlsTestCase(PageControls, TestCase):
         staff = self.user("tpl_vnc_staff", staff=True, owner=flags)
         self.assertNotIn("console settings", self.controls(owner, status=5))
         self.assertIn("console settings", self.controls(staff, status=5))
+
+    def test_only_staff_owners_destroy_a_template(self):
+        owner = self.user("tpl_deleter", owner={"is_delete": True})
+        staff = self.user("tpl_staff_deleter", staff=True, owner={"is_delete": True})
+        self.assertNotIn("destroy", self.controls(owner, status=5))
+        self.assertIn("destroy", self.controls(staff, status=5))
 
     def test_snapshots_of_a_template_are_for_staff_owners(self):
         perms = ("clone_instances", "snapshot_instances")
