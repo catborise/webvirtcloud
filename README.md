@@ -3,21 +3,13 @@
 # WebVirtCloud
 ###### Python >=3.10 & Django 5.2 LTS (tested on Python 3.10 – 3.13)
 
-## Purpose and Scope
-
 WebVirtCloud is a **web visualization and management layer** for **libvirt**-based virtualization infrastructure.
 
-### Core Design Principle
-
 > **libvirt is the single source of truth.** WebVirtCloud reads, displays and triggers actions on libvirt state, but it is never the primary orchestrator.
-
-This means:
 
 - An administrator can connect to libvirt directly with **`virt-manager`** or **`virsh`** and create, delete, rename or reconfigure virtual machines. WebVirtCloud detects these changes and updates its database accordingly.
 - Virtual machines keep running **even when WebVirtCloud is stopped**; the application only reflects the current state of libvirt.
 - WebVirtCloud is not a full automation platform like Proxmox. Its goal is to expose libvirt's functionality through the browser in an accessible, role-based and secure way.
-
-### Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -39,548 +31,294 @@ This means:
 
 WebVirtCloud and `virt-manager`/`virsh` can manage the same libvirt host **concurrently and independently**. WebVirtCloud picks up external changes the next time the instance list page is loaded.
 
----
-
 ## Features
 
 * QEMU/KVM hypervisor management (multiple compute nodes)
-* Virtual machine lifecycle: create, delete, power management, clone
+* Virtual machine lifecycle: create, delete, power management, clone, migrate
 * **External change detection:** VMs created, deleted or renamed via `virt-manager` or `virsh` are reconciled into the database automatically
 * Real-time hypervisor and VM statistics (CPU, RAM, disk, network)
 * Storage pool and volume management
 * Network and interface management
-* Browser-based consoles: noVNC (VNC) and xterm.js (serial/PTY)
+* Browser-based VNC console (noVNC)
 * Role-based access control: users only see the VMs assigned to them
-* 2FA (OTP / TOTP) support
+* 2FA (OTP / TOTP) and failed-login lockout
 * SSH public key and root password management (via guestfs)
 * Cloud-init datasource interface (OpenStack metadata compatible)
 * REST API — OpenAPI 3.0 (Swagger & ReDoc)
 * LDAP / Active Directory integration (optional)
 
+## Contents
 
+1. [Installation](#installation): [installer](#installer), [Docker](#docker), [manual](#manual-installation), [first login](#first-login)
+2. [Adding a Compute Node](#adding-a-compute-node)
+3. [Configuration](#configuration): [environment variables](#environment-variables), [HTTPS and reverse proxy](#https-and-reverse-proxy), [cloud-init datasource](#cloud-init-datasource), [LDAP](#ldap)
+4. [Updating](#updating)
+5. [Usage](#usage): [users and permissions](#users-roles-and-permissions), [REST API](#rest-api), [screenshots](#screenshots)
+6. [Development](#development)
 
-## Quick Install with Installer (Beta)
+## Installation
 
-Install an OS and run specified commands. Installer supported OSes: Ubuntu 20.04/22.04/24.04, Debian 10/11/12, Rocky/Alma/OEL/RHEL 9/10, openSUSE Leap 15.x / Tumbleweed, and SLES 15.
-It can be installed on a virtual machine, physical host or on a KVM host.
+The panel runs on Ubuntu 22.04 / 24.04, Debian 12, RHEL / Rocky Linux / AlmaLinux / Oracle Linux 10, openSUSE Leap 15.x / Tumbleweed and SLES 15, on a virtual machine, a physical host or a KVM host itself. It needs Python 3.10 or newer. Pick one of the three ways below, then do the [first login](#first-login).
+
+### Installer
 
 ```bash
-# Using curl:
 curl -fsSL -O https://raw.githubusercontent.com/retspen/webvirtcloud/master/install.sh
-# Or using wget:
-# wget https://raw.githubusercontent.com/retspen/webvirtcloud/master/install.sh
-
 chmod 744 install.sh
-# run with sudo or root user
-./install.sh
+sudo ./install.sh
 ```
 
-## Docker Deployment (Docker Compose)
+The installer writes the server's names and IPs to `ALLOWED_HOSTS`. Running it again keeps `settings.py`, the database, the secret key and the main nginx config, but replaces `/etc/nginx/conf.d/webvirtcloud.conf` and the supervisor config; back up your own lines in those two (TLS, `environment=`) first.
 
-Run WebVirtCloud in a container with persistent volumes for data and SSH keys:
+### Docker
 
 ```bash
 # 1. Clone repository:
 git clone https://github.com/retspen/webvirtcloud
 cd webvirtcloud
 
-# 2. Create docker-compose.override.yml (below) with your settings
+# 2. Set the names/IPs the panel is reached by (git pull never touches this file):
+cat > docker-compose.override.yml <<'EOF'
+services:
+  webvirtcloud:
+    environment:
+      - ALLOWED_HOSTS=wvc.example.com,192.0.2.10
+EOF
 
 # 3. Start services:
 docker compose up -d
 ```
 
-Local settings go in `docker-compose.override.yml`, which Compose merges into
-`docker-compose.yml` and which `git pull` never touches. At least list the
-names/IPs the panel is reached by:
+The panel is at `http://<server-ip>`, the noVNC console on port `6080`. The database and secret key live in the `webvirtcloud-data` volume, the SSH keys in `webvirtcloud-ssh`. Other settings go in the same `environment:` list, see [Environment variables](#environment-variables).
 
-```yaml
-services:
-  webvirtcloud:
-    environment:
-      - ALLOWED_HOSTS=wvc.example.com,192.0.2.10
-```
+### Manual installation
 
-Access the panel at `http://<server-ip>` and noVNC console at port `6080`.
-
-## Manual Installation
-
-The steps below work inside `/srv/webvirtcloud`, which stays root-owned until the final `chown`. Run them from a root shell (`sudo -i`).
+Run the steps from a root shell (`sudo -i`). In step 3, replace the example `ALLOWED_HOSTS` with the names/IPs the panel (and the cloud-init datasource) is reached by.
 
 The virtualenv is created with `--system-site-packages`: `libvirt-python` and `python-ldap` come from the distro packages when their version satisfies `conf/requirements.txt`; otherwise pip builds them, which needs the `-dev`/`-devel` packages listed below. Everything else, including `lxml`, comes from pip.
 
-### Secret key
-
-`webvirtcloud/settings.py` reads `SECRET_KEY` from the `SECRET_KEY` environment variable, falling back to the `data/secret_key` file (the `data/` directory is gitignored). The steps below generate that file:
+#### Ubuntu 22.04 / 24.04, Debian 12
 
 ```bash
-mkdir -p data
-python3 conf/runit/secret_generator.py > data/secret_key
-chmod 600 data/secret_key
-```
+# 1. System packages
+apt-get update && apt-get -y install git python3-venv python3-dev python3-lxml python3-libvirt libvirt-dev zlib1g-dev libxslt1-dev nginx supervisor libsasl2-modules gcc pkg-config python3-guestfs libsasl2-dev libldap2-dev libssl-dev
 
-### Allowed hosts
-
-The template answers only to localhost. After copying it in step 3 below, list
-the names/IPs the panel and the cloud-init datasource are reached by in
-`webvirtcloud/settings.py`, e.g.
-`ALLOWED_HOSTS = ["wvc.example.com", "192.0.2.10", "localhost", "127.0.0.1", "[::1]"]`.
-
-### Ubuntu 20.04 / 22.04 / 24.04 LTS & Debian 11 / 12
-
-```bash
-# 1. Install system prerequisites
-sudo apt-get update && sudo apt-get -y install git python3-venv python3-dev python3-lxml python3-libvirt libvirt-dev zlib1g-dev libxslt1-dev nginx supervisor libsasl2-modules gcc pkg-config python3-guestfs libsasl2-dev libldap2-dev libssl-dev
-
-# 2. Clone repository to /srv/webvirtcloud
-sudo git clone https://github.com/retspen/webvirtcloud /srv/webvirtcloud
+# 2. Code
+git clone https://github.com/retspen/webvirtcloud /srv/webvirtcloud
 cd /srv/webvirtcloud
 
-# 3. Configure settings and secret key
+# 3. Settings, allowed hosts and secret key
 cp webvirtcloud/settings.py.template webvirtcloud/settings.py
+sed -i 's|^ALLOWED_HOSTS = .*|ALLOWED_HOSTS = ["wvc.example.com", "192.0.2.10", "localhost", "127.0.0.1", "[::1]"]|' webvirtcloud/settings.py
 mkdir -p data && python3 conf/runit/secret_generator.py > data/secret_key && chmod 600 data/secret_key
 
-# 4. Deploy service configurations
-sudo cp conf/supervisor/webvirtcloud.conf /etc/supervisor/conf.d/
-sudo cp conf/nginx/webvirtcloud.conf /etc/nginx/conf.d/
-sudo rm -f /etc/nginx/sites-enabled/default
-
-# 5. Create virtual environment and install dependencies
+# 4. Virtualenv and dependencies
 python3 -m venv --system-site-packages venv
 source venv/bin/activate
 pip install -r conf/requirements.txt
 
-# 6. Database migrations and static files
-# (the first migrate creates the "admin" user; its password is in data/admin_password)
+# 5. Database and static files (the first migrate creates the "admin" user)
 python3 manage.py migrate
 python3 manage.py collectstatic --noinput
 
-# 7. Set permissions and start services
-sudo chown -R www-data:www-data /srv/webvirtcloud
-sudo systemctl restart nginx supervisor
+# 6. Supervisor (gunicorn and novncd) and nginx
+cp conf/supervisor/webvirtcloud.conf /etc/supervisor/conf.d/
+cp conf/nginx/webvirtcloud.conf /etc/nginx/conf.d/
+rm -f /etc/nginx/sites-enabled/default
+
+# 7. Ownership, private files, start
+chown -R www-data:www-data /srv/webvirtcloud
+chmod 700 data && chmod 600 webvirtcloud/settings.py db.sqlite3
+systemctl restart nginx supervisor
 ```
 
----
-
-### RHEL 8 / 9 / 10 / Rocky Linux / AlmaLinux
+#### RHEL / Rocky Linux / AlmaLinux / Oracle Linux 10
 
 ```bash
-# 1. Install EPEL and system prerequisites
-sudo dnf -y install epel-release
-sudo dnf -y install git python3-devel libvirt-devel python3-libvirt python3-ldap python3-lxml cyrus-sasl-devel cyrus-sasl-md5 openldap-devel openssl-devel glibc gcc nginx supervisor python3-libguestfs iproute-tc
+# 1. System packages
+dnf -y install epel-release
+dnf -y install git python3-devel libvirt-devel python3-libvirt python3-ldap python3-lxml cyrus-sasl-devel cyrus-sasl-md5 openldap-devel openssl-devel glibc gcc nginx supervisor python3-libguestfs iproute-tc
 
-# 2. Clone repository to /srv/webvirtcloud
-sudo git clone https://github.com/retspen/webvirtcloud /srv/webvirtcloud
+# 2. Code
+git clone https://github.com/retspen/webvirtcloud /srv/webvirtcloud
 cd /srv/webvirtcloud
 
-# 3. Configure settings and secret key
+# 3. Settings, allowed hosts and secret key
 cp webvirtcloud/settings.py.template webvirtcloud/settings.py
+sed -i 's|^ALLOWED_HOSTS = .*|ALLOWED_HOSTS = ["wvc.example.com", "192.0.2.10", "localhost", "127.0.0.1", "[::1]"]|' webvirtcloud/settings.py
 mkdir -p data && python3 conf/runit/secret_generator.py > data/secret_key && chmod 600 data/secret_key
 
-# 4. Create virtual environment and install dependencies
+# 4. Virtualenv and dependencies
 python3 -m venv --system-site-packages venv
 source venv/bin/activate
 pip install -r conf/requirements.txt
 
-# 5. Database migrations and static files
-# (the first migrate creates the "admin" user; its password is in data/admin_password)
+# 5. Database and static files (the first migrate creates the "admin" user)
 python3 manage.py migrate
 python3 manage.py collectstatic --noinput
 
-# 6. Configure Supervisor (gunicorn and novncd, running as nginx; socketiod is disabled by default)
-sed 's/^user=.*/user=nginx/' conf/supervisor/webvirtcloud.conf | sudo tee /etc/supervisord.d/webvirtcloud.ini > /dev/null
+# 6. Supervisor (gunicorn and novncd, as nginx) and nginx
+sed 's/^user=.*/user=nginx/' conf/supervisor/webvirtcloud.conf > /etc/supervisord.d/webvirtcloud.ini
+cp conf/nginx/webvirtcloud.conf /etc/nginx/conf.d/
+# make sure the default server block in /etc/nginx/nginx.conf does not also listen on port 80
 
-# 7. Configure Nginx
-sudo cp conf/nginx/webvirtcloud.conf /etc/nginx/conf.d/
-# Ensure the default server block in /etc/nginx/nginx.conf does not conflict with webvirtcloud.conf
-
-# 8. Set permissions, SELinux, and Firewall
-sudo chown -R nginx:nginx /srv/webvirtcloud
-sudo semanage fcontext -a -t httpd_sys_content_t "/srv/webvirtcloud(/.*)" 2>/dev/null || true
-sudo restorecon -R /srv/webvirtcloud 2>/dev/null || true
-sudo setsebool -P httpd_can_network_connect on 2>/dev/null || true
-
-sudo firewall-cmd --add-service=http --permanent 2>/dev/null || true
-sudo firewall-cmd --add-port=6080/tcp --permanent 2>/dev/null || true
-sudo firewall-cmd --reload 2>/dev/null || true
-
-# 9. Start and enable services
-sudo systemctl enable --now nginx supervisord
-sudo systemctl restart nginx supervisord
+# 7. Ownership, private files, SELinux, firewall, start
+chown -R nginx:nginx /srv/webvirtcloud
+chmod 700 data && chmod 600 webvirtcloud/settings.py db.sqlite3
+semanage fcontext -a -t httpd_sys_content_t "/srv/webvirtcloud(/.*)" 2>/dev/null || true
+restorecon -R /srv/webvirtcloud 2>/dev/null || true
+setsebool -P httpd_can_network_connect on 2>/dev/null || true
+firewall-cmd --add-service=http --permanent 2>/dev/null || true
+firewall-cmd --add-port=6080/tcp --permanent 2>/dev/null || true
+firewall-cmd --reload 2>/dev/null || true
+systemctl enable nginx supervisord
+nginx -t && systemctl restart nginx supervisord
 ```
 
----
-
-### openSUSE Leap 15.x / Tumbleweed / SLES 15
+#### openSUSE Leap 15.x / Tumbleweed, SLES 15
 
 ```bash
-# 1. Install system prerequisites (Python 3.11 stack and C bindings)
-sudo zypper --non-interactive install -y git hostname python311 python311-base python311-devel python311-pip python311-libvirt-python python311-lxml python311-ldap libvirt-devel cyrus-sasl-devel libopenssl-devel gcc pkg-config nginx
+# 1. System packages (Python 3.11 stack)
+zypper --non-interactive install -y git hostname python311 python311-base python311-devel python311-pip python311-libvirt-python python311-lxml python311-ldap libvirt-devel cyrus-sasl-devel libopenssl-devel gcc pkg-config nginx
+zypper --non-interactive install -y python3-supervisor || zypper --non-interactive install -y supervisor
 
-# 2. Clone repository to /srv/webvirtcloud
-sudo git clone https://github.com/retspen/webvirtcloud /srv/webvirtcloud
+# 2. Code
+git clone https://github.com/retspen/webvirtcloud /srv/webvirtcloud
 cd /srv/webvirtcloud
 
-# 3. Configure settings and secret key
+# 3. Settings, allowed hosts and secret key
 cp webvirtcloud/settings.py.template webvirtcloud/settings.py
+sed -i 's|^ALLOWED_HOSTS = .*|ALLOWED_HOSTS = ["wvc.example.com", "192.0.2.10", "localhost", "127.0.0.1", "[::1]"]|' webvirtcloud/settings.py
 mkdir -p data && python3.11 conf/runit/secret_generator.py > data/secret_key && chmod 600 data/secret_key
 
-# 4. Create virtual environment and install dependencies
+# 4. Virtualenv and dependencies
 python3.11 -m venv --system-site-packages venv
 source venv/bin/activate
 pip install -r conf/requirements.txt
 
-# 5. Database migrations and static files
-# (the first migrate creates the "admin" user; its password is in data/admin_password)
+# 5. Database and static files (the first migrate creates the "admin" user)
 python3 manage.py migrate
 python3 manage.py collectstatic --noinput
 
-# 6. Configure Nginx
-sudo cp conf/nginx/suse_nginx.conf /etc/nginx/vhosts.d/webvirtcloud.conf 2>/dev/null || sudo cp conf/nginx/webvirtcloud.conf /etc/nginx/conf.d/
+# 6. Supervisor (gunicorn and novncd, as nginx) and nginx
+mkdir -p /etc/supervisord.d
+sed 's/^user=.*/user=nginx/' conf/supervisor/webvirtcloud.conf > /etc/supervisord.d/webvirtcloud.ini
+# make sure /etc/supervisord.conf has: [include] files = /etc/supervisord.d/*.ini
+cp conf/nginx/webvirtcloud.conf /etc/nginx/conf.d/
 
-# 7. Configure Supervisor (gunicorn and novncd, running as nginx; socketiod is disabled by default)
-sudo zypper --non-interactive install -y python3-supervisor || sudo zypper --non-interactive install -y supervisor
-sudo mkdir -p /etc/supervisord.d
-sed 's/^user=.*/user=nginx/' conf/supervisor/webvirtcloud.conf | sudo tee /etc/supervisord.d/webvirtcloud.ini > /dev/null
-# Make sure /etc/supervisord.conf has: [include] files = /etc/supervisord.d/*.ini
-
-# 8. Set permissions and start services
-sudo chown -R nginx:nginx /srv/webvirtcloud
-sudo systemctl enable --now nginx supervisord
-sudo systemctl restart nginx supervisord
+# 7. Ownership, private files, start
+chown -R nginx:nginx /srv/webvirtcloud
+chmod 700 data && chmod 600 webvirtcloud/settings.py db.sqlite3
+systemctl enable nginx supervisord
+nginx -t && systemctl restart nginx supervisord
 ```
 
----
+### First login
 
-## Local Development Setup
-
-For developers working locally on WebVirtCloud without running full production services. Run every step as your normal user, not with `sudo`: if `manage.py` ever runs as root, `db.sqlite3` and `data/` end up root-owned and later runs fail with "readonly database" or "Permission denied".
-
-### 1. Install system packages
-
-The virtualenv reuses the distro's prebuilt `libvirt`, `lxml` and `ldap` bindings, so nothing needs compiling.
+The first `migrate` creates a superuser named `admin` with a random password, written to `data/admin_password` (mode 0600):
 
 ```bash
-# Rocky Linux / RHEL / Fedora
-sudo dnf -y install git python3-devel libvirt-devel python3-libvirt python3-lxml python3-ldap gcc
-
-# Ubuntu / Debian
-sudo apt-get update && sudo apt-get -y install git python3-venv python3-dev python3-lxml python3-libvirt python3-ldap libvirt-dev zlib1g-dev libldap2-dev libsasl2-dev gcc pkg-config
-
-# openSUSE Leap 15.x / Tumbleweed / SLES 15 (use python3.11 instead of python3 in the steps below)
-sudo zypper --non-interactive install -y git hostname python311 python311-devel python311-pip python311-libvirt-python python311-lxml python311-ldap libvirt-devel cyrus-sasl-devel libopenssl-devel gcc pkg-config
+sudo cat /srv/webvirtcloud/data/admin_password            # installer or manual installation
+docker compose exec webvirtcloud cat data/admin_password   # Docker
 ```
 
-### 2. Create the virtualenv and install dependencies
+Sign in at `http://<server-ip>`; you must set a new password at the first login, and the file is then deleted. To choose the name or password yourself, set `ADMIN_USERNAME` and/or `ADMIN_PASSWORD` in the environment before that first `migrate`; a password you set is not written to the file and need not be changed. A lost password is reset with `python3 manage.py changepassword admin`.
 
-`--system-site-packages` is required; without it the venv cannot see the distro bindings above. `dev/requirements.txt` includes `conf/requirements.txt`.
+## Adding a Compute Node
 
-```bash
-python3 -m venv --system-site-packages .venv
-source .venv/bin/activate
-pip install -r dev/requirements.txt
-```
+A compute node is a KVM host the panel manages over libvirt.
 
-### 3. Configure settings and secret key
+1. Install KVM and libvirt. The bootstrap script handles Ubuntu, Debian, CentOS, Fedora, openSUSE and SLES; on RHEL, Rocky Linux or AlmaLinux install the `qemu-kvm` and `libvirt` packages and enable `libvirtd` yourself:
 
-```bash
-cp webvirtcloud/settings.py.template webvirtcloud/settings.py
-mkdir -p data && python conf/runit/secret_generator.py > data/secret_key && chmod 600 data/secret_key
-```
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/dev/libvirt-bootstrap.sh | sudo sh
+   # or, from a cloned repository: sudo sh ./dev/libvirt-bootstrap.sh
+   ```
 
-### 4. Migrate and run the dev server
+2. On the panel host, give the web service user (`www-data` on Debian/Ubuntu, `nginx` on RHEL/openSUSE) an SSH key and copy it to the compute node:
 
-```bash
-# The first migrate creates the "admin" user; its password is in data/admin_password.
-# Set ADMIN_PASSWORD beforehand to choose it yourself.
-python manage.py migrate
+   ```bash
+   sudo install -d -m 700 -o www-data -g www-data ~www-data/.ssh
+   sudo -u www-data ssh-keygen -t ed25519
+   sudo -u www-data tee ~www-data/.ssh/config > /dev/null << 'EOF'
+   Host *
+     StrictHostKeyChecking no
+   EOF
+   sudo chmod 600 ~www-data/.ssh/config
+   sudo -u www-data ssh-copy-id root@<compute-node-ip>
+   ```
 
-python manage.py runserver 0.0.0.0:8000 --settings=webvirtcloud.settings-dev
-```
+   In Docker, run the `ssh-keygen` and `ssh-copy-id` commands inside the container instead (`docker compose exec --user www-data webvirtcloud ssh-keygen -t ed25519`, and the same for `ssh-copy-id`); the keys are kept in the `webvirtcloud-ssh` volume.
 
-Open `http://127.0.0.1:8000`. `settings-dev` enables `DEBUG` and the Django Debug Toolbar.
+3. Install or update the `gstfsd` daemon on the compute node. It sets the root password and SSH key of a shut-off VM:
 
-For the browser console, run `python console/novncd` (VNC, port 6080) in a separate terminal.
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/daemon/gstfsd | sudo tee /usr/local/bin/gstfsd > /dev/null
+   sudo chmod +x /usr/local/bin/gstfsd
+   sudo systemctl restart supervisor 2>/dev/null || sudo systemctl restart supervisord
+   ```
 
-## Compute Node (Hypervisor) Setup
+   It listens on 127.0.0.1:16510 only, which serves a panel on the same host. For a remote panel, uncomment the `environment=GSTFSD_BIND_HOST="0.0.0.0",GSTFSD_ALLOW_REMOTE="1"` line of its supervisor program (`conf/supervisor/gstfsd.conf`) and restart supervisor. It is unauthenticated: allow TCP 16510 only from the panel's IP.
 
-To configure a physical server or virtual machine as a KVM compute node to be managed by WebVirtCloud:
+4. Add the compute on the panel's Computes page.
 
-### 1. Install KVM and Libvirt via Bootstrap Script
+Firewall: the compute's VNC ports (`5900`–`65535`) must accept connections **only** from the panel's IP, never from public networks.
 
-WebVirtCloud includes an automated bootstrap script supporting Ubuntu 20.04/22.04/24.04, Debian 10/11/12, RHEL/Rocky/Alma 8/9/10, openSUSE Leap 15.x / Tumbleweed, and SLES 15:
+For VM migration between computes, define shared storage as a storage pool on every host (a VM migrates only when its disk, backing and ISO files and block devices are volumes of the destination's pools), and where the hosts cannot resolve each other's names, set each compute's **Migration address** on its edit page.
 
-```bash
-# Run bootstrap script directly via curl:
-curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/dev/libvirt-bootstrap.sh | sudo sh
+If libvirt warns `Host SMBIOS information is not available`, install `dmidecode` (`apt-get`, `dnf` or `zypper install -y dmidecode`) and restart `libvirtd`.
 
-# Or run locally from a cloned repository:
-sudo ./dev/libvirt-bootstrap.sh
-```
+## Configuration
 
-### 2. Configure SSH Connection Between Panel and Compute Node
+### Environment variables
 
-On the WebVirtCloud panel host, generate an SSH key for the web service user (`www-data` on Debian/Ubuntu, `nginx` on RHEL/openSUSE):
+| Variable | Effect |
+| --- | --- |
+| `ALLOWED_HOSTS` | extra host names/IPs the panel answers to (comma-separated, `*` for any); other hosts get 400 |
+| `CSRF_TRUSTED_ORIGINS` | extra trusted origins, e.g. `https://wvc.example.com` |
+| `WEBVIRTCLOUD_HTTPS=1` | HTTPS profile, see [HTTPS and reverse proxy](#https-and-reverse-proxy) |
+| `WEBVIRTCLOUD_DB_HOST` | use PostgreSQL instead of sqlite (new installs); `WEBVIRTCLOUD_DB_PORT`/`_NAME`/`_USER`/`_PASSWORD` default to 5432/webvirtcloud/webvirtcloud/empty |
+| `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS` | SMTP for e-mail OTP |
+| `WEBVIRTCLOUD_LOG_FILE` | log file (default `data/webvirtcloud.log`, rotated at 10 MB × 5) |
+| `SECRET_KEY` | Django secret key (default: the `data/secret_key` file) |
+| `WS_PUBLIC_PORT`, `WS_PUBLIC_HOST`, `WS_PUBLIC_PATH` | Docker only: public noVNC address |
 
-```bash
-# Generate key (Debian/Ubuntu example using www-data):
-sudo -u www-data ssh-keygen -t ed25519
-sudo -u www-data tee ~www-data/.ssh/config > /dev/null << 'EOF'
-Host *
-  StrictHostKeyChecking no
-EOF
-sudo chmod 600 ~www-data/.ssh/config
+Where to set them:
 
-# Copy public key to the compute node root user:
-sudo -u www-data ssh-copy-id root@<compute-node-ip>
-```
+- **Docker:** the `environment:` list of `docker-compose.override.yml`; every process in the container gets it.
+- **Installer and manual installation:** edit `webvirtcloud/settings.py`, or put the same `environment=` line in both `[program:webvirtcloud]` and `[program:novncd]` of the supervisor config (novncd reads the database too) and export the variables before running `manage.py`.
 
-### 3. Install or Update `gstfsd` Daemon
+### HTTPS and reverse proxy
 
-The `gstfsd` daemon sets the root password and SSH key of a shut-off VM. It listens on 127.0.0.1 only; for a remote compute set `GSTFSD_BIND_HOST` and `GSTFSD_ALLOW_REMOTE=1` (it is unauthenticated, so trusted networks only):
+For a panel served over HTTPS:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/daemon/gstfsd | sudo tee /usr/local/bin/gstfsd > /dev/null
-sudo chmod +x /usr/local/bin/gstfsd
-sudo systemctl restart supervisor 2>/dev/null || sudo systemctl restart supervisord
-```
+- set `WEBVIRTCLOUD_HTTPS=1`: session and CSRF cookies become HTTPS-only, HTTP is redirected to HTTPS (except `/datasource/`, which VMs fetch over HTTP), and HSTS is sent for one year;
+- add the HTTPS origin to `CSRF_TRUSTED_ORIGINS`, e.g. `environment=CSRF_TRUSTED_ORIGINS="https://wvc.example.com",WEBVIRTCLOUD_HTTPS="1"` in supervisor;
+- set the public noVNC port to the proxy's port (the bundled nginx config already proxies `/novncd/`): `WS_PUBLIC_PORT = 443` in `webvirtcloud/settings.py`, or `WS_PUBLIC_PORT=443` in `docker-compose.override.yml` for Docker;
 
-### 4. Troubleshooting: Host SMBIOS Warning
+TLS can end at the bundled nginx or at a proxy in front of it; such a proxy must send `X-Forwarded-Proto: https`. Failed logins are counted per client address, which the bundled nginx passes in `X-Real-IP`. A proxy that replaces the bundled nginx must set `X-Real-IP` itself, and its address must be in `LOGIN_TRUSTED_PROXIES` in `settings.py`. With a proxy in front of the bundled nginx, configure nginx's `set_real_ip_from` / `real_ip_header` for that proxy, or all clients share its address.
 
-If you see the warning `Unsupported configuration: Host SMBIOS information is not available`, install `dmidecode` and restart libvirt:
+### Cloud-init datasource
 
-```bash
-# Debian / Ubuntu:
-sudo apt-get install -y dmidecode && sudo systemctl restart libvirtd
-
-# RHEL / Rocky / AlmaLinux:
-sudo dnf install -y dmidecode && sudo systemctl restart libvirtd
-
-# openSUSE / SLES:
-sudo zypper install -y dmidecode && sudo systemctl restart libvirtd
-```
-
-> **Security Notice (Compute Node Firewall):**
-> Libvirt compute nodes listen on VNC ports (`5900`–`65535`) to allow WebVirtCloud to proxy graphical consoles. Ensure your firewall (`ufw`, `firewalld`, or `iptables`) restricts these ports to accept connections **only** from the WebVirtCloud panel IP, and never exposes them directly to public networks.
-
----
-
-## Configuration & Operational Notes
-
-### Default Credentials
-
-The first `python3 manage.py migrate` on an empty database creates a superuser named `admin` with a random password, written to `data/admin_password` (mode 0600). In Docker: `docker compose exec webvirtcloud cat data/admin_password`. At the first login with it you must set a new password; the file is then deleted.
-
-Set `ADMIN_USERNAME` and/or `ADMIN_PASSWORD` in the environment before that first migrate to choose them yourself. Then sign in at `http://<server-ip>`.
-
-If you lose the password, reset it with `python3 manage.py changepassword admin`.
-
-### Alternative: Running novncd via runit (Debian)
-
-As an alternative to Supervisor, Debian systems can manage `novncd` via `runit`:
-
-```bash
-sudo apt install -y runit runit-systemd
-sudo mkdir -p /etc/service/novncd/
-sudo ln -s /srv/webvirtcloud/conf/runit/novncd.sh /etc/service/novncd/run
-sudo systemctl start runit.service
-```
-
-### Cloud-Init Datasource
-
-WebVirtCloud can serve cloud-init metadata (root SSH keys and hostname) to guest instances:
+WebVirtCloud serves cloud-init metadata (root SSH keys and hostname) to guest instances. The host in the URL must be in `ALLOWED_HOSTS`:
 
 ```yaml
 datasource:
   OpenStack:
-    metadata_urls: [ "http://webvirtcloud.domain.com/datasource" ]
+    metadata_urls: [ "http://wvc.example.com/datasource" ]
 ```
 
-### Serial Console (disabled)
+### LDAP
 
-The serial (xterm.js) console is unavailable until `console/socketiod` is rewritten with authentication. Existing installs: set `autostart=false` for `[program:socketiod]`, comment out `location /socket.io/` in nginx, and set `SOCKETIO_HOST = "127.0.0.1"` in `settings.py`.
+The options below are set in `webvirtcloud/settings.py`. Variants for Active Directory and OpenLDAP are shown; this is a minimal config, see the [django-auth-ldap documentation](https://django-auth-ldap.readthedocs.io) for more.
 
-### Configuration from the Environment
-
-Docker passes the `environment:` of `docker-compose.yml` and
-`docker-compose.override.yml` to every process in the container. On bare metal, either edit `webvirtcloud/settings.py`, or set the
-same `environment=` line in both `[program:webvirtcloud]` and `[program:novncd]`
-of the supervisor config (novncd reads the database too) and export the
-variables before running `manage.py` (e.g. `migrate`):
-
-| Variable | Effect |
-| --- | --- |
-| `ALLOWED_HOSTS` | extra host names/IPs (comma-separated, `*` for any) |
-| `CSRF_TRUSTED_ORIGINS` | extra trusted origins, e.g. `https://wvc.example.com` |
-| `WEBVIRTCLOUD_HTTPS=1` | HTTPS profile (secure cookies, redirect, HSTS) |
-| `WEBVIRTCLOUD_DB_HOST` | use PostgreSQL; `WEBVIRTCLOUD_DB_PORT`/`_NAME`/`_USER`/`_PASSWORD` (defaults 5432/webvirtcloud/webvirtcloud/empty) |
-| `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS` | SMTP for e-mail OTP |
-| `WEBVIRTCLOUD_LOG_FILE` | log file path (default `data/webvirtcloud.log`) |
-
-### Reverse-Proxy & Port Forwarding
-
-If WebVirtCloud runs behind a reverse proxy terminating SSL or forwarding port 80/443, set the public noVNC port in `webvirtcloud/settings.py` (default 6080). The bundled nginx config already proxies `/novncd/`:
-
-```python
-WS_PUBLIC_PORT = 80  # or 443
-```
-
-When the panel is served over HTTPS on a hostname other than localhost, add it to the trusted CSRF origins (comma-separated) through the environment, e.g. in the `[program:webvirtcloud]` block of the supervisor config:
-
-```ini
-environment=CSRF_TRUSTED_ORIGINS="https://webvirtcloud.example.com"
-```
-
-For a panel served over HTTPS, also set `WEBVIRTCLOUD_HTTPS=1` (same place). It
-makes the session and CSRF cookies HTTPS-only, redirects HTTP to HTTPS (except
-`/datasource/`, which VMs fetch over HTTP) and sends HSTS for one year. TLS can
-end at the bundled nginx or at a proxy in front of it; such a proxy must send
-`X-Forwarded-Proto: https`.
-
-## How To Update
-
-Back up `db.sqlite3` before updating (in Docker it lives in the `data` volume).
-
-Upgrading from Django 4.2, edit `webvirtcloud/settings.py`:
-
-- in `MIDDLEWARE`, replace `"login_required.middleware.LoginRequiredMiddleware"` with `"django.contrib.auth.middleware.LoginRequiredMiddleware"` (the old package is no longer a dependency; `migrate` refuses to run until this is done);
-- delete `LOGIN_REQUIRED_IGNORE_VIEW_NAMES` and `USE_L10N`.
-
-Logging out now needs a POST; links or scripts that call `/accounts/logout/` with GET get 405.
-
-`SHOW_PROFILE_EDIT_PASSWORD` is applied to all users one last time by migration `accounts.0008` and then ignored; remove it from `settings.py` (system check `accounts.W001`). Whether a user may change their own password is the "Can change password" permission, per user or group; new users get it by default.
-
-Before running migrations, add `accounts.middleware.ForcePasswordChangeMiddleware`
-to `MIDDLEWARE` in your existing `webvirtcloud/settings.py`, after
-`django.contrib.auth.middleware.AuthenticationMiddleware` (and the OTP/login-required
-middleware, if present). A system check rejects a missing or misplaced middleware.
-The template is not copied over an existing settings file during an upgrade.
-
-Failed logins are limited with `django-axes` (installed from `conf/requirements.txt`). Copy the `axes` entries of `webvirtcloud/settings.py.template` into your `webvirtcloud/settings.py`: `"axes"` in `INSTALLED_APPS`, `"axes.middleware.AxesMiddleware"` at the end of `MIDDLEWARE`, `"axes.backends.AxesStandaloneBackend"` first in `AUTHENTICATION_BACKENDS`, and the `AXES_*` settings; then run `migrate`. The number of failed logins and the lock time are on the Settings page; unlock a user with `python3 manage.py axes_reset_username <username>`. Behind a proxy other than the bundled nginx, the proxy must set `X-Real-IP` to the client address and its address must be listed in `LOGIN_TRUSTED_PROXIES`.
-
-OTP, when enabled, is enforced only by the login form, so close the two doors that skip it. Delete the `path('api-auth/', include('rest_framework.urls', ...))` line from your `webvirtcloud/urls.py` (the DRF browsable-API login created a password-only session), and add `"DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"]` to the `REST_FRAMEWORK` block in your `webvirtcloud/settings.py` (without it the API accepts HTTP Basic credentials, a password-only bypass). The API then needs a session from the login form; password-based programmatic access no longer works. After updating settings, end any sessions opened through the old doors so they do not keep OTP-free access (empty the `django_session` table, e.g. `python3 manage.py shell -c "from django.contrib.sessions.models import Session; Session.objects.all().delete()"`); everyone signs in again. OTP is per user: a user without a confirmed device signs in with the password alone.
-
-The application log now rotates (10 MB × 5 files) and defaults to `data/webvirtcloud.log` (override with the `WEBVIRTCLOUD_LOG_FILE` env var). Existing installs: copy the `LOGGING` `default` handler from `webvirtcloud/settings.py.template` into your `webvirtcloud/settings.py` (it adds `maxBytes`, `backupCount`, and an absolute `filename`); the old unbounded `webvirtcloud.log` in the app directory can be removed.
-
-Migration: where the hosts cannot resolve each other's host names, set each compute's **Migration address** (the compute's edit page) to the IP the other hosts reach it on for migrations. Define shared storage as a storage pool on every host: a VM migrates only when its disk, backing and ISO files and block devices are volumes of the destination's pools (network disks are not checked). The "VM Clone Auto Migrate" setting is removed (migration `appsettings.0015`); a clone stays on the host of the VM it was made from.
-
-Migration `accounts.0007` transfers the first-login requirement from any existing
-`data/admin_password` file to the user record. Run migrations as a user who can read
-that file. Thereafter, deleting or losing access to the file does not bypass the
-requirement. If provisioning cannot write a new private password file, it stops
-without creating an admin account or printing its password; fix the directory
-permissions and rerun migrations.
-
-HTTPS deployments: copy the `SECURE_PROXY_SSL_HEADER` / `WEBVIRTCLOUD_HTTPS` block
-of `webvirtcloud/settings.py.template` into your `webvirtcloud/settings.py`, set
-`WEBVIRTCLOUD_HTTPS=1` in the service environment, copy the `map` block and the
-`X-Forwarded-Proto` line of `conf/nginx/webvirtcloud.conf` into
-`/etc/nginx/conf.d/webvirtcloud.conf`, and reload nginx
-(`sudo nginx -t && sudo systemctl reload nginx`). Re-running the installer
-replaces that file, including any TLS directives you added to it.
-
-`ALLOWED_HOSTS` no longer defaults to `"*"`: the template allows localhost, the
-installer adds the server's name and IPs, and the `ALLOWED_HOSTS` env var
-(comma-separated) adds more. Docker: set `ALLOWED_HOSTS` in
-`docker-compose.override.yml` to the names/IPs you open the panel and the cloud-init datasource with; requests
-for any other host get 400. Bare metal (your settings.py is kept): replace
-`ALLOWED_HOSTS = ["*"]` with the names/IPs the panel and the datasource are
-reached by, and copy the `if extra_hosts := ...` lines below it from the
-template so the env var works.
-
-Environment-driven database and email settings: copy the `DATABASES` and
-`EMAIL` blocks of the template into your `webvirtcloud/settings.py` to use them.
-PostgreSQL is for new installs; moving an existing sqlite database is not covered.
-
-The API docs (`/swagger/`, `/redoc/`, `/api/schema/`) now need a login: add
-`"SERVE_PERMISSIONS": ["rest_framework.permissions.IsAuthenticated"]` to
-`SPECTACULAR_SETTINGS` and `"DEFAULT_PERMISSION_CLASSES":
-["rest_framework.permissions.IsAuthenticated"]` to `REST_FRAMEWORK` in your
-`webvirtcloud/settings.py`.
-
-Static files are now collected into `staticfiles/` instead of `static/`. Add
-`STATICFILES_DIRS = [BASE_DIR / "static"]` and set
-`STATIC_ROOT = BASE_DIR / "staticfiles"` in your `webvirtcloud/settings.py`, run
-`collectstatic`, change the `/static/` location in
-`/etc/nginx/conf.d/webvirtcloud.conf` to `alias /srv/webvirtcloud/staticfiles/;`,
-and reload nginx (`sudo nginx -t && sudo systemctl reload nginx`). Untracked files left in
-`static/` by older `collectstatic` runs can be deleted (`git clean -n static/`
-lists them).
-
-```bash
-# Go to Installation Directory
-cd /srv/webvirtcloud
-source venv/bin/activate
-git pull
-pip3 install -U -r conf/requirements.txt
-python3 manage.py migrate
-python3 manage.py collectstatic --noinput
-sudo systemctl restart supervisor    # supervisord on RHEL / openSUSE
-```
-
-Docker: each new container generates `settings.py` from the template and runs
-the migrations at start; the database and the secret key stay in the `data`
-volume. Keep your variables (at least `ALLOWED_HOSTS`) in
-`docker-compose.override.yml` (see Docker Deployment), then:
-
-```bash
-cd webvirtcloud
-docker compose cp webvirtcloud:/srv/webvirtcloud/data/db.sqlite3 ./db.sqlite3.bak
-git pull
-docker compose up -d --build
-```
-
-> **Note on Settings Upgrade:**
-> When upgrading from earlier versions using `drf-yasg`, update your `webvirtcloud/settings.py`:
-> 1. In `INSTALLED_APPS`, replace `'drf_yasg'` with `'drf_spectacular'` and `'drf_spectacular_sidecar'`.
-> 2. Ensure the `REST_FRAMEWORK` and `SPECTACULAR_SETTINGS` configuration blocks are present (see `webvirtcloud/settings.py.template`).
-
-## Running Tests
-
-WebVirtCloud includes unit tests for both Django models/views and the `vrtManager` libvirt abstraction layer. The suite includes mocked regression tests and disk/clone tests using libvirt's
-in-process `test:///default` driver. The live compute and instance integration
-tests still require a configured libvirt host and are skipped when it is unavailable;
-a green result with skips does not establish live KVM compatibility.
-
-### 1. Setup Virtual Environment
-Use the same virtualenv as in [Local Development Setup](#local-development-setup), steps 1–3. Tests need the secret key too.
-```bash
-source .venv/bin/activate
-```
-
-### 2. Run Test Suite and Linter
-```bash
-# All tests, including vrtManager:
-python manage.py test
-
-ruff check .
-```
-
-> **Live Hypervisor Testing (Optional):**
-> The instance tests run only when `TEST_LIBVIRT_HOST` is set. They create `wvc-test-*` VMs and a temporary `wvc-test` pool (`/var/lib/libvirt/wvc-test`), remove them afterwards, and fail if any other VM or volume on the host changed.
-> ```bash
-> export TEST_LIBVIRT_HOST=compute1 TEST_LIBVIRT_TYPE=2   # 1 TCP, 2 SSH, 3 TLS, 4 socket
-> export TEST_LIBVIRT_LOGIN=root TEST_LIBVIRT_PASSWORD=   # login/password for TCP and TLS
-> export TEST_LIBVIRT_GUEST_IMAGE=/var/lib/libvirt/images/linux.qcow2   # optional, see below
-> python manage.py test
-> ```
-> `TEST_LIBVIRT_GUEST_IMAGE` enables the tests that need a guest OS (disk and NIC hot-unplug, vCPU hotplug, guest agent, ACPI power off). It must be an installed, BIOS-bootable Linux qcow2 image with qemu-guest-agent, in a storage pool of the host other than `wvc-test`; the tests boot copies of it from overlays and only read the image. Shut down any VM using it first.
-
-## Users, Roles and Permissions
-
-See [doc/permissions.md](doc/permissions.md).
-
-## LDAP Configuration
-
-The config options below can be changed in `webvirtcloud/settings.py` file. Variants for Active Directory and OpenLDAP are shown. This is a minimal config to get LDAP running, for further info read the [django-auth-ldap documentation](https://django-auth-ldap.readthedocs.io).
-
-Enable LDAP
+Enable the LDAP backend:
 
 ```bash
 sudo sed -i "s~#\"django_auth_ldap.backend.LDAPBackend\",~\"django_auth_ldap.backend.LDAPBackend\",~g" /srv/webvirtcloud/webvirtcloud/settings.py
 ```
 
-Set the LDAP server name and bind DN
+Set the LDAP server and bind DN:
 
 ```python
 # Active Directory
@@ -594,7 +332,7 @@ AUTH_LDAP_BIND_DN = "CN=username,CN=Users,OU=example,OU=com"
 AUTH_LDAP_BIND_PASSWORD = "password"
 ```
 
-Set the user filter and user and group search base and filter
+Set the user and group search base and filter:
 
 ```python
 # Active Directory
@@ -616,13 +354,13 @@ AUTH_LDAP_GROUP_SEARCH = LDAPSearch(
 AUTH_LDAP_GROUP_TYPE = GroupOfUniqueNamesType()  # import needs to be changed at the top of settings.py
 ```
 
-Set group which is required to access WebVirtCloud. You may set this to `False` to disable this filter.
+Set the group required to access WebVirtCloud (`False` disables this filter):
 
 ```python
 AUTH_LDAP_REQUIRE_GROUP = "CN=WebVirtCloud Access,CN=Users,DC=example,DC=com"
 ```
 
-Populate user fields with values from LDAP
+Populate user fields from LDAP:
 
 ```python
 AUTH_LDAP_USER_FLAGS_BY_GROUP = {
@@ -636,22 +374,123 @@ AUTH_LDAP_USER_ATTR_MAP = {
 }
 ```
 
-Now when you login with an LDAP user it will be assigned the rights defined. The user will be authenticated then with LDAP and authorized through the WebVirtCloud permissions.
+An LDAP user is authenticated by LDAP and authorized through the WebVirtCloud permissions. To move a user from LDAP to WebVirtCloud, change its password in the UI and remove it from the LDAP group.
 
-If you'd like to move a user from ldap to WebVirtCloud, just change its password from the UI and (eventually) remove from the group in LDAP.
+### Two-factor login (OTP)
 
+Set `OTP_ENABLED = True` in `settings.py` to ask for a one-time code at login. It is per user: a user without a confirmed device signs in with the password alone.
 
-## REST API (OpenAPI 3.0)
+### Serial console (disabled)
 
-WebVirtCloud provides a REST API powered by Django REST Framework and documented via `drf-spectacular`.
+The serial (xterm.js) console is unavailable until `console/socketiod` is rewritten with authentication. Installs from before this change: set `autostart=false` for `[program:socketiod]`, comment out `location /socket.io/` in nginx, and set `SOCKETIO_HOST = "127.0.0.1"` in `settings.py`.
 
-You can access the interactive API documentation and schema endpoints in your browser, after logging in:
+### Running novncd with runit (Debian)
 
-* **Swagger UI:** `http://<webvirtcloud-address:port>/swagger/`
-* **ReDoc UI:** `http://<webvirtcloud-address:port>/redoc/`
-* **OpenAPI 3.0 Schema:** `http://<webvirtcloud-address:port>/api/schema/` (download schema in JSON or YAML format)
+Instead of Supervisor, `novncd` can run under `runit`. First set `autostart=false` for `[program:novncd]` in the supervisor config and run `sudo supervisorctl update`, so the two do not compete for the port:
 
-## Screenshots
+```bash
+sudo apt install -y runit runit-systemd
+sudo mkdir -p /etc/service/novncd/
+sudo ln -s /srv/webvirtcloud/conf/runit/novncd.sh /etc/service/novncd/run
+sudo systemctl start runit.service
+```
+
+## Updating
+
+### Docker
+
+Each new container builds `settings.py` from the template and runs the migrations at start; the database and the secret key stay in the `webvirtcloud-data` volume. Keep your settings in `docker-compose.override.yml` (at least `ALLOWED_HOSTS`, see [Docker](#docker)).
+
+```bash
+cd webvirtcloud
+git pull
+docker compose build
+docker compose stop
+docker compose cp webvirtcloud:/srv/webvirtcloud/data/db.sqlite3 ./db.sqlite3.bak
+docker compose up -d
+```
+
+### Installer and manual installation
+
+`git pull` never overwrites `webvirtcloud/settings.py` or `/etc/nginx/conf.d/webvirtcloud.conf`; steps 2 and 4 bring them up to date. Run the steps from a root shell.
+
+1. Stop the panel, back up and pull:
+
+   ```bash
+   cd /srv/webvirtcloud
+   supervisorctl stop webvirtcloud novncd
+   cp -p db.sqlite3 db.sqlite3.bak
+   cp -p webvirtcloud/settings.py webvirtcloud/settings.py.bak
+   # once: root may use the repo, which belongs to the service user
+   git config --global --add safe.directory /srv/webvirtcloud
+   git pull
+   ```
+
+2. Rebuild `settings.py` from the template (the file keeps its owner and mode), then put back your own values; the `diff` lists them:
+
+   ```bash
+   cat webvirtcloud/settings.py.template > webvirtcloud/settings.py
+   diff webvirtcloud/settings.py.bak webvirtcloud/settings.py
+   ```
+
+   Typical ones are `TIME_ZONE`, `WS_*`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS` and LDAP. Two need care:
+   - a literal `SECRET_KEY = "..."` (older installers wrote it there): put the value into `data/secret_key` instead, or every user is signed out;
+   - `SHOW_PROFILE_EDIT_PASSWORD`: keep it for this one `migrate` if you have it (migration `accounts.0008` reads it), then delete it.
+
+3. Install, migrate, and fix ownership and modes:
+
+   ```bash
+   source venv/bin/activate
+   pip3 install -U -r conf/requirements.txt
+   python3 manage.py migrate
+   python3 manage.py collectstatic --noinput
+   chown -R www-data:www-data /srv/webvirtcloud    # nginx:nginx on RHEL / openSUSE
+   chmod -R go-rwx data webvirtcloud/settings.py db.sqlite3
+   ```
+
+4. Update the nginx config the same way as `settings.py`:
+
+   ```bash
+   cp /etc/nginx/conf.d/webvirtcloud.conf /etc/nginx/conf.d/webvirtcloud.conf.bak
+   cp conf/nginx/webvirtcloud.conf /etc/nginx/conf.d/webvirtcloud.conf
+   diff /etc/nginx/conf.d/webvirtcloud.conf.bak /etc/nginx/conf.d/webvirtcloud.conf
+   ```
+
+   Put back your own lines (`server_name`, TLS, the noVNC port), then reload nginx and start the panel:
+
+   ```bash
+   nginx -t && systemctl reload nginx
+   supervisorctl start webvirtcloud novncd
+   ```
+
+Older versions collected static files into `static/`; `git clean -n static/` lists the leftovers, which can be deleted.
+
+### Behavior changes
+
+- Requests for a host not in `ALLOWED_HOSTS` get 400. The installer writes the server's names and IPs; add more with the `ALLOWED_HOSTS` env var. The cloud-init datasource host must be allowed too.
+- Logging out needs a POST; a GET to `/accounts/logout/` gets 405.
+- The API accepts only a session from the login form (no HTTP Basic), and the API docs need a login. Sessions opened through the old password-only doors skip OTP; end them once after the update (everyone signs in again): `python3 manage.py shell -c "from django.contrib.sessions.models import Session; Session.objects.all().delete()"`.
+- Failed logins lock a user (django-axes). The limit and lock time are on the Settings page; unlock with `python3 manage.py axes_reset_username <username>`.
+- Changing one's own password is the "Can change password" permission (per user or group; new users have it); `SHOW_PROFILE_EDIT_PASSWORD` is gone.
+- The admin's first-login password change survives losing `data/admin_password` (migration `accounts.0007`); run `migrate` as a user who can read that file.
+- "VM Clone Auto Migrate" is removed; a clone stays on its source host.
+- The log rotates (10 MB × 5) in `data/webvirtcloud.log`.
+
+## Usage
+
+### Users, Roles and Permissions
+
+See [doc/permissions.md](doc/permissions.md).
+
+### REST API
+
+The REST API (Django REST Framework, documented with `drf-spectacular`) uses the login session. After logging in:
+
+* **Swagger UI:** `http://<server>/swagger/`
+* **ReDoc UI:** `http://<server>/redoc/`
+* **OpenAPI 3.0 schema:** `http://<server>/api/schema/` (JSON or YAML)
+
+### Screenshots
 
 | Instance Detail |
 |:---:|
@@ -664,6 +503,67 @@ You can access the interactive API documentation and schema endpoints in your br
 | Compute Hosts | Activity Log |
 |:---:|:---:|
 | ![Compute Hosts](doc/images/hosts.PNG) | ![Activity Log](doc/images/log.PNG) |
+
+## Development
+
+Run every step as your normal user, not with `sudo`: if `manage.py` ever runs as root, `db.sqlite3` and `data/` end up root-owned and later runs fail with "readonly database" or "Permission denied".
+
+1. System packages. The virtualenv reuses the distro's `libvirt`, `lxml` and `ldap` bindings when their versions satisfy `conf/requirements.txt`; otherwise pip installs or builds newer ones:
+
+   ```bash
+   # Rocky Linux / RHEL / Fedora
+   sudo dnf -y install git python3-devel libvirt-devel python3-libvirt python3-lxml python3-ldap gcc
+
+   # Ubuntu / Debian
+   sudo apt-get update && sudo apt-get -y install git python3-venv python3-dev python3-lxml python3-libvirt python3-ldap libvirt-dev zlib1g-dev libldap2-dev libsasl2-dev gcc pkg-config
+
+   # openSUSE Leap 15.x / Tumbleweed / SLES 15 (use python3.11 instead of python3 below)
+   sudo zypper --non-interactive install -y git hostname python311 python311-devel python311-pip python311-libvirt-python python311-lxml python311-ldap libvirt-devel cyrus-sasl-devel libopenssl-devel gcc pkg-config
+   ```
+
+2. Virtualenv and dependencies (`--system-site-packages` is required to see the distro bindings; `dev/requirements.txt` includes `conf/requirements.txt`):
+
+   ```bash
+   python3 -m venv --system-site-packages .venv
+   source .venv/bin/activate
+   pip install -r dev/requirements.txt
+   ```
+
+3. Settings and secret key:
+
+   ```bash
+   cp webvirtcloud/settings.py.template webvirtcloud/settings.py
+   mkdir -p data && python conf/runit/secret_generator.py > data/secret_key && chmod 600 data/secret_key
+   ```
+
+4. Migrate and run the dev server (`settings-dev` enables `DEBUG` and the Django Debug Toolbar); the admin password is in `data/admin_password`, or set `ADMIN_PASSWORD` beforehand:
+
+   ```bash
+   python manage.py migrate
+   python manage.py runserver 0.0.0.0:8000 --settings=webvirtcloud.settings-dev
+   ```
+
+   Open `http://127.0.0.1:8000`. For the browser console, run `python console/novncd` (port 6080) in a separate terminal.
+
+### Running tests
+
+```bash
+python manage.py test   # all tests, including vrtManager
+ruff check .
+```
+
+The suite includes mocked regression tests and disk/clone tests on libvirt's in-process `test:///default` driver. Set `WEBVIRTCLOUD_DB_HOST` (and the other `WEBVIRTCLOUD_DB_*` variables) to run it against PostgreSQL, as CI does.
+
+The compute tests try a local libvirt and skip when none answers; the instance tests run only when `TEST_LIBVIRT_HOST` is set. A green result with skips does not establish live KVM compatibility. The instance tests create `wvc-test-*` VMs and a temporary `wvc-test` pool (`/var/lib/libvirt/wvc-test`), remove them afterwards, and fail if any other VM or volume on the host changed:
+
+```bash
+export TEST_LIBVIRT_HOST=compute1 TEST_LIBVIRT_TYPE=2   # 1 TCP, 2 SSH, 3 TLS, 4 socket
+export TEST_LIBVIRT_LOGIN=root TEST_LIBVIRT_PASSWORD=   # login/password for TCP and TLS
+export TEST_LIBVIRT_GUEST_IMAGE=/var/lib/libvirt/images/linux.qcow2   # optional, see below
+python manage.py test
+```
+
+`TEST_LIBVIRT_GUEST_IMAGE` enables the tests that need a guest OS (disk and NIC hot-unplug, vCPU hotplug, guest agent, ACPI power off). It must be an installed, BIOS-bootable Linux qcow2 image with qemu-guest-agent, in a storage pool of the host other than `wvc-test`; the tests boot copies of it from overlays and only read the image. Shut down any VM using it first.
 
 ## License
 
