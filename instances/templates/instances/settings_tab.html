@@ -198,12 +198,12 @@
                                     {% endif %}
                                     </select>
                                     
-                                    {% if instance.media_iso and allow_admin_or_not_template %}
+                                    {% if instance.media_iso %}
                                         <button type="submit" class="btn btn-sm btn-success" name="mount_iso" value="{{ cd.dev }}">{% trans "Mount" %}</button>
                                     {% else %}
                                         <button class="btn btn-sm btn-success disabled">{% trans "Mount" %}</button>
                                     {% endif %}
-                                    {% if instance.status == 5 and allow_admin_or_not_template %}
+                                    {% if instance.status == 5 %}
                                         <button type="submit" class="btn btn-sm btn-danger float-end" formaction="{% url 'instances:detach_cdrom' instance.id cd.dev %}" formmethod="post" title="{% trans "Detach CD-ROM (remove device)" %}">
                                             {% bs_icon 'dash-circle' %}
                                         </button>
@@ -229,11 +229,7 @@
                                     </a>
                                     <input type="text" class="form-control" value="{{ cd.image }}" disabled/>
                                     <input type="hidden" name="path" value="{{ cd.path }}">
-                                    {% if allow_admin_or_not_template %}
-                                        <button type="submit" class="btn btn-sm btn-success" value="{{ cd.dev }}" name="umount_iso">{% trans "Unmount" %}</button>
-                                    {% else %}
-                                        <button class="btn btn-sm btn-success disabled" value="{{ cd.dev }}" name="umount_iso">{% trans "Unmount" %}</button>
-                                    {% endif %}
+                                    <button type="submit" class="btn btn-sm btn-success" value="{{ cd.dev }}" name="umount_iso">{% trans "Unmount" %}</button>
                                 </div>
                             </form>
                         {% endif %}

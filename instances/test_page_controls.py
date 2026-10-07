@@ -88,6 +88,7 @@ class PageControls:
             # a running VM with hotplug shows per-vCPU buttons instead of the CPU form
             "resize": form("resize_memory"),
             "options": form("change_options"),
+            "console settings": form("update_console"),
             "vcpu hotplug": form("set_vcpu"),
             "video model": form("set_video_model"),
             "guest agent": form("set_guest_agent"),
@@ -102,7 +103,8 @@ class PageControlsTestCase(PageControls, TestCase):
     def test_superuser_sees_every_control(self):
         superuser = get_user_model().objects.create_superuser("ctl_super", "ctl_super@example.com", "x")
         self.assertEqual(
-            self.controls(superuser), CONSOLE | POWER | CHANGE | SUPERUSER_ONLY | {"clone", "snapshots"}
+            self.controls(superuser),
+            CONSOLE | POWER | CHANGE | SUPERUSER_ONLY | {"clone", "snapshots", "console settings"},
         )
 
     def test_global_viewers_see_nothing_to_act_on(self):
@@ -134,6 +136,19 @@ class TemplatePageControlsTestCase(PageControls, TestCase):
     def test_a_template_is_cloned_by_viewing_it(self):
         viewer = self.user("tpl_viewer", perms=("view_instances", "clone_instances"))
         self.assertEqual(self.controls(viewer, status=5), {"clone"})
+
+    def test_only_staff_owners_change_a_template(self):
+        owner = self.user("tpl_plain_changer", owner={"is_change": True})
+        staff = self.user("tpl_staff_owner", staff=True, owner={"is_change": True})
+        self.assertEqual(self.controls(owner, status=5) & CHANGE, set())
+        self.assertEqual(self.controls(staff, status=5) & CHANGE, CHANGE)
+
+    def test_console_settings_of_a_template_are_for_staff_owners(self):
+        flags = {"is_change": True, "is_vnc": True}
+        owner = self.user("tpl_vnc_owner", owner=flags)
+        staff = self.user("tpl_vnc_staff", staff=True, owner=flags)
+        self.assertNotIn("console settings", self.controls(owner, status=5))
+        self.assertIn("console settings", self.controls(staff, status=5))
 
     def test_snapshots_of_a_template_are_for_staff_owners(self):
         perms = ("clone_instances", "snapshot_instances")

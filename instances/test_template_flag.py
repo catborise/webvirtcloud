@@ -36,7 +36,7 @@ class TemplateFlagTestCase(TestCase):
         for user in (self.owner, self.staff_owner):
             UserInstance.objects.create(instance=self.instance, user=user, is_change=True)
 
-    def _change_options(self, user, data):
+    def _change_options(self, user, data, status=302):
         self.client.force_login(user)
         with patch("instances.models.wvmInstance") as wvm:
             # unmarking a template checks the owner's quota with the VM's size
@@ -46,7 +46,7 @@ class TemplateFlagTestCase(TestCase):
             res = self.client.post(
                 reverse("instances:change_options", args=[self.instance.id]), data
             )
-        self.assertEqual(res.status_code, 302)
+        self.assertEqual(res.status_code, status)
         self.instance.refresh_from_db()
 
     def _make_template(self):
@@ -57,9 +57,10 @@ class TemplateFlagTestCase(TestCase):
         self._change_options(self.owner, {"title": "t", "is_template": "True"})
         self.assertFalse(self.instance.is_template)
 
-    def test_owner_editing_title_does_not_unmark_template(self):
+    def test_owner_cannot_change_a_template(self):
+        # a template is changed only by superusers and staff owners
         self._make_template()
-        self._change_options(self.owner, {"title": "new title", "description": ""})
+        self._change_options(self.owner, {"title": "new title", "description": ""}, status=403)
         self.assertTrue(self.instance.is_template)
 
     def test_staff_owner_can_mark_and_unmark_template(self):

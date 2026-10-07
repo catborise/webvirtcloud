@@ -124,9 +124,6 @@ def _instance_page(request, pk, instance, compute):
         )
     console_listener_addresses = settings.QEMU_CONSOLE_LISTENER_ADDRESSES
     bottom_bar = app_settings.VIEW_INSTANCE_DETAIL_BOTTOM_BAR
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
-    )
     try:
         userinstance = UserInstance.objects.get(
             instance__compute_id=compute.id,
@@ -140,13 +137,12 @@ def _instance_page(request, pk, instance, compute):
     # view_instances permission are read-only.
     can_open_console = utils.can_open_console(request.user, instance)
     can_power = request.user.is_superuser or userinstance is not None
-    can_change = request.user.is_superuser or bool(userinstance and userinstance.is_change)
-    can_clone = request.user.has_perm("instances.clone_instances") and (instance.is_template or can_change)
-    can_snapshot = (
-        can_change
-        and request.user.has_perm("instances.snapshot_instances")
-        and (request.user.is_superuser or request.user.is_staff or not instance.is_template)
+    # get_instance(perm_type="change"): a template only for superusers and staff owners
+    can_change = request.user.is_superuser or bool(
+        userinstance and userinstance.is_change and (request.user.is_staff or not instance.is_template)
     )
+    can_clone = request.user.has_perm("instances.clone_instances") and (instance.is_template or can_change)
+    can_snapshot = can_change and request.user.has_perm("instances.snapshot_instances")
     show_settings = (
         request.user.is_superuser or can_manage_console or can_clone or can_change or instance.guest_agent_ready
     )
@@ -184,10 +180,6 @@ def _instance_page(request, pk, instance, compute):
 
     # userinstances = UserInstance.objects.filter(instance=instance).order_by('user__username')
     userinstances = instance.userinstance_set.order_by("user__username")
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
-    )
-
     # Host resources
     vcpu_host = len(instance.vcpu_range)
     memory_host = instance.proxy.get_max_memory()
@@ -401,7 +393,8 @@ def get_instance(user, pk, perm_type="view"):
     perm_type:
       - 'view': superuser, has_perm("instances.view_instances"), or UserInstance owner
       - 'power': superuser or UserInstance owner
-      - 'change': superuser or (UserInstance owner and is_change)
+      - 'change': superuser or (UserInstance owner and is_change); a template
+        only for superusers and staff owners
       - 'delete': superuser or (UserInstance owner and is_delete)
     """
     valid_perms = {"view", "power", "change", "delete"}
@@ -427,7 +420,8 @@ def get_instance(user, pk, perm_type="view"):
         if not has_owner_rel:
             raise PermissionDenied
     elif perm_type == "change":
-        if not (user_inst and user_inst.is_change):
+        # A template is changed only by superusers (above) and staff owners
+        if not (user_inst and user_inst.is_change) or (instance.is_template and not user.is_staff):
             raise PermissionDenied
     elif perm_type == "delete":
         if not (user_inst and user_inst.is_delete):
@@ -1280,11 +1274,7 @@ def mount_iso(request, pk):
 @serialize_instance_mutation
 def snapshot(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
-    )
-
-    if allow_admin_or_not_template and request.user.has_perm(
+    if request.user.has_perm(
         "instances.snapshot_instances"
     ):
         name = request.POST.get("name", "")
@@ -1304,10 +1294,7 @@ def snapshot(request, pk):
 @serialize_instance_mutation
 def delete_snapshot(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
-    )
-    if allow_admin_or_not_template and request.user.has_perm(
+    if request.user.has_perm(
         "instances.snapshot_instances"
     ):
         snap_name = request.POST.get("name", "")
@@ -1321,10 +1308,7 @@ def delete_snapshot(request, pk):
 @serialize_instance_mutation
 def revert_snapshot(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
-    )
-    if allow_admin_or_not_template and request.user.has_perm(
+    if request.user.has_perm(
         "instances.snapshot_instances"
     ):
         snap_name = request.POST.get("name", "")
@@ -1345,11 +1329,7 @@ def revert_snapshot(request, pk):
 @serialize_instance_mutation
 def create_external_snapshot(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
-    )
-
-    if allow_admin_or_not_template and request.user.has_perm(
+    if request.user.has_perm(
         "instances.snapshot_instances"
     ):
         name = request.POST.get("name", "")
@@ -1360,28 +1340,11 @@ def create_external_snapshot(request, pk):
     return _back(request, pk, "managesnapshot")
 
 
-def get_external_snapshots(request, pk):
-    instance = get_instance(request.user, pk)
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
-    )
-
-    if allow_admin_or_not_template and request.user.has_perm(
-        "instances.snapshot_instances"
-    ):
-        external_snapshots = instance.proxy.get_external_snapshots()
-    return external_snapshots
-
-
 @require_POST
 @serialize_instance_mutation
 def revert_external_snapshot(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
-    )
-
-    if allow_admin_or_not_template and request.user.has_perm(
+    if request.user.has_perm(
         "instances.snapshot_instances"
     ):
         instance_state = True if instance.proxy.get_status() != 5 else False
@@ -1401,11 +1364,7 @@ def revert_external_snapshot(request, pk):
 def delete_external_snapshot(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
     instance_state = True if instance.proxy.get_status() == 5 else False
-    allow_admin_or_not_template = (
-        request.user.is_superuser or request.user.is_staff or not instance.is_template
-    )
-
-    if allow_admin_or_not_template and request.user.has_perm(
+    if request.user.has_perm(
         "instances.snapshot_instances"
     ):
         name = request.POST.get("name", "")

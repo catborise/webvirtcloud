@@ -128,10 +128,13 @@ ROLE_EXPECTATIONS = {
 }
 
 
-# A template VM is reached the same way: on templates, snapshot requests and
-# poweron are no-ops for these roles, and cloning (which none of them may do
-# without instances.clone_instances) has its own rule, see the clone test.
-TEMPLATE_ROLE_EXPECTATIONS = ROLE_EXPECTATIONS
+# A template VM: only superusers and staff owners with is_change change it;
+# other owners with is_change keep view, power (poweron is a no-op on a
+# template) and console. Cloning has its own rule, see the clone test.
+TEMPLATE_ROLE_EXPECTATIONS = {
+    **ROLE_EXPECTATIONS,
+    "owner_is_change": (False, False, {"is_change": True}, VIEW_VM | POWER_AND_CONSOLE),
+}
 
 
 def iter_patterns(patterns, prefix="", params=None):
