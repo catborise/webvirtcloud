@@ -439,6 +439,13 @@ def _busy(request, pk):
     return get_safe_redirect(request, default=reverse("instances:instance", args=[pk]))
 
 
+def _moved_meanwhile(pk, inst):
+    """A migration may have moved the VM while the request waited for its
+    compute's lock: the lock held is then the old compute's. The retry locks
+    the new one (or finds the record merged away)."""
+    return not Instance.objects.filter(pk=pk, compute_id=inst.compute_id).exists()
+
+
 def serialize_instance_mutation(func):
     """Serialize one VM, after checking visibility, without blocking sibling VMs."""
     @functools.wraps(func)
@@ -446,6 +453,8 @@ def serialize_instance_mutation(func):
         inst = get_instance(request.user, pk)
         try:
             with libvirt_instance_lock(inst):
+                if _moved_meanwhile(pk, inst):
+                    return _busy(request, pk)
                 return func(request, pk, *args, **kwargs)
         except TimeoutError:
             return _busy(request, pk)
@@ -486,6 +495,8 @@ def serialize_compute_mutation(func):
             return func(request, pk, *args, **kwargs)
         try:
             with libvirt_compute_lock(inst.compute):
+                if _moved_meanwhile(pk, inst):
+                    return _busy(request, pk)
                 return func(request, pk, *args, **kwargs)
         except TimeoutError:
             return _busy(request, pk)
@@ -1753,16 +1764,18 @@ CDROM_BUSES = ("ide", "sata", "scsi")
 CLONE_POST_KEY_RE = re.compile(r"^(clone-net-mac-\d+|disk-[a-z0-9]+|meta-[a-z0-9]+)$")
 
 
-@require_POST
-@permission_required("instances.clone_instances", raise_exception=True)
-@serialize_user_quota
-def clone(request, pk):
-    # Cloning copies the source disks, so it needs change permission on the
-    # source VM. Templates are meant to be deployed from, so viewing is enough.
-    instance = get_instance(request.user, pk)
+def _clone_source(user, pk):
+    """Cloning copies the source disks, so it needs change permission on the
+    source VM. Templates are meant to be deployed from, so viewing is enough."""
+    instance = get_instance(user, pk)
     if not instance.is_template:
-        instance = get_instance(request.user, pk, perm_type="change")
+        instance = get_instance(user, pk, perm_type="change")
+    return instance
 
+
+def _clone_plan(request, instance):
+    """The clone's settings from the request and the source as it is now,
+    and why it cannot be made, or None."""
     clone_data = dict()
     clone_data["name"] = request.POST.get("name", "").strip()
     clone_data["clone-title"] = request.POST.get("clone-title", "").strip()
@@ -1826,57 +1839,74 @@ def clone(request, pk):
             "quota_msg": quota_msg,
             "clone_name": clone_data["name"],
         })
-        messages.error(request, msg)
-    elif check_instance:
+        return clone_data, msg
+    if check_instance:
         msg = _("Instance '%(clone_name)s' already exists!") % {
             "clone_name": clone_data["name"]
         }
-        messages.error(request, msg)
-    elif not re.match(r"^[a-zA-Z0-9-]+$", clone_data["name"]):
+        return clone_data, msg
+    if not re.match(r"^[a-zA-Z0-9-]+$", clone_data["name"]):
         msg = _("Instance name '%(clone_name)s' contains invalid characters!") % {
             "clone_name": clone_data["name"]
         }
-        messages.error(request, msg)
-    elif "clone-net-mac-0" not in clone_data or invalid_macs:
+        return clone_data, msg
+    if "clone-net-mac-0" not in clone_data or invalid_macs:
         msg = _("Instance MAC '%(clone_mac)s' invalid format!") % {
             "clone_mac": ", ".join(invalid_macs)
         }
-        messages.error(request, msg)
-    elif invalid_disks:
+        return clone_data, msg
+    if invalid_disks:
         msg = _("Disk name '%(disk_name)s' contains invalid characters!") % {
             "disk_name": ", ".join(str(v) for v in invalid_disks)
         }
-        messages.error(request, msg)
-    else:
-        try:
-            # The whole compute: the destination name and disk names must not be
-            # taken by a concurrent clone of another VM while volumes are copied.
-            with libvirt_compute_lock(instance.compute):
-                new_uuid = instance.proxy.clone_instance(clone_data)
-                new_instance = Instance.objects.get_or_create(
-                    compute=instance.compute,
-                    uuid=new_uuid,
-                    defaults={"name": clone_data["name"]},
-                )[0]
-                if new_instance.name != clone_data["name"]:
-                    new_instance.name = clone_data["name"]
-                    new_instance.save(update_fields=["name"])
-                UserInstance.objects.get_or_create(
-                    instance_id=new_instance.id,
-                    user_id=request.user.id,
-                    defaults={"is_delete": True, "is_change": True, "is_vnc": True},
-                )
-            msg = _("Create a clone of '%(instance_name)s'") % {
-                "instance_name": instance.name
-            }
-            messages.success(request, msg)
-            addlogmsg(
-                request.user.username, instance.compute.name, new_instance.name, msg
-            )
+        return clone_data, msg
+    return clone_data, None
 
-            return redirect(reverse("instances:instance", args=[new_instance.id]))
-        except (libvirtError, ValueError, OSError) as e:  # OSError includes a lock timeout
-            messages.error(request, error_text(request, e))
+
+@require_POST
+@permission_required("instances.clone_instances", raise_exception=True)
+@serialize_user_quota
+def clone(request, pk):
+    instance = _clone_source(request.user, pk)
+    try:
+        # The whole compute: the destination name and disk names must not be
+        # taken by a concurrent clone of another VM while volumes are copied.
+        with libvirt_compute_lock(instance.compute):
+            # While this request waited, a migration may have moved the
+            # source, or its template mark, size or the user's rights changed:
+            # the clone is checked against the source as it is now.
+            if _moved_meanwhile(pk, instance):
+                return _busy(request, pk)
+            instance = _clone_source(request.user, pk)
+            clone_data, refusal = _clone_plan(request, instance)
+            if refusal:
+                messages.error(request, refusal)
+                return get_safe_redirect(request, default=reverse("instances:instance", args=[pk]))
+            new_uuid = instance.proxy.clone_instance(clone_data)
+            new_instance = Instance.objects.get_or_create(
+                compute=instance.compute,
+                uuid=new_uuid,
+                defaults={"name": clone_data["name"]},
+            )[0]
+            if new_instance.name != clone_data["name"]:
+                new_instance.name = clone_data["name"]
+                new_instance.save(update_fields=["name"])
+            UserInstance.objects.get_or_create(
+                instance_id=new_instance.id,
+                user_id=request.user.id,
+                defaults={"is_delete": True, "is_change": True, "is_vnc": True},
+            )
+        msg = _("Create a clone of '%(instance_name)s'") % {
+            "instance_name": instance.name
+        }
+        messages.success(request, msg)
+        addlogmsg(
+            request.user.username, instance.compute.name, new_instance.name, msg
+        )
+
+        return redirect(reverse("instances:instance", args=[new_instance.id]))
+    except (libvirtError, ValueError, OSError) as e:  # OSError includes a lock timeout
+        messages.error(request, error_text(request, e))
 
     return get_safe_redirect(request, default=reverse("instances:instance", args=[pk]))
 
