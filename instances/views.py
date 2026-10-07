@@ -135,6 +135,21 @@ def _instance_page(request, pk, instance, compute):
         )
     except UserInstance.DoesNotExist:
         userinstance = None
+    # The page offers only what the backend allows this user (get_instance
+    # perm_type="change", utils.can_open_console); is_staff and the global
+    # view_instances permission are read-only.
+    can_open_console = utils.can_open_console(request.user, instance)
+    can_power = request.user.is_superuser or userinstance is not None
+    can_change = request.user.is_superuser or bool(userinstance and userinstance.is_change)
+    can_clone = request.user.has_perm("instances.clone_instances") and (instance.is_template or can_change)
+    can_snapshot = (
+        can_change
+        and request.user.has_perm("instances.snapshot_instances")
+        and (request.user.is_superuser or request.user.is_staff or not instance.is_template)
+    )
+    show_settings = (
+        request.user.is_superuser or can_manage_console or can_clone or can_change or instance.guest_agent_ready
+    )
 
     memory_range = [256, 512, 768, 1024, 2048, 3072, 4096, 6144, 8192, 16384]
     if instance.memory not in memory_range:

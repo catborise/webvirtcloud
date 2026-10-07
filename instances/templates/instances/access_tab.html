@@ -7,21 +7,21 @@
                 {% trans "Console" %}
             </button>
         </li>
-        {% if app_settings.SHOW_ACCESS_ROOT_PASSWORD == 'True' %}
+        {% if app_settings.SHOW_ACCESS_ROOT_PASSWORD == 'True' and can_change %}
         <li class="nav-item" role="presentation">
             <button class="nav-link" data-bs-toggle="tab" data-bs-target="#rootpasswd" type="button" role="tab" aria-controls="rootpasswd" aria-selected="false">
                 {% trans "Root Password" %}
             </button>
         </li>
         {% endif %}
-        {% if app_settings.SHOW_ACCESS_SSH_KEYS == 'True' %}
+        {% if app_settings.SHOW_ACCESS_SSH_KEYS == 'True' and can_change %}
         <li class="nav-item" role="presentation">
             <button class="nav-link" data-bs-toggle="tab" data-bs-target="#sshkeys" type="button" role="tab" aria-controls="sshkeys" aria-selected="false">
                 {% trans "SSH Keys" %}
             </button>
         </li>
         {% endif %}
-        {% if instance.status == 1 %}
+        {% if instance.status == 1 and can_open_console %}
         <li class="nav-item" role="presentation">
             <button class="nav-link" data-bs-toggle="tab" data-bs-target="#vdiconsole" type="button" role="tab" aria-controls="vdiconsole" aria-selected="false">
                 {% trans "VDI" %}
@@ -34,6 +34,9 @@
         <div role="tabpanel" class="tab-pane tab-pane-bordered active" id="vnconsole">
             <p>{% blocktrans with type=instance.console_type|upper %} This action opens a new window with a {{ type }} connection to the console of the instance.{% endblocktrans %}
             </p>
+            {% if not can_open_console %}
+            <p>{% trans "Only the owners of this instance and administrators can open its console." %}</p>
+            {% else %}
             {% if instance.console_type == 'vnc' %}
                 <div class="form-check form-switch">
                     <input class="form-check-input" type="checkbox" name="scale"
@@ -80,9 +83,10 @@
             {% else %}
             <button class="btn btn-lg btn-success float-end disabled">{% trans "Console" %}</button>
             {% endif %}
+            {% endif %}
             <div class="clearfix"></div>
         </div>
-        {% if app_settings.SHOW_ACCESS_ROOT_PASSWORD == 'True' %}
+        {% if app_settings.SHOW_ACCESS_ROOT_PASSWORD == 'True' and can_change %}
         <div role="tabpanel" class="tab-pane tab-pane-bordered" id="rootpasswd">
             <p>{% trans "You need shut down your instance and enter a new root password." %}</p>
             <form action="{% url 'instances:rootpasswd' instance.id %}" method="post"
@@ -105,7 +109,7 @@
             <div class="clearfix"></div>
         </div>
         {% endif %}
-        {% if app_settings.SHOW_ACCESS_SSH_KEYS == 'True' %}
+        {% if app_settings.SHOW_ACCESS_SSH_KEYS == 'True' and can_change %}
         <div role="tabpanel" class="tab-pane tab-pane-bordered" id="sshkeys">
             <p>{% trans "You need shut down your instance and choose your public key." %}</p>
             <form action="{% url 'instances:add_public_key' instance.id %}"method="post"
@@ -134,7 +138,7 @@
             <div class="clearfix"></div>
         </div>
         {% endif %}
-        {% if instance.status == 1 %}
+        {% if instance.status == 1 and can_open_console %}
         <div role="tabpanel" class="tab-pane tab-pane-bordered" id="vdiconsole">
             <p>{% trans "This action opens a remote viewer with a connection to the console of the instance." %}</p>
             <div class="input-group">
@@ -150,6 +154,7 @@
     </div>
 </div>
 {% block script %}
+{% if can_open_console %}
 <script>
     function open_console(view_style) {
         const sc = $("#scale").is(':checked');
@@ -160,4 +165,5 @@
         window.open(url, '', 'width=850,height=600')
     }
 </script>
+{% endif %}
 {% endblock %}

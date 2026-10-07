@@ -4,14 +4,14 @@
 <div class="tab-pane" id="settings" role="tabpanel">
     <!-- Nav tabs -->
     <ul class="nav nav-tabs" role="tablist" aria-label="Instance settings">
-        {% if request.user.is_superuser %}
-            {% if instance.guest_agent_ready %}
+        {% if instance.guest_agent_ready %}
             <li class="nav-item" role="presentation">
                 <button class="px-1 nav-link" data-bs-toggle="tab" id="osinfo-tab" data-bs-target="#osinfo" type="button" role="tab" aria-controls="osinfo" aria-selected="false" onclick="get_osinfo();">
                     <span>{% bs_icon 'info-circle' %} </span>
                 </button>
             </li>
-            {% endif %}
+        {% endif %}
+        {% if request.user.is_superuser %}
             <li class="nav-item" role="presentation">
                 <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#boot_opt" type="button" role="tab" aria-controls="boot_opt" aria-selected="true">
                     {% trans "Boot" %}
@@ -37,7 +37,7 @@
                 </button>
             </li>
         {% endif %}
-        {% if perms.instances.clone_instances %}
+        {% if can_clone %}
             <li class="nav-item" role="presentation">
                 <button class="nav-link" data-bs-toggle="tab" data-bs-target="#clone" type="button" role="tab" aria-controls="clone" aria-selected="false">
                     {% trans "Clone" %}
@@ -56,7 +56,7 @@
                 </button>
             </li>
         {% endif %}
-        {% if perms.instances.clone_instances %}
+        {% if can_change %}
             <li class="nav-item" role="presentation">
                 <button class="nav-link" data-bs-toggle="tab" data-bs-target="#options" type="button" role="tab" aria-controls="options" aria-selected="false">
                     {% trans "Options" %}
@@ -73,8 +73,10 @@
     </ul>
     <!-- Tab panes -->
     <div class="tab-content">
-        {% if request.user.is_superuser %}
+        {% if instance.guest_agent_ready %}
         {% include 'instances/info_tab.html' %}
+        {% endif %}
+        {% if request.user.is_superuser %}
         <div role="tabpanel" class="tab-pane tab-pane-bordered active" id="boot_opt">
             <p class="fw-bold">{% trans 'Autostart' %}</p>
                 <div class="row">
@@ -716,7 +718,7 @@
             <div class="clearfix"></div>
         </div>
         {% endif %}
-        {% if perms.instances.clone_instances %}
+        {% if can_clone %}
         <div role="tabpanel" class="tab-pane tab-pane-bordered" id="clone">
             <p class="fw-bold">{% trans "Create a clone" %}</p>
             <form class="form" action="{% url 'instances:clone' instance.id %}" method="post" role="form" aria-label="Create clone form">{% csrf_token %}
@@ -811,6 +813,8 @@
             </form>
             <div class="clearfix"></div>
         </div>
+        {% endif %}
+        {% if can_change %}
         <div role="tabpanel" class="tab-pane tab-pane-bordered" id="options">
             <p>{% trans "To set instance template name description, shutdown the instance." %}</p>
             <form action="{% url 'instances:change_options' instance.id %}" method="post" role="form" aria-label="Set instance template name description form">{% csrf_token %}
@@ -847,7 +851,7 @@
                     </div>
                 </div>
             </form>
-        
+            {% if request.user.is_superuser %}
             <p class="fw-bold">{% trans "To set instance video model, shutdown the instance." %}</p>
             <form action="{% url 'instances:set_video_model' instance.id %}" method="post" role="form" aria-label="Set instance video model form">{% csrf_token %}
                 <div class="row">
@@ -914,6 +918,7 @@
                     </div>
                 </div>
             </form>
+            {% endif %}
             <div class="clearfix"></div>
         </div>
         {% endif %}

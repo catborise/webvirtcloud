@@ -128,6 +128,12 @@ ROLE_EXPECTATIONS = {
 }
 
 
+# A template VM is reached the same way: on templates, snapshot requests and
+# poweron are no-ops for these roles, and cloning (which none of them may do
+# without instances.clone_instances) has its own rule, see the clone test.
+TEMPLATE_ROLE_EXPECTATIONS = ROLE_EXPECTATIONS
+
+
 def iter_patterns(patterns, prefix="", params=None):
     params = params or {}
     for p in patterns:
@@ -294,6 +300,32 @@ class AuthorizationMatrixTestCase(TestCase):
                     ([], []),
                     f"{role}: (unexpectedly reachable, unexpectedly denied)",
                 )
+
+    def test_role_reachability_on_a_template_vm(self):
+        self.instance.is_template = True
+        self.instance.save()
+        for role, (is_staff, view_instances, owner_flags, expected) in TEMPLATE_ROLE_EXPECTATIONS.items():
+            with self.subTest(role=role):
+                user = self._make_role_user(role, is_staff, view_instances, owner_flags)
+                reachable = self._reachable(user)
+                self.assertEqual(
+                    (sorted(reachable - expected), sorted(expected - reachable)),
+                    ([], []),
+                    f"template, {role}: (unexpectedly reachable, unexpectedly denied)",
+                )
+
+    def test_a_template_is_cloned_by_viewing_it_a_vm_needs_change(self):
+        user = self._make_role_user("cloner", False, True, None)
+        user.user_permissions.add(Permission.objects.get(codename="clone_instances"))
+        url = reverse("instances:clone", args=[self.instance.pk])
+        for is_template, reached in ((False, False), (True, True)):
+            with self.subTest(is_template=is_template):
+                self.instance.is_template = is_template
+                self.instance.save()
+                with transaction.atomic():
+                    response = self._request(user, url)
+                    transaction.set_rollback(True)
+                self.assertEqual(response.status_code not in DENIED, reached, response.status_code)
 
     def test_owner_power_actions_succeed_through_web_and_api_with_real_test_driver(self):
         import libvirt

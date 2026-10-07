@@ -1,5 +1,8 @@
 {% load i18n %}
 <div class="tab-pane active" id="power" role="tabpanel">
+    {% if not can_power %}
+    <p>{% trans "Only the owners of this instance and administrators can change its power state." %}</p>
+    {% else %}
     <!-- Nav tabs -->
     <ul class="nav nav-tabs" role="tablist" aria-label="Instance power actions">
         {% if instance.status == 1 or instance.status == 2 %}
@@ -144,4 +147,5 @@
             </div>
         {% endif %}
     </div>
+    {% endif %}
 </div>

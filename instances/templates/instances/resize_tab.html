@@ -22,7 +22,7 @@
     <!-- Tab panes -->
     <div class="tab-content">
         <div role="tabpanel" class="tab-pane tab-pane-bordered active" id="resizevm_cpu">
-            {% if request.user.is_superuser or request.user.is_staff or userinstance.is_change %}
+            {% if can_change %}
                 {% if instance.status == 5 or not instance.vcpus %}
                 <form action="{% url 'instances:resizevm_cpu' instance.id %}" method="post" role="form" aria-label="Resize instance cpu form">{% csrf_token %}
                     <p class="fw-bold">{% trans "Logical host CPUs" %} : {{ vcpu_host }}</p>
@@ -62,6 +62,7 @@
                     <p class="fw-bold">{% trans "Logical Instance Active/Maximum CPUs" %} : {{ instance.cur_vcpu }} / {{ instance.vcpu }} </p>
                     <div class="col-sm-3"></div>
                     <div class="col-sm-6">
+                        {% if request.user.is_superuser %}
                         {% for id, vcpu in instance.vcpus.items %}
                             <form action="{% url 'instances:set_vcpu' instance.id %}" method="post" role="form" aria-label="Resize instance cpu form">{% csrf_token %}
                             <div class="d-grid col-sm-3">
@@ -76,6 +77,7 @@
                             </div>
                             </form>
                         {% endfor %}
+                        {% endif %}
                     </div>
                     <div class="col-sm-3"></div>
                 {% endif %}
@@ -86,7 +88,7 @@
             <div class="clearfix"></div>
         </div>
         <div role="tabpanel" class="tab-pane tab-pane-bordered" id="resizevm_mem">
-            {% if request.user.is_superuser or request.user.is_staff or userinstance.is_change %}
+            {% if can_change %}
                 <form action="{% url 'instances:resize_memory' instance.id %}" method="post" role="form" aria-label="Resize instance memory form">
                     {% csrf_token %}
                     <p class="fw-bold">{% trans "Total host memory" %}: {{ memory_host|filesizeformat }}</p>
@@ -127,7 +129,7 @@
             <div class="clearfix"></div>
         </div>
         <div role="tabpanel" class="tab-pane tab-pane-bordered" id="resizevm_disk">
-            {% if request.user.is_superuser or request.user.is_staff or userinstance.is_change %}
+            {% if can_change %}
                 <form action="{% url 'instances:resize_disk' instance.id %}" method="post" role="form" aria-label="Resize instance disk form">
                     {% csrf_token %}
                     <p class="fw-bold">{% trans "Disk allocation (GB)" %}:</p>

@@ -85,7 +85,7 @@
                     {% trans "Resize" %}
                 </button>
             </li>
-            {% if allow_admin_or_not_template and 'instances.snapshot_instances' in perms %}
+            {% if can_snapshot %}
             <li class="nav-item" role="presentation">
                 <button class="nav-link action-button" id="snapshots-tab" aria-controls="snapshots" data-bs-toggle="pill" data-bs-target="#snapshots" type="button" role="tab" aria-selected="false">
                     <span id="action-block" aria-hidden="true">{% bs_icon 'camera' size='2em'%} </span>
@@ -93,12 +93,14 @@
                 </button>
             </li>
             {% endif %}
+            {% if show_settings %}
             <li class="nav-item" role="presentation">
                 <button class="nav-link action-button" id="settings-tab" aria-controls="settings" data-bs-toggle="pill" data-bs-target="#settings" type="button" role="tab" aria-selected="false">
                     <span id="action-block" aria-hidden="true">{% bs_icon 'gear-wide-connected' size='2em'%} </span>
                     {% trans "Settings" %}
                 </button>
             </li>
+            {% endif %}
             <li class="nav-item" role="presentation">
                 <button class="nav-link action-button" id="graphics-tab" aria-controls="graphics" data-bs-toggle="pill" data-bs-target="#graphics" type="button" role="tab" aria-selected="false">
                     <span id="action-block" aria-hidden="true">{% bs_icon 'bar-chart-line' size='2em'%} </span>
@@ -117,8 +119,8 @@
             {% include 'instances/power_tab.html' %}
             {% include 'instances/access_tab.html' %}
             {% include 'instances/resize_tab.html' %}
-            {% include 'instances/snapshots_tab.html' %}
-            {% include 'instances/settings_tab.html' %}
+            {% if can_snapshot %}{% include 'instances/snapshots_tab.html' %}{% endif %}
+            {% if show_settings %}{% include 'instances/settings_tab.html' %}{% endif %}
             {% include 'instances/stats_tab.html' %}
             {% include 'instances/destroy_tab.html' %}
         </div>
@@ -156,13 +158,16 @@
     }
 </script>
 <script>
-    var editor = ace.edit("editor");
-    editor.getSession().setMode("ace/mode/xml");
+    // The XML editor exists only for superusers
+    if (document.getElementById("editor")) {
+        var editor = ace.edit("editor");
+        editor.getSession().setMode("ace/mode/xml");
 
-    var input = $('input[name="inst_xml"]');
+        var input = $('input[name="inst_xml"]');
         editor.getSession().on("change", function () {
-        input.val(editor.getSession().getValue());
-    });
+            input.val(editor.getSession().getValue());
+        });
+    }
 </script>
 <script>
     function random_mac(net) {
@@ -269,6 +274,7 @@
             $("#video_model_select option[value='" + video_model + "']").prop('selected', true);
         }
     });
+{% if can_open_console %}
     $(document).ready(function () {
         // set vdi url
         $.get("{% url 'vdi_url' compute.id instance.name %}", function(data) {
@@ -276,6 +282,7 @@
             $("#vdi_url").attr("href", data);
         });
     });
+{% endif %}
 {% if request.user.is_superuser %}
     $(document).ready(function () {
         random_mac('clone-net-mac-0');
@@ -669,58 +676,41 @@
     });
 </script>
 <script>
+    // Open the tab (and sub-tab) a redirect points to with #<pane id>
+    function show_tab(target) {
+        var button = document.querySelector('button[data-bs-target="' + target + '"]');
+        if (button) {
+            bootstrap.Tab.getOrCreateInstance(button).show();
+        }
+    }
     var hash = location.hash;
-    if (~$.inArray(hash, ['#poweron', '#poweroff', '#powercycle', '#suspend', '#resume'])) {
-        var btnsect = $('#navbtn>li>a');
-        $(btnsect).each(function () {
-            if ($(this).attr('href') === '#power') {
-                $(this).trigger('click');
-            }
-        });
+    var parents = {
+        '#poweron': '#power', '#poweroff': '#power', '#powercycle': '#power', '#suspend': '#power', '#resume': '#power',
+        '#resizevm_cpu': '#resize', '#resizevm_mem': '#resize', '#resizevm_disk': '#resize',
+        '#boot_opt': '#settings', '#disks': '#settings', '#network': '#settings', '#clone': '#settings',
+        '#xmledit': '#settings', '#vncsettings': '#settings', '#migrate': '#settings', '#options': '#settings',
+        '#users': '#settings',
+        '#takesnapshot': '#snapshots', '#takeextsnapshot': '#snapshots', '#managesnapshot': '#snapshots'
+    };
+    if (hash === '#resize') {
+        show_tab('#resize');
+    } else if (parents[hash]) {
+        show_tab(parents[hash]);
+        show_tab(hash);
     }
-    if (~$.inArray(hash, ['#resize', "#resizevm_cpu", "#resizevm_mem", "#resizevm_disk"])) {
-        var btnsect = $('#navbtn>li>a');
-        $(btnsect).each(function () {
-            if ($(this).attr('href') === '#resize') {
-                $(this).trigger('click');
-            }
-        });
-    }
-    if (~$.inArray(hash, ['#osinfo', '#boot_opt', "#disks", '#network', '#clone', '#xmledit', '#vncsettings', '#migrate', '#options', '#users'])) {
-        var btnsect = $('#navbtn>li>a');
-        $(btnsect).each(function () {
-            if ($(this).attr('href') === '#settings') {
-                $(this).trigger('click');
-            }
-        });
-
-        var btn = $('#settings>div>ul>li>a');
-        $(btn).each(function () {
-            if ($(this).attr('href') === hash) {
-                $(this).trigger('click');
-            }
-        });
-    }
-    if (~$.inArray(hash, ['#takesnapshot', "#takeextsnapshot", "#managesnapshot"])) {
-        var btnsect = $('#navbtn>li>a');
-        $(btnsect).each(function () {
-            if ($(this).attr('href') === '#snapshots') {
-                $(this).trigger('click');
-            }
-        });
-
-        var btn = $('#snapshots>div>ul>li>a');
-        $(btn).each(function () {
-            if ($(this).attr('href') === hash) {
-                $(this).trigger('click');
-            }
-        });
+    // Settings opens on its first section the user has (Boot is superuser-only)
+    var settings_tabs = document.querySelector('#settings .nav-tabs');
+    if (settings_tabs && !settings_tabs.querySelector('.nav-link.active')) {
+        var first = settings_tabs.querySelector('.nav-link:not(#osinfo-tab)');
+        if (first) {
+            bootstrap.Tab.getOrCreateInstance(first).show();
+        }
     }
 </script>
 <script>
     function get_osinfo() {
-        document.querySelector("#settings-tab").click();
-        document.querySelector("#osinfo-tab").click();
+        show_tab('#settings');
+        show_tab('#osinfo');
 
         $.getJSON("{% url 'instances:osinfo' instance.id %}", function (data) {
             $.each(data, function() {
