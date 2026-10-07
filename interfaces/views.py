@@ -30,7 +30,7 @@ def interfaces(request, compute_id):
         )
         ifaces = conn.get_ifaces()
 
-        netdevs = ["eth0", "eth1"]
+        netdevs = []
         with contextlib.suppress(Exception):
             netdevs = conn.get_net_devices()
 
@@ -46,7 +46,7 @@ def interfaces(request, compute_id):
 
         if request.method == "POST":
             if "create" in request.POST:
-                form = AddInterface(request.POST)
+                form = AddInterface(request.POST, netdevs=netdevs)
                 if form.is_valid():
                     data = form.cleaned_data
                     conn.create_iface(

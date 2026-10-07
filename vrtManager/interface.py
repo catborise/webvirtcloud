@@ -34,9 +34,10 @@ class wvmInterfaces(wvmConnect):
         if ipv4_type == "static":
             address, prefix = ipv4_addr.split("/")
             xml += f"""<protocol family='ipv4'>
-                        <ip address='{address}' prefix='{prefix}'/>
-                        <route gateway='{ipv4_gw}'/>
-                      </protocol>"""
+                        <ip address='{address}' prefix='{prefix}'/>"""
+            if ipv4_gw:
+                xml += f"""<route gateway='{ipv4_gw}'/>"""
+            xml += """</protocol>"""
         if ipv6_type == "dhcp":
             xml += """<protocol family='ipv6'>
                         <dhcp/>

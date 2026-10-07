@@ -18,7 +18,7 @@
                         <div class="row">
                             <label class="col-sm-3 col-form-label">{% trans "Name" %}</label>
                             <div class="col-sm-6">
-                                <input type="text" name="name" class="form-control" placeholder="br0" maxlength="10" required pattern="[a-z0-9\. ]+"/>
+                                <input type="text" name="name" class="form-control" placeholder="br0" maxlength="15" required pattern="[A-Za-z0-9_.\-]+"/>
                             </div>
                         </div>
                         <div class="row">
@@ -96,7 +96,7 @@
                                     <div class="row static_ipv4_form_group">
                                         <label class="col-sm-3 col-form-label">{% trans "IPv4 Address" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="ipv4_addr" maxlength="19" pattern="[0-9\.\/]+|^$">
+                                            <input type="text" class="form-control" name="ipv4_addr" maxlength="31" pattern="[0-9\.\/]+|^$">
                                         </div>
                                     </div>
                                     <div class="row static_ipv4_form_group">
