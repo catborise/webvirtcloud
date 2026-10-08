@@ -45,7 +45,7 @@ echowarn() {
 #   DESCRIPTION:  Echo debug information to stdout.
 #-------------------------------------------------------------------------------
 echodebug() {
-    if [ "${_ECHO_DEBUG}" -eq "${BS_TRUE}" ]; then
+    if [ "${_ECHO_DEBUG:-0}" = 1 ]; then
         printf "${BC} * DEBUG${EC}: %s\n" "$@";
     fi
 }
