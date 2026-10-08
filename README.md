@@ -235,20 +235,26 @@ A compute node is a KVM host the panel manages over libvirt.
    # or, from a cloned repository: sudo sh ./dev/libvirt-bootstrap.sh
    ```
 
-2. On the panel host, give the web service user (`www-data` on Debian/Ubuntu, `nginx` on RHEL/openSUSE) an SSH key and copy it to the compute node:
+2. For SSH connections, give the user the panel runs as an SSH key and copy it to the compute node. `ssh-copy-id` asks for the compute node's root password once. `accept-new` accepts a new host's key on first connect and refuses a changed one.
+
+   Installer or manual installation, on the panel host (`www-data` on Debian/Ubuntu, `nginx` on RHEL/openSUSE):
 
    ```bash
    sudo install -d -m 700 -o www-data -g www-data ~www-data/.ssh
-   sudo -u www-data ssh-keygen -t ed25519
-   sudo -u www-data tee ~www-data/.ssh/config > /dev/null << 'EOF'
-   Host *
-     StrictHostKeyChecking no
-   EOF
+   sudo -u www-data ssh-keygen -t ed25519 -N "" -f ~www-data/.ssh/id_ed25519
+   printf 'Host *\n  StrictHostKeyChecking accept-new\n' | sudo -u www-data tee ~www-data/.ssh/config > /dev/null
    sudo chmod 600 ~www-data/.ssh/config
    sudo -u www-data ssh-copy-id root@<compute-node-ip>
    ```
 
-   In Docker, run the `ssh-keygen` and `ssh-copy-id` commands inside the container instead (`docker compose exec --user www-data webvirtcloud ssh-keygen -t ed25519`, and the same for `ssh-copy-id`); the keys are kept in the `webvirtcloud-ssh` volume.
+   Docker, from the directory with `docker-compose.yml` (always as `www-data`: the keys are kept in the `webvirtcloud-ssh` volume, and a key made as root is not used by the panel):
+
+   ```bash
+   docker compose exec -u www-data webvirtcloud ssh-keygen -t ed25519 -N "" -f /var/www/.ssh/id_ed25519
+   docker compose exec -u www-data webvirtcloud sh -c 'printf "Host *\n  StrictHostKeyChecking accept-new\n" > ~/.ssh/config && chmod 600 ~/.ssh/config'
+   docker compose exec -u www-data webvirtcloud ssh-copy-id root@<compute-node-ip>
+   docker compose exec -u www-data webvirtcloud ssh root@<compute-node-ip> true   # no password or prompt: ready
+   ```
 
 3. Install or update the `gstfsd` daemon on the compute node. It sets the root password and SSH key of a shut-off VM:
 
