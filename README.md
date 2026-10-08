@@ -235,19 +235,22 @@ A compute node is a KVM host the panel manages over libvirt.
    # or, from a cloned repository: sudo sh ./dev/libvirt-bootstrap.sh
    ```
 
-2. For SSH connections, give the user the panel runs as an SSH key and copy it to the compute node. `ssh-copy-id` asks for the compute node's root password once. `accept-new` accepts a new host's key on first connect and refuses a changed one.
+2. For SSH connections, give the user the panel runs as an SSH key and copy it to the compute node. **Use only the block for your installation type:** a key set up with the host commands is not seen by the panel in Docker. `ssh-copy-id` asks for the compute node's root password once. `accept-new` accepts a new host's key on first connect and refuses a changed one.
 
-   Installer or manual installation, on the panel host (`www-data` on Debian/Ubuntu, `nginx` on RHEL/openSUSE):
+   **Installer or manual installation**, on the panel host:
 
    ```bash
-   sudo install -d -m 700 -o www-data -g www-data ~www-data/.ssh
-   sudo -u www-data ssh-keygen -t ed25519 -N "" -f ~www-data/.ssh/id_ed25519
-   printf 'Host *\n  StrictHostKeyChecking accept-new\n' | sudo -u www-data tee ~www-data/.ssh/config > /dev/null
-   sudo chmod 600 ~www-data/.ssh/config
-   sudo -u www-data ssh-copy-id root@<compute-node-ip>
+   U=www-data   # the web service user: www-data on Debian/Ubuntu, nginx on RHEL/openSUSE
+   H=$(getent passwd $U | cut -d: -f6)
+   sudo install -d -m 700 -o $U -g $U $H/.ssh
+   sudo -u $U ssh-keygen -t ed25519 -N "" -f $H/.ssh/id_ed25519
+   printf 'Host *\n  StrictHostKeyChecking accept-new\n' | sudo -u $U tee $H/.ssh/config > /dev/null
+   sudo chmod 600 $H/.ssh/config
+   sudo -u $U ssh-copy-id root@<compute-node-ip>
+   sudo -u $U ssh root@<compute-node-ip> true   # no password or prompt: ready
    ```
 
-   Docker, from the directory with `docker-compose.yml` (always as `www-data`: the keys are kept in the `webvirtcloud-ssh` volume, and a key made as root is not used by the panel):
+   **Docker**, on the Docker host from the directory with `docker-compose.yml`; the commands run inside the container (always as `www-data`: the keys are kept in the `webvirtcloud-ssh` volume, and a key made as root is not used by the panel):
 
    ```bash
    docker compose exec -u www-data webvirtcloud ssh-keygen -t ed25519 -N "" -f /var/www/.ssh/id_ed25519

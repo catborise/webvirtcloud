@@ -17,6 +17,7 @@ htmlcov
 *.log
 templates/webvirtcloud.code-workspace
 DEPENDENCY_UPGRADE_PLAN.md
+AGENTS.md
 ROADMAP.md
 .agents
 
