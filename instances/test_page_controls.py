@@ -150,6 +150,18 @@ class PageControlsTestCase(PageControls, TestCase):
         owner = self.user("paused_deleter", owner={"is_delete": True})
         self.assertIn("destroy", self.controls(owner, status=3))
 
+    def test_disks_grow_while_running_paused_or_shut_off(self):
+        # QEMU grows a running or paused VM's disk itself (blockResize)
+        changer = self.user("disk_resizer", owner={"is_change": True})
+        for status, enabled in ((1, True), (3, True), (5, True), (7, False)):
+            with self.subTest(status=status):
+                self.controls(changer, status=status)
+                buttons = lxml_html.fromstring(self.last_page).xpath(
+                    "//form[@action=$a]//button[@type='submit']",
+                    a=reverse("instances:resize_disk", args=[self.instance.id]),
+                )
+                self.assertEqual(bool(buttons), enabled)
+
     def test_owner_with_change_and_no_extra_permissions(self):
         changer = self.user("ctl_plain_changer", owner={"is_change": True})
         self.assertEqual(self.controls(changer), CONSOLE | POWER | CHANGE)

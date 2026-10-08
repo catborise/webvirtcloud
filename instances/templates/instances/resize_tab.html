@@ -148,7 +148,7 @@
                         {% endif %}
                     </div>
                     {% endfor %}
-                    {% if instance.status == 5 %}
+                    {% if instance.status == 1 or instance.status == 3 or instance.status == 5 %}
                         <button type="submit" class="btn btn-lg btn-success float-end" name="resizevm_disk">{% trans "Resize" %}</button>
                     {% else %}
                         <button class="btn btn-lg btn-success float-end disabled">{% trans "Resize" %}</button>
