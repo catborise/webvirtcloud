@@ -1784,7 +1784,8 @@ def _clone_plan(request, instance):
     clone_data["clone-title"] = request.POST.get("clone-title", "").strip()
     clone_data["clone-description"] = request.POST.get("clone-description", "").strip()
 
-    disk_sum = sum(int(disk.get("size") or 0) >> 30 for disk in instance.disks)
+    # the clone copies the disks of the persistent definition
+    disk_sum = sum(int(disk.get("size") or 0) >> 30 for disk in instance.config_disks)
     quota_msg = utils.check_user_quota(
         request.user, 1, instance.vcpu, instance.memory, disk_sum
     )
@@ -1803,7 +1804,7 @@ def _clone_plan(request, instance):
         auto_vname = utils.get_clone_free_names()[0]
         clone_data["name"] = auto_vname
         clone_data["clone-net-mac-0"] = utils.get_dhcp_mac_address(auto_vname)
-        for disk in instance.disks:
+        for disk in instance.config_disks:
             disk_dev = f"disk-{disk['dev']}"
             disk_name = utils.get_clone_disk_name(disk, instance.name, auto_vname)
             clone_data[disk_dev] = disk_name
