@@ -69,11 +69,24 @@ def add_root_key(gfs, key):
     gfs.chmod(0o600, keys_path)
 
 
-# action: (function, the files it changes)
+# action: (function, the files it changes, where it may create files)
 ACTIONS = {
-    'password': (lambda gfs, data: set_root_password(gfs, data['passwd']), ['/etc/shadow']),
-    'publickey': (lambda gfs, data: add_root_key(gfs, data['key']), ['/root/.ssh/authorized_keys']),
+    'password': (lambda gfs, data: set_root_password(gfs, data['passwd']), ['/etc/shadow'], None),
+    'publickey': (lambda gfs, data: add_root_key(gfs, data['key']), ['/root/.ssh/authorized_keys'], '/root/.ssh'),
 }
+
+
+def selinux_specfile(gfs):
+    """The guest's SELinux file contexts, or None without an SELinux policy or
+    with SELinux disabled (enabling it again relabels the whole guest)."""
+    if not gfs.is_file('/etc/selinux/config'):
+        return None
+    config = gfs.cat('/etc/selinux/config')
+    if re.search(r"^\s*SELINUX\s*=\s*[\"']?disabled\b", config, re.MULTILINE):
+        return None
+    found = re.search(r"^\s*SELINUXTYPE\s*=\s*[\"']?([\w.-]+)", config, re.MULTILINE)
+    specfile = '/etc/selinux/%s/contexts/files/file_contexts' % (found.group(1) if found else 'targeted')
+    return specfile if gfs.is_file(specfile) else None
 
 
 def holds(mountpoint, path):
@@ -99,7 +112,7 @@ def mount_guest(gfs, paths):
 def change_guest(data):
     import guestfs
 
-    action, paths = ACTIONS[data['action']]
+    action, paths, creates = ACTIONS[data['action']]
     gfs = guestfs.GuestFS(python_return_dict=True)
     launched = False
     try:
@@ -109,7 +122,14 @@ def change_guest(data):
         mount_guest(gfs, paths)
         if '/etc/shadow' in paths and not gfs.is_file('/etc/shadow'):
             raise RuntimeError("the guest has no /etc/shadow")
+        # A file libguestfs creates has no SELinux label, and an enforcing
+        # guest's sshd does not read an unlabeled authorized_keys.
+        specfile = creates and selinux_specfile(gfs)
+        if specfile and not gfs.feature_available(['selinuxrelabel']):
+            raise RuntimeError("the guest uses SELinux, but libguestfs on this host cannot set SELinux labels")
         action(gfs, data)
+        if specfile:
+            gfs.selinux_relabel(specfile, creates, force=True)
     except Exception:
         # the first error is the one to report; cleanup still runs
         if launched:

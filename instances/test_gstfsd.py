@@ -77,6 +77,13 @@ class GuestFS:
     def mkdir(self, path):
         self._guest(); state = _load(); state["dirs"].append(path); _save(state)
     def chmod(self, mode, path): self._guest()
+    def feature_available(self, names): return not _load().get("no_selinuxrelabel")
+    def selinux_relabel(self, specfile, path, force=None):
+        self._guest(); state = _load()
+        if specfile not in state["files"]:
+            raise RuntimeError("selinux_relabel: " + specfile + ": No such file or directory")
+        # with the number of writes before it: labels are set on written files
+        state.setdefault("relabels", []).append([specfile, path, force, state["writes"]]); _save(state)
 '''
 
 
@@ -328,6 +335,56 @@ class GstfsdTestCase(unittest.TestCase):
         self._update_state(files={"/root/.ssh/authorized_keys": ""})
         reply = self._request("127.0.0.1", self._serve(), {"action": "publickey", "vname": "vm", "key": "ssh-ed25519 K k@host"})
         self.assertEqual(reply, {"return": "success"})
+
+    def _selinux_guest(self, selinuxtype="targeted", quote="", mode="enforcing"):
+        state = json.loads(self.state.read_text())
+        state["files"]["/etc/selinux/config"] = "SELINUX=%s\nSELINUXTYPE=%s%s%s\n" % (mode, quote, selinuxtype, quote)
+        state["files"]["/etc/selinux/%s/contexts/files/file_contexts" % selinuxtype] = ""
+        self.state.write_text(json.dumps(state))
+
+    def test_a_key_gets_the_selinux_labels_of_the_guest(self):
+        # a file libguestfs creates has no label, and sshd may not read an unlabeled authorized_keys
+        port = self._serve()
+        for i, quote in enumerate(("", '"', "'")):
+            with self.subTest(quote=quote):
+                self._selinux_guest("mls", quote)
+                reply = self._request("127.0.0.1", port, {"action": "publickey", "vname": "vm", "key": "ssh-ed25519 K%d k@host" % i})
+                self.assertEqual(reply, {"return": "success"})
+                state = json.loads(self.state.read_text())
+                # once, after the key is written
+                self.assertEqual(len(state.get("relabels", [])), i + 1)
+                self.assertEqual(
+                    state["relabels"][-1], ["/etc/selinux/mls/contexts/files/file_contexts", "/root/.ssh", True, state["writes"]]
+                )
+
+    def test_a_guest_without_selinux_is_not_relabeled(self):
+        reply = self._request("127.0.0.1", self._serve(), {"action": "publickey", "vname": "vm", "key": "ssh-ed25519 K k@host"})
+        self.assertEqual(reply, {"return": "success"})
+        self.assertNotIn("relabels", json.loads(self.state.read_text()))
+
+    def test_a_guest_with_selinux_disabled_is_not_relabeled(self):
+        # enabling SELinux again relabels the whole guest
+        self._selinux_guest(mode="disabled")
+        self._update_state(no_selinuxrelabel=True)
+        reply = self._request("127.0.0.1", self._serve(), {"action": "publickey", "vname": "vm", "key": "ssh-ed25519 K k@host"})
+        self.assertEqual(reply, {"return": "success"})
+        self.assertNotIn("relabels", json.loads(self.state.read_text()))
+
+    def test_a_key_for_a_selinux_guest_needs_a_host_that_can_label(self):
+        self._selinux_guest()
+        self._update_state(no_selinuxrelabel=True)
+        reply = self._request("127.0.0.1", self._serve(), {"action": "publickey", "vname": "vm", "key": "ssh-ed25519 K k@host"})
+        self.assertEqual(reply["return"], "error")
+        self.assertIn("SELinux", reply["message"])
+        self.assertEqual(json.loads(self.state.read_text())["writes"], 0)
+
+    def test_a_password_keeps_the_label_of_the_existing_shadow(self):
+        # rewriting /etc/shadow keeps its file and label: no labelling needed
+        self._selinux_guest()
+        self._update_state(no_selinuxrelabel=True)
+        reply = self._request("127.0.0.1", self._serve(), {"action": "password", "vname": "vm", "passwd": "$6$x"})
+        self.assertEqual(reply, {"return": "success"})
+        self.assertNotIn("relabels", json.loads(self.state.read_text()))
 
     def test_a_client_that_leaves_does_not_break_the_service(self):
         port = free_port()
