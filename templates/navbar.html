@@ -29,6 +29,7 @@
             <a class="dropdown-item {% view_active request 'admin:user_list' %}" href="{% url 'admin:user_list' %}">{% bs_icon 'person-plus' %} {% trans "Users" %}</a>
             <a class="dropdown-item {% view_active request 'admin:group_list' %}" href="{% url 'admin:group_list' %}">{% bs_icon 'people-fill' %} {% trans "Groups" %}</a>
             <a class="dropdown-item {% view_active request 'admin:logs' %}" href="{% url 'admin:logs' %}">{% bs_icon 'card-list' %} {% trans "Logs" %}</a>
+            <a class="dropdown-item {% view_active request 'admin:tombstone_list' %}" href="{% url 'admin:tombstone_list' %}">{% bs_icon 'trash' %} {% trans "Removed VMs" %}</a>
             <a class="dropdown-item {% view_active request 'appsettings' %}" href="{% url 'appsettings' %}">{% bs_icon 'gear-wide-connected' %} {% trans "Settings" %}</i></a>
           </div>
         </li>

@@ -319,6 +319,9 @@ class InstanceTombstone(models.Model):
     owners = models.JSONField(default=list)  # [{"user": id, "is_change": .., "is_delete": .., "is_vnc": ..}]
     removed = models.DateTimeField(auto_now_add=True)
 
+    def __str__(self):
+        return "%s (%s)" % (self.name, self.uuid)
+
 
 class PermissionSet(models.Model):
     """

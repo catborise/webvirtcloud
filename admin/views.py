@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from accounts.models import Instance, UserAttributes, UserInstance
 from appsettings.settings import app_settings
 from django.conf import settings
@@ -10,6 +12,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.http import require_POST
+from instances.models import InstanceTombstone
 from logs.models import Logs
 
 from . import forms
@@ -208,6 +211,34 @@ def logs(request):
     page = request.GET.get("page", 1)
     logs = paginator.page(page)
     return render(request, "admin/logs.html", {"logs": logs})
+
+
+@superuser_only
+def tombstone_list(request):
+    """The owners kept for VMs that vanished from their compute, in case the
+    same UUID comes back."""
+    tombstones = list(InstanceTombstone.objects.order_by("-removed"))
+    ids = {owner["user"] for tombstone in tombstones for owner in tombstone.owners}
+    names = dict(User.objects.filter(id__in=ids).values_list("id", "username"))
+    retention = timedelta(days=getattr(settings, "INSTANCE_OWNERSHIP_RETENTION_DAYS", 30))
+    for tombstone in tombstones:
+        tombstone.owner_names = [names.get(owner["user"], _("deleted user")) for owner in tombstone.owners]
+        tombstone.expires = tombstone.removed + retention
+    return render(request, "admin/tombstone_list.html", {"tombstones": tombstones})
+
+
+@superuser_only
+def tombstone_delete(request, pk):
+    tombstone = get_object_or_404(InstanceTombstone, pk=pk)
+    if request.method == "POST":
+        tombstone.delete()
+        return redirect("admin:tombstone_list")
+
+    return render(
+        request,
+        "common/confirm_delete.html",
+        {"object": tombstone},
+    )
 
 
 def add_default_instances(user):
