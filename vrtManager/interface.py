@@ -1,6 +1,6 @@
 from xml.etree import ElementTree
 
-from libvirt import VIR_INTERFACE_XML_INACTIVE
+from libvirt import VIR_ERR_NO_INTERFACE, VIR_INTERFACE_XML_INACTIVE, libvirtError
 
 from vrtManager import util
 from vrtManager.connection import wvmConnect
@@ -9,6 +9,21 @@ from vrtManager.connection import wvmConnect
 class wvmInterfaces(wvmConnect):
     def define_iface(self, xml, flag=0):
         self.wvm.interfaceDefineXML(xml, flag)
+
+    def bridge_member_xml(self, netdev):
+        """netdev as a bridge member: as the host defines it (a bond keeps its
+        mode and devices, a vlan its tag), without what only a top-level
+        interface has. A device the host does not define is ethernet."""
+        try:
+            member = ElementTree.fromstring(self.get_iface(netdev).XMLDesc(VIR_INTERFACE_XML_INACTIVE))
+        except libvirtError as err:
+            if err.get_error_code() != VIR_ERR_NO_INTERFACE:
+                raise
+            return f"<interface type='ethernet' name='{netdev}'/>"
+        for tag in ("start", "mtu", "protocol"):
+            for child in member.findall(tag):
+                member.remove(child)
+        return ElementTree.tostring(member, encoding="unicode")
 
     def create_iface(
         self,
@@ -51,7 +66,7 @@ class wvmInterfaces(wvmConnect):
             xml += """</protocol>"""
         if itype == "bridge":
             xml += f"""<bridge stp='{stp}' delay='{delay}'>
-                        <interface name='{netdev}' type='ethernet'/>
+                        {self.bridge_member_xml(netdev)}
                       </bridge>"""
         xml += """</interface>"""
         self.define_iface(xml)
