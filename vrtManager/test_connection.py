@@ -101,6 +101,13 @@ class BoundedOpenTestCase(unittest.TestCase):
         except libvirt.libvirtError as err:
             return err, time.monotonic() - started
 
+    def wait_for_the_open(self, host="h"):
+        """Wait until the released open has published its connection."""
+        entry = self.manager._search_connection(host, "u", "p", CONN_TCP)
+        deadline = time.monotonic() + 5
+        while entry.connection is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+
     def test_a_hanging_open_is_given_up_after_the_timeout(self):
         with self.open_auth(alive_connection()):
             result, took = self.get()
@@ -121,7 +128,7 @@ class BoundedOpenTestCase(unittest.TestCase):
         with self.open_auth(conn):
             self.get()
             self.release.set()
-            time.sleep(0.1)
+            self.wait_for_the_open()
             result, took = self.get()
         self.assertIs(result, conn)
         self.assertEqual(self.calls, 1)
@@ -168,7 +175,7 @@ class BoundedOpenTestCase(unittest.TestCase):
             self.assertIsInstance(result, libvirt.libvirtError)
             self.assertLess(took, 0.1)
             self.release.set()  # the host answers at last
-            time.sleep(0.1)
+            self.wait_for_the_open()
             result, _ = self.get()
         self.assertIs(result, conn)
         self.assertEqual(self.calls, 1)
