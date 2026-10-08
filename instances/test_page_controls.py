@@ -145,6 +145,11 @@ class PageControlsTestCase(PageControls, TestCase):
                             owner={"is_change": True})
         self.assertEqual(self.controls(changer), CONSOLE | POWER | CHANGE | {"clone", "snapshots"})
 
+    def test_a_paused_vm_can_be_destroyed(self):
+        # destroy stops a paused VM like a running one
+        owner = self.user("paused_deleter", owner={"is_delete": True})
+        self.assertIn("destroy", self.controls(owner, status=3))
+
     def test_owner_with_change_and_no_extra_permissions(self):
         changer = self.user("ctl_plain_changer", owner={"is_change": True})
         self.assertEqual(self.controls(changer), CONSOLE | POWER | CHANGE)

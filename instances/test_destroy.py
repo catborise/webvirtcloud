@@ -65,3 +65,9 @@ class DestroyOrderTestCase(TestCase):
             response = self.client.get(reverse("instances:destroy", args=[self.instance.id]))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(calls, [])
+
+    def test_the_confirmation_page_of_a_paused_vm_offers_the_form(self):
+        with patch("instances.models.wvmInstance") as wvm:
+            wvm.return_value.get_status.return_value = 3  # paused
+            response = self.client.get(reverse("instances:destroy", args=[self.instance.id]))
+        self.assertIn('id="delete_form"', response.content.decode())
