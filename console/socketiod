@@ -27,27 +27,19 @@ if not getattr(django_settings, "SERIAL_CONSOLE_ENABLED", False):
     )
     sys.exit(1)
 
-import re
-import tempfile
-import io
-import socket
-import socketio
+import codecs
 import pty
 import select
 import struct
 import fcntl
 import termios
 import signal
+import socketio
 import eventlet
-import atexit
-import tty
-import termios
-import libvirt
 
 # from six.moves import http_cookies as Cookie
 from http import cookies as Cookie
 from webvirtcloud.settings import SOCKETIO_PORT, SOCKETIO_HOST
-from vrtManager.connection import CONN_SSH, CONN_SOCKET
 import argparse
 
 
@@ -131,19 +123,51 @@ def set_winsize(fd, row, col, xpix=0, ypix=0):
     fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
 
 
-def read_and_forward_pty_output():
+def stop_console():
+    """Stop the console process (if still running), reap it and close its pty."""
     global fd
+    global child_pid
+
+    if child_pid:
+        try:
+            os.kill(child_pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            os.waitpid(child_pid, 0)  # only the child this daemon started
+        except ChildProcessError:
+            pass
+    if fd is not None:
+        os.close(fd)
+    fd = None
+    child_pid = None
+
+
+def read_and_forward_pty_output():
     max_read_bytes = 1024 * 20
+    # a character may be split between two reads
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    # The pty number may be reused by the next console; the pid identifies
+    # this one. Every yield (sleep, emit) may end it.
+    console_pid, console_fd = child_pid, fd
     while True:
         sio.sleep(0.01)
-        if fd:
-            timeout_sec = 0
-            (data_ready, _, _) = select.select([fd], [], [], timeout_sec)
-            if data_ready:
-                output = os.read(fd, max_read_bytes).decode()
-                sio.emit("pty_output", {"output": output})
-        else:
+        if child_pid != console_pid:
             return
+        (data_ready, _, _) = select.select([console_fd], [], [], 0)
+        if not data_ready:
+            continue
+        try:
+            output = os.read(console_fd, max_read_bytes)
+        except OSError:  # EIO: the console process ended
+            output = b""
+        if not output:
+            sio.emit("pty_output", {"output": decoder.decode(b"", final=True) + "\r\n[console closed]\r\n"})
+            stop_console()
+            for sid, _ in list(sio.manager.get_participants("/", None)):
+                sio.disconnect(sid)
+            return
+        sio.emit("pty_output", {"output": decoder.decode(output)})
 
 
 @sio.event
@@ -170,6 +194,7 @@ def connect(sid, environ):
     global fd
     global child_pid
 
+    token = None
     hcookie = environ.get("HTTP_COOKIE")
     if hcookie:
         cookie = Cookie.SimpleCookie()
@@ -178,7 +203,7 @@ def connect(sid, environ):
             try:
                 cookie.load(hcookie_part)
             except Cookie.CookieError:
-                logging.warn("Found malformed cookie")
+                logging.warning("Found malformed cookie")
             else:
                 if "token" in cookie:
                     token = cookie["token"].value
@@ -193,13 +218,18 @@ def connect(sid, environ):
     (child_pid, fd) = pty.fork()
 
     if child_pid == 0:
-        (instance, conn) = get_connection_infos(token)
-        uuid = conn.get_uuid()
-        uri = conn.wvm.getURI()
-
-        # Become the console process; returning would run this server's code
-        # in the child as well.
-        os.execv("conf/daemon/consolecallback", ["consolecallback", uri, uuid])
+        # Become the console process; never return, which would run this
+        # server's code in the child as well. Its output goes to the client.
+        try:
+            if token is None:
+                sys.stderr.write("No console token\n")
+            else:
+                (instance, conn) = get_connection_infos(token)
+                os.execv("conf/daemon/consolecallback", ["consolecallback", conn.wvm.getURI(), conn.get_uuid()])
+        except BaseException:
+            pass  # get_connection_infos logged it
+        finally:
+            os._exit(1)
     else:
         # this is the parent process fork.
         sio.start_background_task(target=read_and_forward_pty_output)
@@ -207,25 +237,9 @@ def connect(sid, environ):
 
 @sio.event
 def disconnect(sid):
-
-    global fd
-    global child_pid
-
-    # kill pty process
-    try:
-        os.kill(child_pid, signal.SIGKILL)
-        os.waitpid(child_pid, 0)  # only the child this daemon started
-    except ProcessLookupError:
-        pass
-    except ChildProcessError:
-        pass
-
-    # reset the variables
-    fd = None
-    child_pid = None
+    stop_console()
 
 
 app = socketio.WSGIApp(sio)
-import eventlet
 
 eventlet.wsgi.server(eventlet.listen((options.host, int(options.port))), app)
