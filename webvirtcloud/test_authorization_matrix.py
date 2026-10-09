@@ -250,7 +250,7 @@ class AuthorizationMatrixTestCase(TestCase):
         # Mock libvirt so the views would succeed if authorization let them through.
         with patch("datasource.views.wvmInstance", MagicMock()), patch(
             "datasource.views.get_hostname_by_ip", return_value="host"
-        ), patch("instances.views.wvmInstances", MagicMock()):
+        ), patch("instances.models.wvmInstance", MagicMock()):
             for name in CONSOLE_ENDPOINTS:
                 url = self._url(name, params[name])
                 response = self._request(self.viewer, url)

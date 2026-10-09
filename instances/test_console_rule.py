@@ -52,17 +52,20 @@ class CanOpenConsoleTestCase(TestCase):
 
     def test_owner_can_download_vv_file(self):
         self.client.force_login(self.owner)
-        with patch("instances.views.wvmInstances") as mock_conn_cls, patch("instances.models.wvmInstance") as wvm:
-            wvm.return_value.instance.name.return_value = "cons-vm"
-            conn = mock_conn_cls.return_value
-            conn.graphics_type.return_value = "vnc"
-            conn.graphics_listen.return_value = "127.0.0.1"
-            conn.graphics_port.return_value = "5900"
-            conn.domain_name.return_value = "cons-vm"
-            conn.graphics_passwd.return_value = "secret"
+        with patch("instances.models.wvmInstance") as wvm:
+            proxy = wvm.return_value.cached_reads.return_value.__enter__.return_value
+            proxy.instance.name.return_value = "cons-vm"
+            proxy.host = "192.0.2.7"
+            proxy.get_console_type.return_value = "vnc"
+            proxy.get_console_listener_addr.return_value = "0.0.0.0"
+            proxy.get_console_port.return_value = "5900"
+            proxy.get_console_passwd.return_value = "secret"
             res = self.client.get(reverse("instances:getvvfile", args=[self.instance.id]))
         self.assertEqual(res.status_code, 200)
         self.assertIn(b"[virt-viewer]", res.content)
+        # the VM found by its UUID; a console on all addresses is reached through the host
+        for line in (b"type=vnc", b"host=192.0.2.7", b"port=5900", b"title=cons-vm", b"password=secret"):
+            self.assertIn(line + b"\n", res.content)
 
     def test_owner_can_get_vdi_url(self):
         self.client.force_login(self.owner)

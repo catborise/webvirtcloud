@@ -42,7 +42,7 @@ from logs.views import addlogmsg
 from webvirtcloud.middleware import error_text
 from vrtManager import util
 from vrtManager.create import wvmCreate
-from vrtManager.instance import USAGE_MAX_WINDOW, wvmInstances
+from vrtManager.instance import USAGE_MAX_WINDOW
 from vrtManager.interface import wvmInterface
 from vrtManager.storage import wvmStorage
 from vrtManager.util import randomPasswd
@@ -2046,15 +2046,6 @@ def getvvfile(request, pk):
     # The .vv file contains the VNC password: same rule as the console.
     if not utils.can_open_console(request.user, instance):
         raise PermissionDenied
-    conn = wvmInstances(
-        instance.compute.hostname,
-        instance.compute.login,
-        instance.compute.password,
-        instance.compute.type,
-    )
-
-    # The host's current name for this UUID; the stored name may be stale.
-    name = instance.proxy.instance.name()
     msg = _("Send console.vv file")
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     response = HttpResponse(
@@ -2064,15 +2055,15 @@ def getvvfile(request, pk):
         reason=None,
         charset="utf-8",
     )
-    response.writelines("[virt-viewer]\n")
-    response.writelines("type=" + conn.graphics_type(name) + "\n")
-    if conn.graphics_listen(name) == "0.0.0.0":
-        response.writelines("host=" + conn.host + "\n")
-    else:
-        response.writelines("host=" + conn.graphics_listen(name) + "\n")
-    response.writelines("port=" + conn.graphics_port(name) + "\n")
-    response.writelines("title=" + conn.domain_name(name) + "\n")
-    response.writelines("password=" + conn.graphics_passwd(name) + "\n")
+    # the VM found by its UUID; the stored name may be stale
+    with instance.proxy.cached_reads() as proxy:
+        listen = proxy.get_console_listener_addr()
+        response.writelines("[virt-viewer]\n")
+        response.writelines(f"type={proxy.get_console_type()}\n")
+        response.writelines(f"host={proxy.host if listen == '0.0.0.0' else listen}\n")
+        response.writelines(f"port={proxy.get_console_port()}\n")
+        response.writelines(f"title={proxy.instance.name()}\n")
+        response.writelines(f"password={proxy.get_console_passwd() or ''}\n")
     response.writelines("enable-usbredir=1\n")
     response.writelines("disable-effects=all\n")
     response.writelines("secure-attention=ctrl+alt+ins\n")

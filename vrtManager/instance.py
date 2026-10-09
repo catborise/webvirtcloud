@@ -73,56 +73,6 @@ def _rate(before, after, seconds, scale=1):
 
 
 class wvmInstances(wvmConnect):
-    def get_instance_status(self, name):
-        inst = self.get_instance(name)
-        return inst.info()[0]
-
-    def get_instance_memory(self, name):
-        inst = self.get_instance(name)
-        mem = util.get_xml_path(inst.XMLDesc(0), "/domain/currentMemory")
-        return int(mem) // 1024
-
-    def get_instance_vcpu(self, name):
-        inst = self.get_instance(name)
-        cur_vcpu = util.get_xml_path(inst.XMLDesc(0), "/domain/vcpu/@current")
-        return cur_vcpu or util.get_xml_path(inst.XMLDesc(0), "/domain/vcpu")
-
-    def get_instance_managed_save_image(self, name):
-        inst = self.get_instance(name)
-        return inst.hasManagedSaveImage(0)
-
-    def get_uuid(self, name):
-        inst = self.get_instance(name)
-        return inst.UUIDString()
-
-    def start(self, name):
-        dom = self.get_instance(name)
-        dom.create()
-
-    def shutdown(self, name):
-        dom = self.get_instance(name)
-        dom.shutdown()
-
-    def force_shutdown(self, name):
-        dom = self.get_instance(name)
-        dom.destroy()
-
-    def managedsave(self, name):
-        dom = self.get_instance(name)
-        dom.managedSave(0)
-
-    def managed_save_remove(self, name):
-        dom = self.get_instance(name)
-        dom.managedSaveRemove(0)
-
-    def suspend(self, name):
-        dom = self.get_instance(name)
-        dom.suspend()
-
-    def resume(self, name):
-        dom = self.get_instance(name)
-        dom.resume()
-
     def moveto(self, conn, name, live, unsafe, offline, autoconverge=False, compress=False, uri=None, timeout=None):
         """Migrates the VM of conn (a wvmInstance on the source) here.
 
@@ -382,43 +332,6 @@ class wvmInstances(wvmConnect):
                 f"{error}; the VM is now defined on both hosts, remove it from the destination: {undo_error}"
             ) from error
 
-    def graphics_type(self, name):
-        inst = self.get_instance(name)
-        console_type = util.get_xml_path(
-            inst.XMLDesc(0), "/domain/devices/graphics/@type"
-        )
-        return "None" if console_type is None else console_type
-
-    def graphics_listen(self, name):
-        inst = self.get_instance(name)
-        listener_addr = util.get_xml_path(
-            inst.XMLDesc(0), "/domain/devices/graphics/@listen"
-        )
-        if listener_addr is None:
-            listener_addr = util.get_xml_path(
-                inst.XMLDesc(0), "/domain/devices/graphics/listen/@address"
-            )
-        return "None" if listener_addr is None else listener_addr
-
-    def graphics_port(self, name):
-        inst = self.get_instance(name)
-        console_port = util.get_xml_path(
-            inst.XMLDesc(0), "/domain/devices/graphics/@port"
-        )
-        return "None" if console_port is None else console_port
-
-    def domain_name(self, name):
-        inst = self.get_instance(name)
-        domname = util.get_xml_path(inst.XMLDesc(0), "/domain/name")
-        return "NoName" if domname is None else domname
-
-    def graphics_passwd(self, name):
-        inst = self.get_instance(name)
-        password = util.get_xml_path(
-            inst.XMLDesc(VIR_DOMAIN_XML_SECURE), "/domain/devices/graphics/@passwd"
-        )
-        return "None" if password is None else password
-
 
 class wvmInstance(wvmConnect):
     # set by cached_reads(): libvirt answers reused within the block
@@ -471,12 +384,6 @@ class wvmInstance(wvmConnect):
 
     def force_shutdown(self):
         self.instance.destroy()
-
-    def managedsave(self):
-        self.instance.managedSave(0)
-
-    def managed_save_remove(self):
-        self.instance.managedSaveRemove(0)
 
     def suspend(self):
         self.instance.suspend()
@@ -547,9 +454,6 @@ class wvmInstance(wvmConnect):
     def get_cur_vcpu(self):
         cur_vcpu = util.get_xml_path(self._XMLDesc(0), "/domain/vcpu/@current")
         return int(cur_vcpu) if cur_vcpu else self.get_vcpu()
-
-    def get_vcpu_mode(self):
-        return util.get_xml_path(self._XMLDesc(0), "/domain/cpu/@current")
 
     def get_arch(self):
         return util.get_xml_path(self._XMLDesc(0), "/domain/os/type/@arch")
@@ -788,7 +692,7 @@ class wvmInstance(wvmConnect):
                         else:
                             volume = src_file
                     except Exception as e:
-                        print(f"Exception: {e}")
+                        logger.warning("Disk %s of %s not fully read: %s", dev, self.instance.name(), e)
                     finally:
                         result.append(
                             {
@@ -966,9 +870,10 @@ class wvmInstance(wvmConnect):
         The live and the persistent definition are updated separately from
         their own device XML, so neither is rewritten from the other.
         """
-        definitions = [("persistent", PERSISTENT_XML, VIR_DOMAIN_AFFECT_CONFIG)]
-        if self.instance.isActive():  # running or paused
-            definitions.insert(0, ("running", VIR_DOMAIN_XML_SECURE, VIR_DOMAIN_AFFECT_LIVE))
+        definitions = [
+            ("running" if affect == VIR_DOMAIN_AFFECT_LIVE else "persistent", xml_flags, affect)
+            for xml_flags, affect in self._definitions()
+        ]
         devices = []
         for label, xml_flags, _ in definitions:
             tree = etree.fromstring(self._XMLDesc(xml_flags))
@@ -1143,7 +1048,7 @@ class wvmInstance(wvmConnect):
         disk = target.getparent()
 
         if target.get("bus") != target_bus:
-            prefix = {"virtio": "vd", "ide": "hd", "fdc": "fd"}.get(target_bus, "sd")
+            prefix = util.vol_dev_type(target_bus) or "sd"
             used = set(tree.xpath("./devices/disk/target/@dev")) - {target_dev}
             new_dev = target_dev if target_dev.startswith(prefix) else next(
                 (prefix + letter for letter in string.ascii_lowercase if prefix + letter not in used),
@@ -1949,18 +1854,6 @@ class wvmInstance(wvmConnect):
 
         return clone.UUIDString()
 
-    def get_bridge_name(self, source, source_type="net"):
-        if source_type == "iface":
-            iface = self.get_iface(source)
-            bridge_name = iface.name()
-        else:
-            net = self.get_network(source)
-            try:
-                bridge_name = net.bridgeName()
-            except libvirtError:
-                bridge_name = None
-        return bridge_name
-
     def add_network(
         self, mac_address, source, source_type="net", model="virtio", nwfilter=None
     ):
@@ -1988,9 +1881,8 @@ class wvmInstance(wvmConnect):
             etree.SubElement(iface, "filterref", filter=nwfilter)
         xml_iface = etree.tostring(iface).decode()
 
-        if self.instance.isActive():  # running or paused
-            self.instance.attachDeviceFlags(xml_iface, VIR_DOMAIN_AFFECT_LIVE)
-        self.instance.attachDeviceFlags(xml_iface, VIR_DOMAIN_AFFECT_CONFIG)
+        for _, affect in self._definitions():
+            self.instance.attachDeviceFlags(xml_iface, affect)
 
     def _definitions(self):
         """(XMLDesc flags, affect flag) of the definitions a device edit applies to:
@@ -2049,63 +1941,6 @@ class wvmInstance(wvmConnect):
             etree.SubElement(iface, "filterref", filter=nwfilter)
 
         self._defineXML(etree.tostring(tree).decode())
-
-    def change_network_oldway(self, network_data):
-        """
-        change network firsh version...
-        will be removed if new one works as expected for all scenarios
-        """
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-        tree = ElementTree.fromstring(xml)
-        for num, interface in enumerate(tree.findall("devices/interface")):
-            net_mac = network_data.get("net-mac-" + str(num))
-            if net_mac is None:
-                continue
-            net_source = network_data.get("net-source-" + str(num))
-            net_source_type = network_data.get("net-source-" + str(num) + "-type")
-            net_filter = network_data.get("net-nwfilter-" + str(num))
-            net_model = network_data.get("net-model-" + str(num))
-
-            source = interface.find("source")
-            if interface.get("type") == "bridge":
-                bridge_name = self.get_bridge_name(net_source, net_source_type)
-                source.set("bridge", bridge_name)
-            elif interface.get("type") in ["network", "direct"]:
-                if net_source_type == "net":
-                    source.set("network", net_source)
-                elif net_source_type == "iface":
-                    source.set("dev", net_source)
-                else:
-                    raise util.OperationError(
-                        "Unknown network type: {}".format(net_source_type)
-                    )
-            else:
-                raise util.OperationError(
-                    "Unknown network type: {}".format(interface.get("type"))
-                )
-
-            source = interface.find("model")
-            if net_model != "default":
-                source.attrib["type"] = net_model
-            else:
-                interface.remove(source)
-
-            source = interface.find("mac")
-            source.set("address", net_mac)
-            source = interface.find("filterref")
-            if net_filter:
-                if source is not None:
-                    source.set("filter", net_filter)
-                else:
-                    element = ElementTree.Element("filterref")
-                    element.attrib["filter"] = net_filter
-                    interface.append(element)
-            else:
-                if source is not None:
-                    interface.remove(source)
-
-        new_xml = ElementTree.tostring(tree).decode()
-        self._defineXML(new_xml)
 
     def set_link_state(self, mac_address, state):
         for xml_flags, affect in self._definitions():
