@@ -959,19 +959,11 @@ class wvmConnect(object):
         return instance
 
     def get_net_devices(self):
-        netdevice = []
-
-        def get_info(doc):
-            dev_type = util.get_xpath(doc, "/device/capability/@type")
-            interface = util.get_xpath(doc, "/device/capability/interface")
-            return dev_type, interface
-
-        for dev in self.wvm.listAllDevices(0):
-            xml = dev.XMLDesc(0)
-            (dev_type, interface) = util.get_xml_path(xml, func=get_info)
-            if dev_type == "net":
-                netdevice.append(interface)
-        return netdevice
+        """The host's network interface names; libvirt lists only the network devices"""
+        return [
+            util.get_xml_path(dev.XMLDesc(0), "/device/capability/interface")
+            for dev in self.wvm.listAllDevices(libvirt.VIR_CONNECT_LIST_NODE_DEVICES_CAP_NET)
+        ]
 
     def get_host_instances(self, raw_mem_size=False):
         vname = {}
