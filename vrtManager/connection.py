@@ -906,7 +906,9 @@ class wvmConnect(object):
         try:
             yield pool
         finally:
-            pool.destroy()
+            # a transient pool left by a failed destroy goes with libvirtd's next restart
+            with contextlib.suppress(libvirtError):
+                pool.destroy()
 
     @staticmethod
     def _find_volume(pool, name):

@@ -53,7 +53,7 @@ from xml.etree import ElementTree
 from lxml import etree
 
 from vrtManager import util
-from vrtManager.connection import wvmConnect
+from vrtManager.connection import NVRAM_DIR, wvmConnect
 from vrtManager.storage import wvmStorage, wvmStorages
 
 # Edits that redefine the domain start from this: the persistent definition,
@@ -1794,8 +1794,9 @@ class wvmInstance(wvmConnect):
         return ":".join(mac_tuples)
 
     def clone_instance(self, clone_data):
-        """Copy a shut-off VM. Inputs are checked before anything is allocated,
-        and on failure only the volumes this call created are removed."""
+        """Copy a shut-off VM, with its disks and UEFI variables (NVRAM).
+        Inputs are checked before anything is allocated, and on failure only
+        the volumes this call created are removed. Returns the clone's UUID."""
         if self.get_status() != 5:
             # A running guest keeps writing while its disks are copied.
             raise util.OperationError("Shut the VM down before cloning it")
@@ -1839,25 +1840,17 @@ class wvmInstance(wvmConnect):
                 raise ValueError(f"No MAC address for network interface {num}")
             net.find("mac").set("address", self.fix_mac(mac))
 
+        # the UEFI variables: a path as text, or a <source file=...> since libvirt 8.5
+        nvram = tree.find("os/nvram")
+        nvram_source = nvram.find("source") if nvram is not None else None
+        nvram_path = None
+        if nvram is not None:
+            if nvram.get("type", "file") != "file":
+                raise util.OperationError("Cannot clone a VM whose NVRAM is not a file")
+            nvram_path = nvram_source.get("file") if nvram_source is not None else (nvram.text or "").strip()
+
         created = []  # paths of volumes this call created
         try:
-            src_nvram_path = self.get_nvram()
-            if src_nvram_path:
-                nvram = tree.find("os/nvram")
-                nvram.getparent().remove(nvram)
-
-                # NVRAM CLONE: create pool if nvram is not in a pool. then clone it
-                src_nvram_name = os.path.basename(src_nvram_path)
-                nvram_dir = os.path.dirname(src_nvram_path)
-                nvram_pool_name = os.path.basename(nvram_dir)
-                try:
-                    self.get_volume_by_path(src_nvram_path)
-                except libvirtError:
-                    self.get_wvmStorages().create_storage("dir", nvram_pool_name, None, nvram_dir)
-                nvram_stg = self.get_wvmStorage(nvram_pool_name)
-                name = nvram_stg.clone_volume(src_nvram_name, f"{clone_data['name']}_VARS", file_suffix="fd")
-                created.append(os.path.join(nvram_dir, name))
-
             for source, dev in disks:
                 target_file = clone_data["disk-" + dev]
                 meta_prealloc = bool(clone_data.get("meta-" + dev))
@@ -1910,7 +1903,39 @@ class wvmInstance(wvmConnect):
                     created.append(new_path)
                     source.set("dev", new_path)
 
-            self._defineXML(etree.tostring(tree).decode())
+            if not nvram_path:
+                clone = self._defineXML(etree.tostring(tree).decode())
+            else:
+                # the clone starts with the VM's UEFI variables: boot entries, enrolled keys
+                if os.path.dirname(nvram_path) == NVRAM_DIR:
+                    pools = self._nvram_pool()
+                else:  # a volume of a pool; libvirtError when no pool holds it
+                    pools = contextlib.nullcontext(self.get_volume_by_path(nvram_path).storagePoolLookupByVolume())
+                with pools as pool:
+                    original = pool.storageVolLookupByName(os.path.basename(nvram_path))
+                    # same format, owner and mode as the original: the domain names the format,
+                    # and qemu may run without libvirt changing the file's owner
+                    target = etree.fromstring(original.XMLDesc(0)).find("target")
+                    volume = etree.Element("volume")
+                    etree.SubElement(volume, "name").text = clone_data["name"] + "_VARS" + os.path.splitext(nvram_path)[1]
+                    etree.SubElement(volume, "capacity").text = "0"
+                    copy_target = etree.SubElement(volume, "target")
+                    for tag in ("format", "permissions"):
+                        if target.find(tag) is not None:
+                            copy_target.append(target.find(tag))
+                    copy = pool.createXMLFrom(etree.tostring(volume).decode(), original, 0)
+                    if nvram_source is not None:
+                        nvram_source.set("file", copy.path())
+                    else:
+                        nvram.text = copy.path()
+                    try:
+                        clone = self._defineXML(etree.tostring(tree).decode())
+                    except Exception:
+                        try:
+                            copy.delete(0)
+                        except libvirtError:
+                            created.append(copy.path())
+                        raise
         except Exception as err:
             leftovers = []
             for path in reversed(created):
@@ -1922,7 +1947,7 @@ class wvmInstance(wvmConnect):
                 raise util.OperationError(f"Clone failed ({err}); remove these copies by hand: {', '.join(leftovers)}") from err
             raise
 
-        return self.get_instance(clone_data["name"]).UUIDString()
+        return clone.UUIDString()
 
     def get_bridge_name(self, source, source_type="net"):
         if source_type == "iface":

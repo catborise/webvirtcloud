@@ -2,6 +2,7 @@
 
 import os
 import unittest
+from xml.etree import ElementTree
 
 import libvirt
 from django.test import SimpleTestCase
@@ -83,6 +84,30 @@ class LiveCloneTestCase(SimpleTestCase):
             vm.clone_instance(self.clone_data("clone-run-copy"))
 
         self.assertEqual(self.pool_volumes(), before)
+
+    def test_clone_of_a_uefi_vm_has_its_own_copy_of_the_nvram(self):
+        disk = livetest.create_volume(self.conn, P + "clone-uefi-a")
+        dom = livetest.define_vm(self.conn, P + "clone-uefi", [disk], uefi=True)
+        dom.createWithFlags(libvirt.VIR_DOMAIN_START_PAUSED)  # libvirt makes the NVRAM file at the first start
+        dom.destroy()
+        vm = wvmInstance(*self.args, None, uuid=dom.UUIDString())
+        source = vm.get_nvram()
+
+        uuid = vm.clone_instance(
+            {"name": P + "clone-uefi-copy", "disk-vda": P + "clone-uefi-copy-a.qcow2", "disk_owner_uid": 0, "disk_owner_gid": 0}
+        )
+
+        clone = self.conn.lookupByUUIDString(uuid)
+        path = ElementTree.fromstring(clone.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)).findtext("os/nvram")
+        self.assertEqual(path, os.path.join(os.path.dirname(source), P + "clone-uefi-copy_VARS.fd"))
+        with vm._nvram_pool() as pool:
+            copy = pool.storageVolLookupByName(os.path.basename(path))
+            self.assertEqual(copy.info()[1], pool.storageVolLookupByName(os.path.basename(source)).info()[1])
+        clone.createWithFlags(libvirt.VIR_DOMAIN_START_PAUSED)  # qemu opens the copy
+        self.assertEqual(
+            ElementTree.fromstring(clone.XMLDesc(0)).findtext("os/nvram"), path, "libvirt replaced the copy"
+        )
+        clone.destroy()
 
     def test_clone_of_a_stopped_vm(self):
         _, vm = self.source("clone-ok")
