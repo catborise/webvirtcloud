@@ -92,4 +92,13 @@ assert.strictEqual(answers.length, 8, "each answer reaches onData");
 failNext = true; requests[8].finish();
 assert.ok(requests[8].error, "the error reaches the page");
 advance(10000); assert.strictEqual(requests.length, 10, "polling goes on after an error in onData");
+
+// a first delay of 0: the first request at once, then every interval
+poll.stop(); requests[9].finish();
+const atOnce = pollWhileVisible(5000, request, onData, 0);
+advance(0); assert.strictEqual(requests.length, 11, "first request after firstDelay");
+requests[10].finish();
+advance(4999); assert.strictEqual(requests.length, 11);
+advance(1); assert.strictEqual(requests.length, 12, "then every interval");
+atOnce.stop();
 console.log("poll.js: all checks passed");

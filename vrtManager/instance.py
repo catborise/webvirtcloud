@@ -60,6 +60,16 @@ from vrtManager.storage import wvmStorage, wvmStorages
 # with secrets. Live XML would drop pending changes, non-secure XML the VNC
 # password.
 PERSISTENT_XML = VIR_DOMAIN_XML_INACTIVE | VIR_DOMAIN_XML_SECURE
+# the longest window wvmInstance.usage() averages over
+USAGE_MAX_WINDOW = 30
+
+
+def _rate(before, after, seconds, scale=1):
+    """Growth per second of a counter, or None when a reading is unsupported
+    (-1) or the counter went back."""
+    if before < 0 or after < before:
+        return None
+    return scale * (after - before) / seconds
 
 
 class wvmInstances(wvmConnect):
@@ -1266,68 +1276,91 @@ class wvmInstance(wvmConnect):
             mem_usage["total"] = 0
         return mem_usage
 
-    def usage(self):
+    def usage(self, previous=None):
         """
         CPU (percent of the host), disk read/write bytes and network rx/tx
-        bits of the last second, for the stats view. All counters are read
-        before and after one shared second: the view runs in a web worker,
-        and a second per device kept it busy for 1 + disks + NICs seconds.
+        bits per second, for the stats view. With previous, the "sample" of an
+        earlier answer, they are averages since then and nothing waits; without
+        a usable one, over one second. A sample is usable for the same run of
+        the VM (domain ID) on a host with the same CPUs and devices, at most
+        USAGE_MAX_WINDOW seconds old. A value the host does not report (-1) or
+        whose counter went back is None.
         """
-        devices = []
         tree = ElementTree.fromstring(self._XMLDesc(0))
+        disks = []
         for disk in tree.findall("devices/disk"):
-            if disk.get("device") == "disk":
-                dev_file = None
-                dev_bus = None
-                network_disk = True
-                for elm in disk:
-                    if elm.tag == "source":
-                        if elm.get("protocol"):
-                            dev_file = elm.get("protocol")
-                            network_disk = True
-                        if elm.get("file"):
-                            dev_file = elm.get("file")
-                        if elm.get("dev"):
-                            dev_file = elm.get("dev")
-                    if elm.tag == "target":
-                        dev_bus = elm.get("dev")
-                if (dev_file and dev_bus) is not None:
-                    if network_disk:
-                        dev_file = dev_bus
-                    devices.append([dev_file, dev_bus])
+            source, target = disk.find("source"), disk.find("target")
+            if (
+                disk.get("device") == "disk"
+                and source is not None
+                and any(source.get(name) for name in ("protocol", "file", "dev", "volume"))
+                and target is not None
+                and target.get("dev")
+            ):
+                disks.append(target.get("dev"))  # blockStats takes the target name
+        # all NICs, in the order of the page's charts; one without a target is not measured
         nics = []
-        running = self.get_status() == 1
-        if running:
-            tree = ElementTree.fromstring(self._XMLDesc(0))
-            for target in tree.findall("devices/interface/target"):
-                nics.append(target.get("dev"))
+        for nic in tree.findall("devices/interface"):
+            mac, target = nic.find("mac"), nic.find("target")
+            nics.append([
+                "" if mac is None else mac.get("address", ""),
+                "" if target is None else target.get("dev", ""),
+            ])
 
-        def sample():
-            return (
+        if self.get_status() != 1:
+            return {
+                "cpu": 0,
+                "disks": [{"dev": dev, "rd": 0, "wr": 0} for dev in disks],
+                "nics": [{"dev": i, "rx": 0, "tx": 0} for i in range(len(nics))],
+            }
+
+        key = [self.instance.ID(), self._host_info()[2], disks, nics]
+        unread = (-1,) * 8
+
+        def read():
+            blocks = [self.instance.blockStats(dev) for dev in disks]
+            links = [self.instance.interfaceStats(target) if target else unread for _, target in nics]
+            return [
                 self.instance.info()[4],
-                [self.instance.blockStats(dev[0]) for dev in devices],
-                [self.instance.interfaceStats(dev) for dev in nics],
-            )
+                [[stats[1], stats[3]] for stats in blocks],
+                [[stats[0], stats[4]] for stats in links],
+                time.monotonic(),
+            ]
 
-        cpu_usage = {"cpu": 0}
-        dev_usage = [{"dev": dev[1], "rd": 0, "wr": 0} for dev in devices]
-        if not running:
-            net_usage = [{"dev": i, "rx": 0, "tx": 0} for i, _ in enumerate(self.get_net_devices())]
-            return cpu_usage, dev_usage, net_usage
+        def rates(before, after):
+            seconds = after[3] - before[3]
+            if before[0] > after[0] or not 0 < seconds <= USAGE_MAX_WINDOW:
+                return None
+            return {
+                "cpu": 100 * (after[0] - before[0]) / (seconds * key[1] * 10**9),
+                "disks": [
+                    {"dev": dev, "rd": _rate(old[0], new[0], seconds), "wr": _rate(old[1], new[1], seconds)}
+                    for dev, old, new in zip(disks, before[1], after[1])
+                ],
+                "nics": [
+                    {"dev": i, "rx": _rate(old[0], new[0], seconds, 8), "tx": _rate(old[1], new[1], seconds, 8)}
+                    for i, (old, new) in enumerate(zip(before[2], after[2]))
+                ],
+                "window": seconds,
+            }
 
-        nbcore = self.wvm.getInfo()[2]
-        cpu_ago, blk_ago, net_ago = sample()
-        time.sleep(1)
-        cpu_now, blk_now, net_now = sample()
-        cpu_usage["cpu"] = 100 * (cpu_now - cpu_ago) / (1 * nbcore * 10**9)
-        for usage, ago, now in zip(dev_usage, blk_ago, blk_now):
-            usage["rd"] = now[1] - ago[1]
-            usage["wr"] = now[3] - ago[3]
-        net_usage = [
-            {"dev": i, "rx": (now[0] - ago[0]) * 8, "tx": (now[4] - ago[4]) * 8}
-            for i, (ago, now) in enumerate(zip(net_ago, net_now))
-        ]
-        return cpu_usage, dev_usage, net_usage
+        counters = read()
+        usage = None
+        if previous is not None and previous.get("key") == key:
+            usage = rates(previous["counters"], counters)
+        if usage is None:
+            before = counters
+            time.sleep(1)
+            counters = read()
+            # None everywhere if the VM restarted meanwhile
+            usage = rates(before, counters) or {
+                "cpu": None,
+                "disks": [{"dev": dev, "rd": None, "wr": None} for dev in disks],
+                "nics": [{"dev": i, "rx": None, "tx": None} for i in range(len(nics))],
+                "window": None,
+            }
+        usage["sample"] = {"key": key, "counters": counters}
+        return usage
 
     def get_telnet_port(self):
         telnet_port = None

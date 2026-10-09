@@ -381,8 +381,13 @@
 <script src="{% static 'js/Chart.bundle.min.js' %}"></script>
 <script src="{% static 'js/poll.js' %}"></script>
 <script>
+    {% trans "average over" as average_over %}
     var stats_tab = document.querySelector('#graphics-tab');
     var stats_poll = null;
+    // the seconds each CPU point averages
+    var cpuWindows = [];
+    // the usage sample of the previous answer: the next one averages since then
+    var statsSample = null;
     // The charts are polled while the Stats tab is shown; they are made once.
     stats_tab.addEventListener('hidden.bs.tab', function (event) {
         stats_poll.stop();
@@ -436,7 +441,9 @@
                              if (label) {
                                 label += ': ';
                              }
-                             return label += tooltipItem.yLabel + ' %';
+                             label += tooltipItem.yLabel + ' %';
+                             var span = cpuWindows[tooltipItem.index];
+                             return span ? label + ' ({{ average_over|escapejs }} ' + span + ' s)' : label;
                          }
                      }
                 }
@@ -530,7 +537,7 @@
                                 suggestedmax: 100,
                                 suggestedMin: 0,
                                 callback: function(value, index, values) {
-                                    return value + ' Mb/s';
+                                    return value + ' MB/s';
                                 }
                             },
                         }],
@@ -542,7 +549,7 @@
                                  if (label) {
                                     label += ': ';
                                  }
-                                 return label += tooltipItem.yLabel + ' Mb/s';
+                                 return label += tooltipItem.yLabel + ' MB/s';
                              }
                          }
                     }
@@ -608,14 +615,21 @@
             });
         {% endfor %}
 
-        stats_poll = pollWhileVisible(10000, function () {
-            return $.getJSON("{% url 'instances:stats' instance.id %}");
+        // the first point at once, then every 5 s like the host graph
+        stats_poll = pollWhileVisible(5000, function () {
+            return $.getJSON("{% url 'instances:stats' instance.id %}", statsSample ? {sample: statsSample} : {})
+                .fail(function () {
+                    statsSample = null;
+                });
         }, function graph_usage(data) {
+            statsSample = data.sample || null;
             cpuChart.data.labels.push(data.timeline);
             cpuChart.data.datasets[0].data.push(data.cpudata);
+            cpuWindows.push(data.window);
             if (cpuChart.data.datasets[0].data.length > 10){
                 cpuChart.data.labels.shift();
                 cpuChart.data.datasets[0].data.shift();
+                cpuWindows.shift();
             }
             cpuChart.update();
 
@@ -629,32 +643,24 @@
             }
             memChart.update();
 
-            for (let j = 0; j < data.blkdata.length; j++) {
-                diskChart[data.blkdata[j].dev].data.labels.push(data.timeline);
-
-                diskChart[data.blkdata[j].dev].data.datasets[0].data.push(data.blkdata[j].data[0]);
-                diskChart[data.blkdata[j].dev].data.datasets[1].data.push(data.blkdata[j].data[1]);
-                if (diskChart[data.blkdata[j].dev].data.datasets[0].data.length > 10){
-                    diskChart[data.blkdata[j].dev].data.labels.shift();
-                    diskChart[data.blkdata[j].dev].data.datasets[0].data.shift();
-                    diskChart[data.blkdata[j].dev].data.datasets[1].data.shift();
+            // a disk or NIC added after the page loaded has no chart until a reload
+            function push(chart, values) {
+                if (!chart) {
+                    return;
                 }
-                diskChart[data.blkdata[j].dev].update();
-            }
-
-            for (let j = 0; j < data.netdata.length; j++) {
-                netChart[data.netdata[j].dev].data.labels.push(data.timeline);
-
-                netChart[data.netdata[j].dev].data.datasets[0].data.push(data.netdata[j].data[0]);
-                netChart[data.netdata[j].dev].data.datasets[1].data.push(data.netdata[j].data[1]);
-                if (netChart[data.netdata[j].dev].data.datasets[0].data.length > 10){
-                    netChart[data.netdata[j].dev].data.labels.shift();
-                    netChart[data.netdata[j].dev].data.datasets[0].data.shift();
-                    netChart[data.netdata[j].dev].data.datasets[1].data.shift();
+                chart.data.labels.push(data.timeline);
+                chart.data.datasets[0].data.push(values[0]);
+                chart.data.datasets[1].data.push(values[1]);
+                if (chart.data.datasets[0].data.length > 10){
+                    chart.data.labels.shift();
+                    chart.data.datasets[0].data.shift();
+                    chart.data.datasets[1].data.shift();
                 }
-                netChart[data.netdata[j].dev].update();
+                chart.update();
             }
-        });
+            data.blkdata.forEach(function (disk) { push(diskChart[disk.dev], disk.data); });
+            data.netdata.forEach(function (nic) { push(netChart[nic.dev], nic.data); });
+        }, 0);
     });
 </script>
 <script>

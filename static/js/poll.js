@@ -5,8 +5,9 @@
 // interval ms after the previous one has finished, so a slow host does not
 // pile up requests, each holding a web worker. A hidden page asks nothing;
 // when it is shown again it asks at once. stop() pauses, start() resumes
-// at once (for example while a tab of the page is shown).
-function pollWhileVisible(interval, request, onData) {
+// at once (for example while a tab of the page is shown). The first request
+// goes out after firstDelay ms, the interval if it is not given.
+function pollWhileVisible(interval, request, onData, firstDelay) {
     var timer = null;
     var running = false;
     var stopped = false;
@@ -34,7 +35,7 @@ function pollWhileVisible(interval, request, onData) {
     }
 
     document.addEventListener("visibilitychange", resume);
-    timer = setTimeout(run, interval);
+    timer = setTimeout(run, firstDelay === undefined ? interval : firstDelay);
 
     return {
         stop: function () {

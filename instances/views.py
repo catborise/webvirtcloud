@@ -22,6 +22,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import permission_required
 from django.contrib.auth.models import User
+from django.core import signing
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404, HttpResponse, JsonResponse
 from django.db.models import prefetch_related_objects
@@ -41,7 +42,7 @@ from logs.views import addlogmsg
 from webvirtcloud.middleware import error_text
 from vrtManager import util
 from vrtManager.create import wvmCreate
-from vrtManager.instance import wvmInstances
+from vrtManager.instance import USAGE_MAX_WINDOW, wvmInstances
 from vrtManager.interface import wvmInterface
 from vrtManager.storage import wvmStorage
 from vrtManager.util import randomPasswd
@@ -54,6 +55,8 @@ from .models import Flavor
 
 # the VM page waits this long (seconds) for the compute's drbdadm status
 DRBD_STATUS_TIMEOUT = 10
+# the stats tab sends the sample of each answer back with its next poll
+STATS_SAMPLE_SIGNER = signing.TimestampSigner(salt="instances.stats-sample")
 
 
 def index(request):
@@ -269,41 +272,42 @@ def drbd_status(request, pk):
     return result
 
 
+def _stats_sample(instance, token):
+    """The usage sample in a token of this VM's stats on its current compute,
+    or None when there is none, it is altered or too old."""
+    if not token:
+        return None
+    try:
+        data = STATS_SAMPLE_SIGNER.unsign_object(token, max_age=USAGE_MAX_WINDOW)
+    except signing.BadSignature:
+        return None
+    if data.get("vm") != [instance.id, instance.compute_id, instance.uuid]:
+        return None
+    return data["sample"]
+
+
 def stats(request, pk):
     instance = get_instance(request.user, pk)
-    json_blk = []
-    json_net = []
-
-    # TODO: stats are inaccurate
-    cpu_usage, blk_usage, net_usage = instance.proxy.usage()
+    usage = instance.proxy.usage(_stats_sample(instance, request.GET.get("sample")))
     mem_usage = instance.proxy.mem_usage()
 
-    current_time = time.strftime("%H:%M:%S")
-    for blk in blk_usage:
-        json_blk.append(
-            {
-                "dev": blk["dev"],
-                "data": [int(blk["rd"]) / 1048576, int(blk["wr"]) / 1048576],
-            }
-        )
+    def mega(value):
+        return None if value is None else value / 10**6
 
-    for net in net_usage:
-        json_net.append(
-            {
-                "dev": net["dev"],
-                "data": [int(net["rx"]) / 1048576, int(net["tx"]) / 1048576],
-            }
+    result = {
+        "cpudata": None if usage["cpu"] is None else round(usage["cpu"], 1),
+        "memdata": mem_usage,
+        # MB/s and Mbit/s
+        "blkdata": [{"dev": disk["dev"], "data": [mega(disk["rd"]), mega(disk["wr"])]} for disk in usage["disks"]],
+        "netdata": [{"dev": nic["dev"], "data": [mega(nic["rx"]), mega(nic["tx"])]} for nic in usage["nics"]],
+        "timeline": time.strftime("%H:%M:%S"),
+    }
+    if "sample" in usage:
+        result["window"] = None if usage["window"] is None else round(usage["window"], 1)
+        result["sample"] = STATS_SAMPLE_SIGNER.sign_object(
+            {"vm": [instance.id, instance.compute_id, instance.uuid], "sample": usage["sample"]}, compress=True
         )
-
-    return JsonResponse(
-        {
-            "cpudata": int(cpu_usage["cpu"]),
-            "memdata": mem_usage,
-            "blkdata": json_blk,
-            "netdata": json_net,
-            "timeline": current_time,
-        }
-    )
+    return JsonResponse(result)
 
 
 def osinfo(request, pk):
