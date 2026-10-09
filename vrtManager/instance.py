@@ -683,16 +683,17 @@ class wvmInstance(wvmConnect):
     def get_net_devices(self, config=False):
         def networks(ctx):
             result = []
-            inbound = outbound = []
             for net in ctx.xpath("/domain/devices/interface"):
+                inbound = outbound = []
                 interface_type = net.xpath("@type")[0]
                 mac_inst = net.xpath("mac/@address")[0]
-                nic_inst = net.xpath("source/@network|source/@bridge|source/@dev")[0]
+                source = net.xpath("source/@network|source/@bridge|source/@dev")
+                nic_inst = source[0] if source else ""
                 target_inst = net.xpath("target/@dev")[0] if net.xpath("target/@dev") else ""
                 link_state = net.xpath("link/@state")[0] if net.xpath("link") else "up"
                 filterref_inst = net.xpath("filterref/@filter")[0] if net.xpath("filterref/@filter") else ""
 
-                model_type = net.xpath("model/@type")[0]
+                model_type = net.xpath("model/@type")[0] if net.xpath("model/@type") else ""
                 if net.xpath("bandwidth/inbound"):
                     in_attr = net.xpath("bandwidth/inbound")[0]
                     in_av = in_attr.get("average")
@@ -831,34 +832,22 @@ class wvmInstance(wvmConnect):
     def get_media_devices(self):
         def disks(doc):
             result = []
-            dev = volume = storage = bus = None
-            src_file = None
-            for media in doc.xpath("/domain/devices/disk"):
-                device = media.xpath("@device")[0]
-                if device == "cdrom":
-                    try:
-                        dev = media.xpath("target/@dev")[0]
-                        bus = media.xpath("target/@bus")[0]
-                        src_file = None
-                        volume = src_file
-                        with contextlib.suppress(Exception):
-                            src_file = media.xpath("source/@file")[0]
-                            vol = self.get_volume_by_path(src_file)
-                            volume = vol.name()
-                            stg = vol.storagePoolLookupByVolume()
-                            storage = stg.name()
-                    except Exception:
-                        pass
-                    finally:
-                        result.append(
-                            {
-                                "dev": dev,
-                                "image": volume,
-                                "storage": storage,
-                                "path": src_file,
-                                "bus": bus,
-                            }
-                        )
+            for media in doc.xpath("/domain/devices/disk[@device='cdrom']"):
+                dev = media.xpath("target/@dev")
+                bus = media.xpath("target/@bus")
+                src_file = media.xpath("source/@file")
+                src_file = src_file[0] if src_file else None
+                details = self._volume_details(src_file) if src_file else None
+                volume, _, _, storage = details or (None, None, None, None)
+                result.append(
+                    {
+                        "dev": dev[0] if dev else None,
+                        "image": volume,
+                        "storage": storage,
+                        "path": src_file,
+                        "bus": bus[0] if bus else None,
+                    }
+                )
             return result
 
         return util.get_xml_path(self._XMLDesc(0), func=disks)
@@ -923,10 +912,10 @@ class wvmInstance(wvmConnect):
                 dev_type = dev.get("type")
                 dev_device = dev.get("device")
 
-                if dev_type == "file" or (dev_device == "disk" and dev_type == "network"):
+                if dev.tag == "disk":  # file, block, volume or network
                     dev_target = dev.find("target").get("dev")
 
-                elif dev_type == "network":
+                elif dev.tag == "interface":  # network, bridge or direct
                     dev_mac = dev.find("mac").get("address")
                     dev_device = "network"
                     dev_target = f"nic-{dev_mac[9:]}"
@@ -1798,13 +1787,14 @@ class wvmInstance(wvmConnect):
         return wvmStorages(self.host, self.login, self.passwd, self.conn)
 
     def refresh_instance_pools(self):
-        disks = self.get_disk_devices()
-        target_paths = set()
-        for disk in disks:
-            disk_path = disk.get("path")
-            target_paths.add(os.path.dirname(disk_path))
+        """Refresh the pools whose target directory holds one of the VM's
+        disks; a disk outside every pool has none to refresh."""
+        target_paths = {os.path.dirname(disk["path"]) for disk in self.get_disk_devices() if disk.get("path")}
+        storages = self.get_wvmStorages()
         for target_path in target_paths:
-            self.get_wvmStorages().get_pool_by_target(target_path).refresh(0)
+            pool = storages.get_pool_by_target(target_path)
+            if pool is not None:
+                pool.refresh(0)
 
     def fix_mac(self, mac):
         if ":" in mac:
