@@ -1,5 +1,6 @@
 """Chunked ISO upload operations shared by the storage view."""
 
+import atexit
 import fcntl
 import json
 import logging
@@ -8,6 +9,7 @@ import posixpath
 import re
 import stat
 import tempfile
+import threading
 import time
 from xml.sax.saxutils import escape
 
@@ -20,6 +22,86 @@ logger = logging.getLogger(__name__)
 LOCK_TIMEOUT_SECONDS = 15
 SSH_CONNECT_TIMEOUT_SECONDS = 10
 SSH_IO_TIMEOUT_SECONDS = 30
+SSH_IDLE_SECONDS = 60
+SSH_MAX_AGE_SECONDS = 600
+
+
+class _SSHPool:
+    """SSH connections to computes, kept for the next chunk of this process
+    (one HTTP request per chunk; a new connection costs ~200 ms). A request
+    takes a connection for itself and opens its own SFTP session on it. An
+    idle connection is closed after SSH_IDLE_SECONDS, and none is reused
+    once it is SSH_MAX_AGE_SECONDS old, so host keys and logins are checked
+    again."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._idle = {}  # key -> (client, opened, timer)
+
+    @staticmethod
+    def _usable(client, opened):
+        transport = client.get_transport()
+        return transport is not None and transport.is_active() and time.monotonic() - opened < SSH_MAX_AGE_SECONDS
+
+    def take(self, key):
+        """An idle connection and when it was opened, or None"""
+        with self._lock:
+            entry = self._idle.pop(key, None)
+        if entry is None:
+            return None
+        client, opened, timer = entry
+        timer.cancel()
+        if self._usable(client, opened):
+            return client, opened
+        client.close()
+        return None
+
+    def give(self, key, client, opened):
+        if not self._usable(client, opened):
+            client.close()
+            return
+        timer = threading.Timer(SSH_IDLE_SECONDS, lambda: self._expire(key, timer))
+        timer.daemon = True
+        with self._lock:
+            kept = key not in self._idle
+            if kept:
+                try:
+                    timer.start()
+                except RuntimeError:  # no thread for the timer: not kept
+                    kept = False
+                else:
+                    self._idle[key] = (client, opened, timer)
+        if not kept:
+            client.close()
+
+    def _expire(self, key, timer):
+        with self._lock:
+            entry = self._idle.get(key)
+            if entry is None or entry[2] is not timer:  # taken since, perhaps given back
+                return
+            del self._idle[key]
+        entry[0].close()
+
+    def close_all(self):
+        with self._lock:
+            entries, self._idle = list(self._idle.values()), {}
+        for client, _opened, timer in entries:
+            timer.cancel()
+            client.close()
+
+    def forget(self):
+        """For a forked child: drop the parent's connections without ending
+        their sessions; the parent keeps using them"""
+        entries, self._lock, self._idle = list(self._idle.values()), threading.Lock(), {}
+        for client, _opened, _timer in entries:
+            transport = client.get_transport()
+            if transport is not None:
+                transport.atfork()
+
+
+_ssh_pool = _SSHPool()
+os.register_at_fork(after_in_child=_ssh_pool.forget)
+atexit.register(_ssh_pool.close_all)
 
 
 def _fsync_dir(dir_path):
@@ -348,32 +430,71 @@ class _UploadTarget:
     def __enter__(self):
         if self.remote:
             hostname, separator, port = self.conn.host.partition(":")
-            self.ssh = paramiko.SSHClient()
+            self.key = (hostname, int(port) if separator else 22, self.conn.login, self.conn.passwd)
+            taken = _ssh_pool.take(self.key)
+            if taken is not None:
+                self.ssh, self.opened = taken
+                try:
+                    self._open_sftp()
+                    return self
+                except Exception:  # a connection the host dropped: open a new one
+                    self.ssh.close()
+            self.ssh, self.opened = self._connect(), time.monotonic()
             try:
-                self.ssh.load_system_host_keys()
-                self.ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
-                self.ssh.connect(
-                    hostname=hostname, port=int(port) if separator else 22,
-                    username=self.conn.login, password=self.conn.passwd,
-                    timeout=SSH_CONNECT_TIMEOUT_SECONDS,
-                    banner_timeout=SSH_CONNECT_TIMEOUT_SECONDS,
-                    auth_timeout=SSH_CONNECT_TIMEOUT_SECONDS,
-                    channel_timeout=SSH_CONNECT_TIMEOUT_SECONDS,
-                )
-                self.sftp = self.ssh.open_sftp()
-                self.sftp.get_channel().settimeout(SSH_IO_TIMEOUT_SECONDS)
+                self._open_sftp()
             except Exception:
                 self.ssh.close()
                 raise
         return self
 
-    def __exit__(self, *_):
+    def _connect(self):
+        hostname, port = self.key[:2]
+        ssh = paramiko.SSHClient()
         try:
-            if self.sftp is not None:
-                self.sftp.close()
+            ssh.load_system_host_keys()
+            ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
+            ssh.connect(
+                hostname=hostname, port=port,
+                username=self.conn.login, password=self.conn.passwd,
+                timeout=SSH_CONNECT_TIMEOUT_SECONDS,
+                banner_timeout=SSH_CONNECT_TIMEOUT_SECONDS,
+                auth_timeout=SSH_CONNECT_TIMEOUT_SECONDS,
+                channel_timeout=SSH_CONNECT_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            ssh.close()
+            raise
+        return ssh
+
+    def _open_sftp(self):
+        # paramiko waits for the SFTP subsystem without a deadline; on a dead
+        # connection closing it ends the wait with an error
+        watchdog = threading.Timer(SSH_CONNECT_TIMEOUT_SECONDS, self.ssh.close)
+        watchdog.daemon = True
+        watchdog.start()
+        try:
+            self.sftp = self.ssh.open_sftp()
         finally:
-            if self.ssh is not None:
-                self.ssh.close()
+            watchdog.cancel()
+        transport = self.ssh.get_transport()
+        if transport is None or not transport.is_active():
+            self.sftp.close()
+            raise paramiko.SSHException(_("The SFTP session did not start in time"))
+        self.sftp.get_channel().settimeout(SSH_IO_TIMEOUT_SECONDS)
+
+    def __exit__(self, exc_type, *_):
+        if self.ssh is None:
+            return
+        try:
+            self.sftp.close()
+        except Exception:
+            self.ssh.close()
+            raise
+        # after an error the connection is not trusted for the next chunk
+        if exc_type is None:
+            _ssh_pool.give(self.key, self.ssh, self.opened)
+        else:
+            self.ssh.close()
 
     def info(self, path):
         try:

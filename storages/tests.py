@@ -18,6 +18,7 @@ from storages.upload import (
     _get_upload_lock_directory,
     _is_session_completed,
     _sftp_replace_file,
+    _ssh_pool,
 )
 from vrtManager.connection import CONN_SOCKET, CONN_SSH, CONN_TCP, CONN_TLS
 
@@ -117,6 +118,7 @@ class StorageUploadSecurityTests(TestCase):
         self.mock_ssh_conn.host = "127.0.0.1"
         self.mock_ssh_conn.login = "test"
         self.mock_ssh_conn.passwd = "test"
+        self.addCleanup(_ssh_pool.close_all)
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -635,6 +637,9 @@ class StorageUploadSecurityTests(TestCase):
             upload_id=upload_id,
         )
         self.assertEqual(remote_files[final_remote], b"DEBIAN_CHUNK0_DEBIAN_CHUNK1")
+        # one connection for the three requests, an SFTP session for each
+        mock_ssh.connect.assert_called_once()
+        self.assertEqual(mock_ssh.open_sftp.call_count, 3)
 
     def test_handle_uploaded_file_ssh_traversal_check(self):
         dummy_chunk = SimpleUploadedFile("test.iso", b"data")
