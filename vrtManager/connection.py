@@ -1,8 +1,10 @@
+import contextlib
 import os
 import re
 import socket
 import threading
 import time
+import uuid
 from urllib.parse import quote
 
 import libvirt
@@ -85,6 +87,10 @@ def _after_fork_in_child():
 
 
 os.register_at_fork(after_in_child=_after_fork_in_child)
+
+
+# libvirt's per-host directory of the VMs' UEFI variables (NVRAM)
+NVRAM_DIR = "/var/lib/libvirt/qemu/nvram"
 
 
 class wvmConnection(object):
@@ -831,6 +837,66 @@ class wvmConnect(object):
 
     def get_volume_by_path(self, path):
         return self.wvm.storageVolLookupByPath(path)
+
+    def remove_nvram(self, path, destination):
+        """Deletes the NVRAM file of a VM that migrated from this host to
+        destination (a wvmConnect). Only a file in libvirt's per-host NVRAM
+        directory, and only when destination does not see that directory too
+        (shared storage would hold the migrated VM's own file). Returns
+        whether a file was deleted."""
+        if os.path.dirname(path) != NVRAM_DIR:
+            return False
+        marker = (
+            f"<volume><name>webvirtcloud-check-{uuid.uuid4().hex}</name><capacity>0</capacity>"
+            "<target><format type='raw'/></target></volume>"
+        )
+        with self._nvram_pool() as pool:
+            mine = pool.createXML(marker, 0)
+            try:
+                # Creating the same file on destination fails when both see one
+                # directory: the create is exclusive on the file server, unlike
+                # a directory listing, which an NFS client may cache.
+                with destination._nvram_pool() as other:
+                    try:
+                        other.createXML(marker, 0).delete(0)
+                    except libvirtError:
+                        return False  # shared, or not known to be local
+            finally:
+                mine.delete(0)
+            vol = self._find_volume(pool, os.path.basename(path))
+            if vol is None:
+                return False
+            vol.delete(0)
+            return True
+
+    @contextlib.contextmanager
+    def _nvram_pool(self):
+        """An active, refreshed pool on NVRAM_DIR: libvirt reads and deletes
+        files only as volumes of a pool. A transient one when none exists."""
+        for pool in self.wvm.listAllStoragePools(libvirt.VIR_CONNECT_LIST_STORAGE_POOLS_ACTIVE):
+            # a pool without a target path (rbd, gluster, ...) holds no files
+            if (util.get_xml_path(pool.XMLDesc(0), "/pool/target/path") or "").rstrip("/") == NVRAM_DIR:
+                pool.refresh(0)
+                yield pool
+                return
+        pool = self.wvm.storagePoolCreateXML(
+            f"<pool type='dir'><name>webvirtcloud-nvram-{uuid.uuid4().hex[:8]}</name>"
+            f"<target><path>{NVRAM_DIR}</path></target></pool>",
+            0,
+        )
+        try:
+            yield pool
+        finally:
+            pool.destroy()
+
+    @staticmethod
+    def _find_volume(pool, name):
+        try:
+            return pool.storageVolLookupByName(name)
+        except libvirtError as err:
+            if err.get_error_code() == libvirt.VIR_ERR_NO_STORAGE_VOL:
+                return None
+            raise
 
     def get_network(self, net):
         return self.wvm.networkLookupByName(net)

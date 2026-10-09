@@ -190,6 +190,7 @@ def migrate_instance(
                 )
 
                 autostart = instance.proxy.get_autostart()
+                nvram = instance.proxy.get_nvram()
                 mode = conn_migrate.moveto(
                     instance.proxy,
                     instance.name,
@@ -232,6 +233,25 @@ def migrate_instance(
                     conn_new.set_autostart(1)
                 except (libvirtError, OSError) as error:
                     msg = _("%(msg)s; setting its autostart there failed: %(error)s") % {"msg": msg, "error": error}
+                finally:
+                    if conn_new is not None:
+                        conn_new.close()
+
+            # libvirt keeps the NVRAM file on the source; a VM created there
+            # later with the same name would start with these variables.
+            if nvram:
+                conn_new = None
+                try:
+                    conn_new = wvmInstances(
+                        new_compute.hostname, new_compute.login, new_compute.password, new_compute.type
+                    )
+                    instance.proxy.remove_nvram(nvram, conn_new)
+                except Exception as error:  # the migration stands and is recorded
+                    msg = _("%(msg)s; removing its NVRAM file %(path)s on the source failed: %(error)s") % {
+                        "msg": msg,
+                        "path": nvram,
+                        "error": error,
+                    }
                 finally:
                     if conn_new is not None:
                         conn_new.close()
