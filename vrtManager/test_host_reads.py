@@ -1,15 +1,18 @@
 """A wvmConnect reads the host's info and capabilities once, and its domain
 capabilities once per emulator, arch, machine and domain type: the create
 page's getters parse the capabilities some 60 times, the overview reads the
-info four times. An object lives for one request."""
+info four times. An object lives for one request. The interfaces page lists
+only the host's network devices, not all of them."""
 
 import unittest
+from unittest.mock import MagicMock
 
 from django.conf import settings
 
 if not settings.configured:
     settings.configure(MAC_OUI="52:54:10")
 
+from libvirt import VIR_CONNECT_LIST_NODE_DEVICES_CAP_NET
 from vrtManager.connection import wvmConnect
 from vrtManager.hostdetails import wvmHostDetails
 
@@ -97,3 +100,17 @@ class CapabilitiesOnceTestCase(unittest.TestCase):
         conn.wvm = FakeConn()
         conn.get_cap_xml()
         self.assertEqual(conn.wvm.reads, ["capabilities"])
+
+
+class NetDevicesTestCase(unittest.TestCase):
+    def test_only_the_network_devices_are_listed_and_read(self):
+        conn = connection()
+        devices = {
+            VIR_CONNECT_LIST_NODE_DEVICES_CAP_NET: [
+                MagicMock(**{"XMLDesc.return_value": f"<device><capability type='net'><interface>{name}</interface>"
+                                                     "<capability type='80203'/></capability></device>"})
+                for name in ("eth0", "br0")
+            ]
+        }
+        conn.wvm.listAllDevices = lambda flags: devices.get(flags, [])
+        self.assertEqual(conn.get_net_devices(), ["eth0", "br0"])
