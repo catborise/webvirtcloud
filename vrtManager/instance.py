@@ -14,6 +14,7 @@ try:
         VIR_DOMAIN_AFFECT_CONFIG,
         VIR_DOMAIN_AFFECT_LIVE,
         VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_AGENT,
+        VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_ARP,
         VIR_DOMAIN_RUNNING,
         VIR_DOMAIN_XML_SECURE,
         VIR_DOMAIN_XML_INACTIVE,
@@ -671,8 +672,7 @@ class wvmInstance(wvmConnect):
                 VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_AGENT
             )
 
-        arp_flag = 3  # libvirt."VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_ARP"
-        self._ip_cache["arp"] = self._get_interface_addresses(arp_flag)
+        self._ip_cache["arp"] = self._get_interface_addresses(VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_ARP)
 
     def get_net_devices(self, config=False):
         def networks(ctx):
