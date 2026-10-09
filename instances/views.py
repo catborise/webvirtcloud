@@ -36,7 +36,6 @@ from libvirt import (VIR_DOMAIN_UNDEFINE_KEEP_NVRAM,
                      VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA,
                      VIR_DOMAIN_UNDEFINE_NVRAM,
                      VIR_DOMAIN_START_PAUSED,
-                     VIR_DOMAIN_RUNNING,
                      libvirtError)
 from logs.views import addlogmsg
 from webvirtcloud.middleware import error_text
@@ -884,10 +883,10 @@ def resize_memory(request, pk):
     new_cur_memory_custom = request.POST.get("cur_memory_custom", "")
     if new_cur_memory_custom:
         new_cur_memory = new_cur_memory_custom
-    # The quota charges the maximum. A running VM keeps it (resize_mem changes
+    # The quota charges the maximum. An active VM keeps it (resize_mem changes
     # only the current memory there); pass the current maximum, so a VM that
     # shuts down meanwhile does not get an unchecked one.
-    if instance.proxy.get_status() == VIR_DOMAIN_RUNNING:
+    if instance.proxy.instance.isActive():
         new_memory = memory
     if not _is_int(new_memory) or not _is_int(new_cur_memory):
         messages.error(request, _("Enter a whole number for memory"))

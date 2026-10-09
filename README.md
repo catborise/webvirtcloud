@@ -539,6 +539,7 @@ A rollback leaves the clone on a detached HEAD at the restored commit; the updat
 - An ISO uploads to an SSH compute about 3.5 times faster (SFTP writes no longer wait for each 32 KiB); a failed write still fails the upload.
 - The VM page shows each NIC's own QoS and each CD-ROM's own pool (they showed the previous device's), and a NIC without a source or model no longer breaks it.
 - A volume of an LVM or iSCSI pool can be attached to a VM, and bridge and direct NICs can be boot devices. The NIC model `default` lets libvirt choose, and `rt18139` is `rtl8139`: a VM with either did not start; a migration corrects the default NIC type setting.
+- A paused VM's memory is resized as a running VM's: the current memory changes and the guest takes it once resumed, the maximum stays (both only reached the VM at its next boot).
 - Cloning a UEFI VM no longer defines a storage pool on the host's NVRAM directory; the clone gets its own copy of the VM's UEFI variables.
 - The console .vv file finds the VM by its UUID; without a listen address or password it gives 127.0.0.1 and an empty password instead of "None".
 - A running VM without a guest agent shows the IPv4 address the host learned by ARP (the lookup always failed before).
