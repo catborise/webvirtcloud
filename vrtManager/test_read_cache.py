@@ -1,10 +1,10 @@
 """wvmInstance.cached_reads(): inside the block the domain XML (per flags),
-the VM's state, the host capabilities and info, and each disk's volume are
-read from libvirt once; outside it every read goes to libvirt, as code that
-changes the VM needs."""
+the VM's state, the host info and each disk's volume are read from libvirt
+once; outside it every read goes to libvirt, as code that changes the VM
+needs. The host capabilities are read once per object."""
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from django.conf import settings
 
@@ -12,7 +12,6 @@ if not settings.configured:
     settings.configure(MAC_OUI="52:54:10")
 
 from libvirt import libvirtError
-from vrtManager.connection import wvmConnect
 from vrtManager.instance import wvmInstance
 
 
@@ -61,8 +60,8 @@ class CachedReadsTestCase(unittest.TestCase):
         p = proxy()
         p._XMLDesc(0)
         p._XMLDesc(0)
-        p.get_cap_xml()
-        p.get_cap_xml()
+        p._host_info()
+        p._host_info()
         self.assertEqual((p.instance.reads, p.wvm.caps), ([0, 0], 2))
 
     def test_inside_the_block_each_flags_value_is_read_once(self):
@@ -70,8 +69,8 @@ class CachedReadsTestCase(unittest.TestCase):
         with p.cached_reads():
             first = [p._XMLDesc(0), p._XMLDesc(1), p._XMLDesc(3)]
             again = [p._XMLDesc(0), p._XMLDesc(1), p._XMLDesc(3)]
-            p.get_cap_xml()
-            p.get_cap_xml()
+            p._host_info()
+            p._host_info()
         self.assertEqual(first, again)
         self.assertEqual(p.instance.reads, [0, 1, 3])
         self.assertEqual(p.wvm.caps, 1)
@@ -134,17 +133,6 @@ class CachedReadsTestCase(unittest.TestCase):
         self.assertEqual((p.instance.reads, p.wvm.caps), (["info"], 1))
         p.get_status()
         self.assertEqual(p.instance.reads, ["info", "info"])
-
-    def test_domain_capabilities_are_read_once_per_arch_and_machine(self):
-        p = proxy()
-        with patch.object(wvmConnect, "get_dom_cap_xml", return_value="<domainCapabilities/>") as read:
-            with p.cached_reads():
-                for _ in range(2):
-                    p.get_dom_cap_xml("x86_64", "q35")
-                    p.get_dom_cap_xml("x86_64", "pc")
-            p.get_dom_cap_xml("x86_64", "q35")
-        self.assertEqual([c.args for c in read.call_args_list], [("x86_64", "q35"), ("x86_64", "pc"), ("x86_64", "q35")])
-
 
 def volume_proxy(paths):
     """A proxy whose host has volumes at paths (pool "pool", size 10, used 4)."""

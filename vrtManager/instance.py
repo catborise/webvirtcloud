@@ -491,11 +491,12 @@ class wvmInstance(wvmConnect):
     def cached_reads(self):
         """
         Within the block the domain XML (per flags value), the VM's state,
-        the host's capabilities and info, and each disk's volume are read
-        from libvirt once, for pages that only read: a VM page reads the XML
-        in some 30 getters and each disk in two lists. Code that changes the VM
-        must not run inside: most changes (devices, QoS, memory) do not go
-        through _defineXML, the only call that drops the cache.
+        the host's info and each disk's volume are read from libvirt once
+        (the host's capabilities are read once per object anyway), for pages
+        that only read: a VM page reads the XML in some 30 getters and each
+        disk in two lists. Code that changes the VM must not run inside: most
+        changes (devices, QoS, memory) do not go through _defineXML, the only
+        call that drops the cache.
         """
         if self._read_cache is not None:
             raise RuntimeError("cached_reads blocks do not nest")
@@ -520,13 +521,6 @@ class wvmInstance(wvmConnect):
         if self._read_cache is not None:
             self._read_cache.clear()
         return self.wvm.defineXML(xml)
-
-    def get_cap_xml(self):
-        return self._cached("capabilities", super().get_cap_xml)
-
-    def get_dom_cap_xml(self, arch, machine):
-        read = super().get_dom_cap_xml
-        return self._cached(("domain capabilities", arch, machine), lambda: read(arch, machine))
 
     def _host_info(self):
         return self._cached("host info", self.wvm.getInfo)

@@ -9,6 +9,7 @@ from urllib.parse import quote
 
 import libvirt
 from django.conf import settings
+from django.utils.functional import cached_property
 from libvirt import libvirtError
 from vrtManager import util
 from vrtManager.rwlock import ReadWriteLock
@@ -397,9 +398,19 @@ class wvmConnect(object):
     def is_qemu(self):
         return self.wvm.getURI().startswith("qemu")
 
+    @cached_property
+    def capabilities_xml(self):
+        """The host's capabilities, read once per object (a request): most getters below parse them"""
+        return self.wvm.getCapabilities()
+
+    @cached_property
+    def dom_cap_xmls(self):
+        """The domain capabilities read so far, by emulator, arch, machine and domain type"""
+        return {}
+
     def get_cap_xml(self):
         """Return xml capabilities"""
-        return self.wvm.getCapabilities()
+        return self.capabilities_xml
 
     def get_dom_cap_xml(self, arch, machine):
         """ Return domain capabilities xml"""
@@ -409,7 +420,10 @@ class wvmConnect(object):
         machine_types = self.get_machine_types(arch)
         if not machine or machine not in machine_types:
             machine = "pc" if "pc" in machine_types else machine_types[0]
-        return self.wvm.getDomainCapabilities(emulatorbin, arch, machine, virttype)
+        key = (emulatorbin, arch, machine, virttype)
+        if key not in self.dom_cap_xmls:
+            self.dom_cap_xmls[key] = self.wvm.getDomainCapabilities(*key)
+        return self.dom_cap_xmls[key]
 
     def get_capabilities(self, arch):
         """ Host Capabilities for specified architecture """
