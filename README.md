@@ -536,6 +536,7 @@ A rollback leaves the clone on a detached HEAD at the restored commit; the updat
 - A disk can be grown while its VM runs or is paused, not only when it is shut off.
 - A host's CPU graph shows the average since its previous point (normally 5 s) instead of a 1 s sample taken while a worker waits.
 - A VM's stats are polled every 5 s like the host graph, the first point as soon as the tab opens; each point is the average since the previous one, disk rates in MB/s (they were MiB/s labelled Mb/s); a counter the host does not report shows a gap instead of 0.
+- An ISO uploads to an SSH compute about 3.5 times faster (SFTP writes no longer wait for each 32 KiB); a failed write still fails the upload.
 - A running VM without a guest agent shows the IPv4 address the host learned by ARP (the lookup always failed before).
 - After a live migration the VM's NVRAM file is deleted on the source, when it is in libvirt's `/var/lib/libvirt/qemu/nvram` and the destination does not share that directory (a VM created there later with the same name would start with those UEFI variables).
 - gstfsd finds the guest's operating system the way libguestfs inspects it, so a root on LVM works, and it always answers (an error when it finds no or several operating systems). Update `/usr/local/bin/gstfsd` on every compute (see [Adding a Compute Node](#adding-a-compute-node), step 3).

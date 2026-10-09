@@ -523,6 +523,25 @@ class StorageUploadSecurityTests(TestCase):
             def read(self):
                 return bytes(self.buf)
 
+            # the SFTP client calls of a pipelined write: the file is its own client
+            MAX_REQUEST_SIZE = 32768
+            handle = b"handle"
+            sock = MagicMock(recv_ready=lambda: False)
+
+            @property
+            def sftp(self):
+                return self
+
+            def _async_request(self, fileobj, kind, handle, offset, data):
+                self.seek(offset)
+                self.write(data)
+
+            def _finish_responses(self, fileobj):
+                pass
+
+            def _check_exception(self):
+                pass
+
             def seek(self, pos):
                 self.pos = pos
 
