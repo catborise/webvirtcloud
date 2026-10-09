@@ -534,6 +534,7 @@ A rollback leaves the clone on a detached HEAD at the restored commit; the updat
 - A VM that vanishes from its compute keeps its owners for `INSTANCE_OWNERSHIP_RETENTION_DAYS` (30) in case the same UUID comes back; superusers list and remove these records on the "Removed VMs" admin page.
 - The log rotates (10 MB × 5) in `data/webvirtcloud.log`.
 - A disk can be grown while its VM runs or is paused, not only when it is shut off.
+- A host's CPU graph shows the average since its previous point (normally 5 s) instead of a 1 s sample taken while a worker waits.
 - A running VM without a guest agent shows the IPv4 address the host learned by ARP (the lookup always failed before).
 - After a live migration the VM's NVRAM file is deleted on the source, when it is in libvirt's `/var/lib/libvirt/qemu/nvram` and the destination does not share that directory (a VM created there later with the same name would start with those UEFI variables).
 - gstfsd finds the guest's operating system the way libguestfs inspects it, so a root on LVM works, and it always answers (an error when it finds no or several operating systems). Update `/usr/local/bin/gstfsd` on every compute (see [Adding a Compute Node](#adding-a-compute-node), step 3).

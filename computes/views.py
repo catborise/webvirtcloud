@@ -1,6 +1,7 @@
 import json
 
 from admin.decorators import superuser_only
+from django.core import signing
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -19,6 +20,11 @@ from computes.forms import (
 from computes.models import Compute
 
 from . import utils
+
+# The host CPU graph sends back the CPU sample of its previous answer; usage
+# is taken since then when it is this recent, otherwise over one second.
+CPU_SAMPLE_MAX_AGE = 15
+CPU_SAMPLE_SIGNER = signing.TimestampSigner(salt="computes.cpu-sample")
 
 
 @superuser_only
@@ -130,7 +136,7 @@ def compute_graph(request, compute_id):
     :return:
     """
     comp_mgr = ComputeManager(compute_id)
-    data = comp_mgr.compute_graph()
+    data = comp_mgr.compute_graph(request.GET.get("cpu_sample"))
 
     return HttpResponse(data, content_type="application/json")
 
@@ -219,7 +225,21 @@ class ComputeManager:
 
         return json.dumps(data)
 
-    def compute_graph(self):
+    def _cpu_sample(self, token):
+        """The (idle, total, time) sample in a token of this compute's graph,
+        or None when there is none, it is altered or too old."""
+        if not token:
+            return None
+        try:
+            data = CPU_SAMPLE_SIGNER.unsign_object(token, max_age=CPU_SAMPLE_MAX_AGE)
+        except signing.BadSignature:
+            return None
+        if data.get("compute") != self.compute.id:
+            return None
+        return data["idle"], data["total"], data["time"]
+
+    def compute_graph(self, cpu_sample=None):
+        result = {"cpudata": None, "memdata": {"total": None, "usage": None}, "timeline": timezone.now().strftime("%H:%M:%S")}
         try:
             conn = wvmHostDetails(
                 self.compute.hostname,
@@ -227,19 +247,19 @@ class ComputeManager:
                 self.compute.password,
                 self.compute.type,
             )
-            current_time = timezone.now().strftime("%H:%M:%S")
-            cpu_usage = conn.get_cpu_usage()
-            mem_usage = conn.get_memory_usage()
+            cpu = conn.get_cpu_usage(previous=self._cpu_sample(cpu_sample))
+            idle, total, taken = cpu["sample"]
+            result = {
+                "cpudata": cpu["usage"],
+                "memdata": conn.get_memory_usage(),
+                "timeline": timezone.now().strftime("%H:%M:%S"),
+                "window": round(cpu["window"], 1),
+                "cpu_sample": CPU_SAMPLE_SIGNER.sign_object(
+                    {"compute": self.compute.id, "idle": idle, "total": total, "time": taken}
+                ),
+            }
             conn.close()
         except libvirtError:
-            cpu_usage = {"usage": 0}
-            mem_usage = {"usage": 0}
-            current_time = 0
+            pass
 
-        return json.dumps(
-            {
-                "cpudata": cpu_usage["usage"],
-                "memdata": mem_usage,
-                "timeline": current_time,
-            }
-        )
+        return json.dumps(result)

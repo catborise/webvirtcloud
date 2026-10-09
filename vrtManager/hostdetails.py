@@ -1,7 +1,24 @@
 import time
 
+from libvirt import VIR_NODE_CPU_STATS_ALL_CPUS
+
 from vrtManager.connection import wvmConnect
 from vrtManager.util import get_xml_path
+
+
+# the times of virNodeGetCPUStats that add up to the elapsed CPU time; guest is
+# already part of user and utilization is a percentage
+CPU_TIMES = ("kernel", "user", "idle", "iowait")
+
+
+def cpu_percent(before, after):
+    """Busy share in percent between two (idle, total) samples, or None when
+    the second does not follow the first."""
+    idle = after[0] - before[0]
+    total = after[1] - before[1]
+    if total <= 0 or not 0 <= idle <= total:
+        return None
+    return round(100 * (total - idle) / total, 1)
 
 
 def cpu_version(doc):
@@ -27,32 +44,34 @@ class wvmHostDetails(wvmConnect):
         else:
             return {"total": None, "usage": None, "percent": None}
 
-    def get_cpu_usage(self, diff=True):
-        """
-        Function return cpu usage on node.
-        """
-        prev_idle = 0
-        prev_total = 0
-        cpu = self.wvm.getCPUStats(-1, 0)
-        if not isinstance(cpu, dict):
-            return {"usage": None}
+    def _cpu_times(self):
+        """(idle, total) nanoseconds of all host CPUs, from one reading."""
+        stats = self.wvm.getCPUStats(VIR_NODE_CPU_STATS_ALL_CPUS, 0)
+        return stats["idle"], sum(stats.get(name, 0) for name in CPU_TIMES)
 
-        for num in range(2):
-            idle = self.wvm.getCPUStats(-1, 0)["idle"]
-            total = sum(self.wvm.getCPUStats(-1, 0).values())
-            diff_idle = idle - prev_idle
-            diff_total = total - prev_total
-            diff_usage = (1000 * (diff_total - diff_idle) / diff_total + 5) / 10
-            if not diff:
-                return {"usage": diff_usage}
-            prev_total = total
-            prev_idle = idle
-            if num == 0:
-                time.sleep(1)
-            else:
-                diff_usage = max(diff_usage, 0)
-
-        return {"usage": diff_usage}
+    def get_cpu_usage(self, diff=True, previous=None):
+        """
+        Busy share of all host CPUs in percent. diff=False: since the host
+        started. Otherwise since previous, an (idle, total, time) sample this
+        method returned, or over one second when there is none or it does not
+        lead to this one (the host restarted). Also returns the closing sample
+        and the seconds the usage covers.
+        """
+        times = self._cpu_times()
+        if not diff:
+            return {"usage": cpu_percent((0, 0), times)}
+        now = time.time()
+        usage = None
+        if previous is not None:
+            usage = cpu_percent(previous[:2], times)
+            start = previous[2]
+        if usage is None:
+            before, start = times, now
+            time.sleep(1)
+            times = self._cpu_times()
+            now = time.time()
+            usage = cpu_percent(before, times)
+        return {"usage": usage, "sample": (*times, now), "window": now - start}
 
     def get_node_info(self):
         """
