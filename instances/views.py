@@ -1013,6 +1013,8 @@ def add_new_vol(request, pk):
 
     pool_type = conn_pool.get_type()
     disk_type = conn_pool.get_volume_type(os.path.basename(source))
+    # the pool decides: only a dir pool keeps the asked format, the others create raw
+    format = util.vol_driver_type(conn_pool.get_volume_format_type(os.path.basename(source)), pool_type)
 
     if pool_type == "rbd":
         source_info = conn_pool.get_rbd_source()
@@ -1067,18 +1069,19 @@ def add_existing_vol(request, pk):
     if name not in conn_create.get_volumes():
         return reject_disk_options(request, pk, ["vols"])
 
-    format_type = conn_create.get_volume_format_type(name)
-    disk_type = conn_create.get_volume_type(name)
     pool_type = conn_create.get_type()
+    format_type = util.vol_driver_type(conn_create.get_volume_format_type(name), pool_type)
+    disk_type = conn_create.get_volume_type(name)
     if pool_type == "rbd":
         source_info = conn_create.get_rbd_source()
         path = conn_create.get_source_name()
+        source = f"{path}/{name}"
     else:
         source_info = None
-        path = conn_create.get_target_path()
+        # an iSCSI volume's path is not the pool target plus its name
+        source = conn_create.get_volume(name).path()
 
     target_dev = utils.get_new_disk_dev(media, disks, bus)
-    source = f"{path}/{name}"
 
     instance.proxy.attach_disk(
         target_dev,

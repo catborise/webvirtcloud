@@ -216,3 +216,11 @@ def vol_dev_type(vol_bus):
     elif vol_bus in ["scsi", "sata", "usb"]:
         return "sd"
 
+
+def vol_driver_type(vol_format, pool_type=None):
+    """The disk driver type for a volume of vol_format: raw for a volume
+    whose pool knows no image format of it (none, unknown, an ISO, a disk
+    pool's partition), as libvirt uses a disk without a driver type."""
+    if pool_type == "disk" or vol_format in (None, "", "none", "unknown", "iso"):
+        return "raw"
+    return vol_format

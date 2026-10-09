@@ -191,6 +191,34 @@ class DiskViewsTenantIsolationTestCase(TestCase):
         self.assertEqual(res.status_code, 302)
         proxy.attach_disk.assert_not_called()
 
+    def test_add_existing_vol_attaches_the_volume_by_its_own_path(self):
+        self.client.force_login(self.superuser)
+        with patch("instances.models.wvmInstance") as mock_wvm, patch(
+            "instances.views.wvmStorage"
+        ) as mock_storage:
+            proxy = mock_wvm.return_value
+            proxy.get_disk_devices.return_value = [VM_DISK]
+            proxy.get_media_devices.return_value = []
+            proxy.get_disk_bus_types.return_value = ["virtio", "sata", "scsi"]
+            proxy.get_cache_modes.return_value = {"default": "", "none": ""}
+            pool = mock_storage.return_value
+            pool.get_volumes.return_value = ["unit:0:0:1"]
+            pool.get_type.return_value = "iscsi"
+            pool.get_volume_type.return_value = "block"
+            pool.get_volume_format_type.return_value = None  # an iSCSI pool knows no format
+            pool.get_target_path.return_value = "/dev/disk/by-path"
+            pool.get_volume.return_value.path.return_value = "/dev/disk/by-path/ip-192.0.2.1:3260-iscsi-iqn.example-lun-1"
+            res = self._post(
+                "add_existing_vol",
+                {"selected_storage": "iscsi", "vols": "unit:0:0:1", "bus": "virtio", "cache": "default"},
+            )
+        self.assertEqual(res.status_code, 302)
+        pool.get_volume.assert_called_once_with("unit:0:0:1")
+        self.assertEqual(
+            proxy.attach_disk.call_args.args[1], "/dev/disk/by-path/ip-192.0.2.1:3260-iscsi-iqn.example-lun-1"
+        )
+        self.assertEqual(proxy.attach_disk.call_args.kwargs["format_type"], "raw")
+
     def _mock_disk_options(self, proxy):
         proxy.get_disk_devices.return_value = [VM_DISK]
         proxy.get_media_devices.return_value = []
@@ -298,6 +326,25 @@ class DiskViewsTenantIsolationTestCase(TestCase):
                  "bus": "virtio", "cache": "default"},
             )
         mock_create.return_value.create_volume.assert_not_called()
+
+    def test_add_new_vol_attaches_the_format_the_pool_created(self):
+        self.client.force_login(self.superuser)
+        with patch("instances.models.wvmInstance") as mock_wvm, patch(
+            "instances.views.wvmCreate"
+        ) as mock_create, patch("instances.views.wvmStorage") as mock_storage:
+            proxy = mock_wvm.return_value
+            self._mock_disk_options(proxy)
+            mock_create.return_value.create_volume.return_value = "/mnt/nfs/disk.img"
+            pool = mock_storage.return_value
+            pool.get_type.return_value = "netfs"
+            pool.get_volume_type.return_value = "file"
+            pool.get_volume_format_type.return_value = "raw"  # a netfs pool creates raw
+            self._post(
+                "add_new_vol",
+                {"storage": "nfs", "name": "disk", "format": "qcow2", "size": "1", "bus": "virtio", "cache": "default"},
+            )
+        pool.get_volume_format_type.assert_called_once_with("disk.img")
+        self.assertEqual(proxy.attach_disk.call_args.kwargs["format_type"], "raw")
 
     def test_edit_volume_accepts_a_disk_without_any_driver_format(self):
         self.client.force_login(self.superuser)

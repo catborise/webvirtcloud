@@ -950,26 +950,14 @@ class wvmInstance(wvmConnect):
 
         for idx, dev in devorder.items():
             order = etree.fromstring("<boot order='{}'/>".format(idx + 1))
-            if dev["type"] == "disk":
-                devices = tree.findall("./devices/disk[@device='disk']")
-                for d in devices:
-                    device = d.find("./target[@dev='{}']".format(dev["dev"]))
-                    if device is not None:
-                        d.append(order)
-            elif dev["type"] == "cdrom":
-                devices = tree.findall("./devices/disk[@device='cdrom']")
-                for d in devices:
-                    device = d.find("./target[@dev='{}']".format(dev["dev"]))
-                    if device is not None:
-                        d.append(order)
-            elif dev["type"] == "network":
-                devices = tree.findall("./devices/interface[@type='network']")
-                for d in devices:
-                    device = d.find("mac[@address='{}']".format(dev["dev"]))
-                    if device is not None:
-                        d.append(order)
+            if dev["type"] in ("disk", "cdrom"):
+                devices = tree.xpath("./devices/disk[@device=$device][target/@dev=$dev]", device=dev["type"], dev=dev["dev"])
+            elif dev["type"] == "network":  # any NIC type: network, bridge, direct
+                devices = tree.xpath("./devices/interface[mac/@address=$mac]", mac=dev["dev"])
             else:
                 raise Exception("Invalid Device Type for boot order")
+            for d in devices:
+                d.append(order)
         self._defineXML(etree.tostring(tree).decode())
 
     def _set_cdrom_media(self, dev, path):
@@ -1068,6 +1056,8 @@ class wvmInstance(wvmConnect):
 
         if disk_type == "file":
             xml_disk += f"<source file='{source}'/>"
+        elif disk_type == "block":  # a volume of an LVM, disk or iSCSI pool
+            xml_disk += f"<source dev='{source}'/>"
         elif disk_type == "network":
             if pool_type == "rbd":
                 auth_type = source_info.get("auth_type")
@@ -1100,17 +1090,16 @@ class wvmInstance(wvmConnect):
             self.instance.attachDeviceFlags(xml_disk, affect)
 
     def detach_disk(self, target_dev):
-        tree = etree.fromstring(self._XMLDesc(0))
-
-        disk_el = tree.xpath("./devices/disk/target[@dev=$dev]", dev=target_dev)[
-            0
-        ].getparent()
-        xml_disk = etree.tostring(disk_el).decode()
-
-        # Paused and other active states need the live detach too.
-        if self.instance.isActive():
-            self.instance.detachDeviceFlags(xml_disk, VIR_DOMAIN_AFFECT_LIVE)
-        self.instance.detachDeviceFlags(xml_disk, VIR_DOMAIN_AFFECT_CONFIG)
+        """Detach target_dev from each definition that has it, as that definition describes it."""
+        found = False
+        for xml_flags, affect in self._definitions():
+            tree = etree.fromstring(self._XMLDesc(xml_flags))
+            disks = tree.xpath("./devices/disk[target/@dev=$dev]", dev=target_dev)
+            if disks:
+                found = True
+                self.instance.detachDeviceFlags(etree.tostring(disks[0]).decode(), affect)
+        if not found:
+            raise util.OperationError(f"Disk {target_dev} is not in the VM's definition")
 
     def has_disk(self, target_dev):
         """True while the live or the persistent definition still has target_dev."""
@@ -1502,13 +1491,13 @@ class wvmInstance(wvmConnect):
         xml = self._XMLDesc(PERSISTENT_XML)
         tree = etree.fromstring(xml)
         video_models = tree.xpath("/domain/devices/video/model")
-        video_xml = "<model type='{}'/>".format(model)
-        for model in video_models:
-            if model.get("primary") == "yes" or len(video_models) == 1:
-                parent = model.getparent()
-                parent.remove(model)
-                parent.append(etree.fromstring(video_xml))
+        for video_model in video_models:
+            if video_model.get("primary") == "yes" or len(video_models) == 1:
+                parent = video_model.getparent()
+                parent.remove(video_model)
+                etree.SubElement(parent, "model", type=model)
                 self._defineXML(etree.tostring(tree).decode())
+                return
 
     def resize_cpu(self, cur_vcpu, vcpu):
         """
@@ -1968,7 +1957,7 @@ class wvmInstance(wvmConnect):
             etree.SubElement(iface, "source", dev=source, mode="bridge")
         else:
             etree.SubElement(iface, "source", bridge=source)
-        if model:
+        if model and model != "default":  # default: no model, libvirt chooses
             etree.SubElement(iface, "model", type=model)
         if nwfilter:
             etree.SubElement(iface, "filterref", filter=nwfilter)
@@ -2027,7 +2016,7 @@ class wvmInstance(wvmConnect):
         iface.find("mac").set("address", mac)
         for old_model in iface.findall("model"):
             iface.remove(old_model)
-        if model:
+        if model and model != "default":  # default: no model, libvirt chooses
             etree.SubElement(iface, "model", type=model)
         for old_filter in iface.findall("filterref"):
             iface.remove(old_filter)
@@ -2204,7 +2193,7 @@ class wvmInstance(wvmConnect):
                     else:
                         band.append(etree.fromstring(xml))
         new_xml = etree.tostring(tree).decode()
-        self.wvm.defineXML(new_xml)
+        self._defineXML(new_xml)
 
     def unset_qos(self, mac, direction):
         tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
@@ -2219,7 +2208,7 @@ class wvmInstance(wvmConnect):
             if parent_mac[0] == mac:
                 band_el.remove(direct)
 
-        self.wvm.defineXML(etree.tostring(tree).decode())
+        self._defineXML(etree.tostring(tree).decode())
 
     def add_guest_agent(self):
         channel_xml = """

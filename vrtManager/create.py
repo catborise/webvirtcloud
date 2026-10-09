@@ -87,8 +87,7 @@ class wvmCreate(wvmConnect):
 
     def get_volume_format_type(self, path):
         vol = self.get_volume_by_path(path)
-        vol_type = util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type")
-        return "raw" if vol_type in ["unknown", "iso"] else vol_type or "raw"
+        return util.vol_driver_type(util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type"))
 
     def get_volume_path(self, volume, pool=None):
         storages = [pool] if pool else self.get_storages(only_actives=True)

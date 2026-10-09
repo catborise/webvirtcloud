@@ -6,6 +6,7 @@ from django.conf import settings
 if not settings.configured:
     settings.configure(MAC_OUI="52:54:10")
 
+from vrtManager import util
 from vrtManager.instance import wvmInstance
 from vrtManager.network import wvmNetworks, wvmNetwork
 
@@ -291,7 +292,7 @@ class TestDiskXmlEscaping(unittest.TestCase):
                 "</disk></devices></domain>"
             )
         )
-        with self.assertRaises(IndexError):
+        with self.assertRaises(util.OperationError):
             inst.detach_disk("x' or '1'='1")
         inst.instance.detachDeviceFlags.assert_not_called()
 

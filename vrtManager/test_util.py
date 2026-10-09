@@ -17,6 +17,7 @@ from vrtManager.util import (
     validate_macaddr,
     validate_uuid,
     vol_dev_type,
+    vol_driver_type,
     xml_escape,
 )
 
@@ -127,6 +128,13 @@ class TestVrtManagerUtil(unittest.TestCase):
         self.assertEqual(vol_dev_type("scsi"), "sd")
         self.assertEqual(vol_dev_type("sata"), "sd")
         self.assertIsNone(vol_dev_type("unknown_bus"))
+
+    def test_vol_driver_type(self):
+        for vol_format in ("qcow2", "qcow", "raw"):
+            self.assertEqual(vol_driver_type(vol_format), vol_format)
+        for vol_format in (None, "", "none", "unknown", "iso"):
+            self.assertEqual(vol_driver_type(vol_format), "raw")
+        self.assertEqual(vol_driver_type("linux-lvm", "disk"), "raw")  # a partition
 
 
 
