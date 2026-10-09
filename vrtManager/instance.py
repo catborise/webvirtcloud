@@ -480,9 +480,10 @@ class wvmInstance(wvmConnect):
     @contextlib.contextmanager
     def cached_reads(self):
         """
-        Within the block the domain XML (per flags value) and the host
-        capabilities are read from libvirt once, for pages that only read: a
-        VM page reads the XML in some 30 getters. Code that changes the VM
+        Within the block the domain XML (per flags value), the VM's state,
+        the host's capabilities and info, and each disk's volume are read
+        from libvirt once, for pages that only read: a VM page reads the XML
+        in some 30 getters and each disk in two lists. Code that changes the VM
         must not run inside: most changes (devices, QoS, memory) do not go
         through _defineXML, the only call that drops the cache.
         """
@@ -494,14 +495,16 @@ class wvmInstance(wvmConnect):
         finally:
             self._read_cache = None
 
-    def _XMLDesc(self, flag):
+    def _cached(self, key, read):
         cache = self._read_cache
         if cache is None:
-            return self.instance.XMLDesc(flag)
-        key = ("xml", flag)
+            return read()
         if key not in cache:
-            cache[key] = self.instance.XMLDesc(flag)
+            cache[key] = read()
         return cache[key]
+
+    def _XMLDesc(self, flag):
+        return self._cached(("xml", flag), lambda: self.instance.XMLDesc(flag))
 
     def _defineXML(self, xml):
         if self._read_cache is not None:
@@ -509,12 +512,14 @@ class wvmInstance(wvmConnect):
         return self.wvm.defineXML(xml)
 
     def get_cap_xml(self):
-        cache = self._read_cache
-        if cache is None:
-            return super().get_cap_xml()
-        if "capabilities" not in cache:
-            cache["capabilities"] = super().get_cap_xml()
-        return cache["capabilities"]
+        return self._cached("capabilities", super().get_cap_xml)
+
+    def get_dom_cap_xml(self, arch, machine):
+        read = super().get_dom_cap_xml
+        return self._cached(("domain capabilities", arch, machine), lambda: read(arch, machine))
+
+    def _host_info(self):
+        return self._cached("host info", self.wvm.getInfo)
 
     def get_status(self):
         """
@@ -523,7 +528,7 @@ class wvmInstance(wvmConnect):
         VIR_DOMAIN_PAUSED = 3
         VIR_DOMAIN_SHUTOFF = 5
         """
-        return self.instance.info()[0]
+        return self._cached("status", lambda: self.instance.info()[0])
 
     def get_autostart(self):
         return self.instance.autostart()
@@ -608,11 +613,11 @@ class wvmInstance(wvmConnect):
         return description or ""
 
     def get_max_memory(self):
-        return self.wvm.getInfo()[1] * 1048576
+        return self._host_info()[1] * 1048576
 
     def get_max_cpus(self):
         """Get number of physical CPUs."""
-        hostinfo = self.wvm.getInfo()
+        hostinfo = self._host_info()
         pcpus = hostinfo[4] * hostinfo[5] * hostinfo[6] * hostinfo[7]
         return range(1, int(pcpus + 1))
 
@@ -775,15 +780,10 @@ class wvmInstance(wvmConnect):
                             else None
                         )
 
-                        try:
-                            vol = self.get_volume_by_path(src_file)
-                            volume = vol.name()
-
-                            disk_size = vol.info()[1]
-                            used_size = vol.info()[2]
-                            stg = vol.storagePoolLookupByVolume()
-                            storage = stg.name()
-                        except libvirtError:
+                        details = self._volume_details(src_file)
+                        if details:
+                            volume, disk_size, used_size, storage = details
+                        else:
                             volume = src_file
                     except Exception as e:
                         print(f"Exception: {e}")
@@ -812,6 +812,20 @@ class wvmInstance(wvmConnect):
 
         flags = VIR_DOMAIN_XML_INACTIVE | VIR_DOMAIN_XML_SECURE if config else 0
         return util.get_xml_path(self._XMLDesc(flags), func=disks)
+
+    def _volume_details(self, path):
+        """(name, capacity, allocation, pool name) of the volume at path, or
+        None when no pool holds it."""
+
+        def read():
+            try:
+                vol = self.get_volume_by_path(path)
+                info = vol.info()
+                return vol.name(), info[1], info[2], vol.storagePoolLookupByVolume().name()
+            except libvirtError:
+                return None
+
+        return self._cached(("volume", path), read)
 
     def get_media_devices(self):
         def disks(doc):
@@ -1541,16 +1555,15 @@ class wvmInstance(wvmConnect):
 
     def get_iso_media(self):
         iso = []
-        storages = self.get_storages(only_actives=True)
-        for storage in storages:
-            stg = self.get_storage(storage)
-            if stg.info()[0] != 0:
-                with contextlib.suppress(Exception):
-                    stg.refresh(0)
-
-                for img in stg.listVolumes():
-                    if img.lower().endswith(".iso"):
-                        iso.append(img)
+        for pool in self.wvm.listAllStoragePools(VIR_CONNECT_LIST_STORAGE_POOLS_ACTIVE):
+            # refreshed so that an image copied to the pool by hand shows up
+            with contextlib.suppress(libvirtError):
+                pool.refresh(0)
+            try:
+                names = pool.listVolumes()
+            except libvirtError:  # stopped or removed meanwhile
+                continue
+            iso.extend(name for name in names if name.lower().endswith(".iso"))
         return iso
 
     def paths_used_by_other_domains(self):

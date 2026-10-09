@@ -52,6 +52,9 @@ from . import utils
 from .forms import ConsoleForm, FlavorForm, NewVMForm
 from .models import Flavor
 
+# the VM page waits this long (seconds) for the compute's drbdadm status
+DRBD_STATUS_TIMEOUT = 10
+
 
 def index(request):
     instances = None
@@ -224,11 +227,15 @@ def drbd_status(request, pk):
 
     if instance.compute.type == 2 and _valid_ssh_target(instance.compute):
         conn = instance.compute.login + "@" + instance.compute.hostname
-        remoteDrbdStatus = subprocess.run(
-            ["ssh", "--", conn, "sudo", "/usr/sbin/drbdadm", "status"],
-            stdout=subprocess.PIPE,
-            text=True,
-        )
+        try:
+            remoteDrbdStatus = subprocess.run(
+                ["ssh", "--", conn, "sudo", "/usr/sbin/drbdadm", "status"],
+                stdout=subprocess.PIPE,
+                text=True,
+                timeout=DRBD_STATUS_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return result
 
         if remoteDrbdStatus.stdout:
             instanceFindDrbd = re.compile(

@@ -1,5 +1,6 @@
-"""The VM page reads each kind of domain XML and the host capabilities once,
-through the real getters, on libvirt's test driver."""
+"""The VM page reads each kind of domain XML, the VM's state, the host's
+capabilities and info, and each disk's volume once, through the real getters,
+on libvirt's test driver."""
 
 from unittest.mock import patch
 
@@ -10,17 +11,22 @@ from django.test import TestCase
 from django.urls import reverse
 from instances.models import Instance
 
-# a VM with a VNC console, on libvirt's test driver
-DOMAIN = """<domain type='test'><name>read-cache-vm</name><memory unit='MiB'>128</memory><vcpu>1</vcpu>
+# a VM with a disk and a VNC console, on libvirt's test driver
+DOMAIN = """<domain type='test'><name>read-cache-vm</name><uuid>0b9f6a52-6d0e-4c1f-9a51-2f3c1d7e8a40</uuid><memory unit='MiB'>128</memory><vcpu>1</vcpu>
 <os><type arch='i686'>hvm</type></os>
-<devices><graphics type='vnc' port='-1' listen='127.0.0.1'><listen type='address' address='127.0.0.1'/></graphics></devices>
+<devices><disk type='file' device='disk'><source file='/default-pool/read-cache.img'/><target dev='vda' bus='virtio'/></disk>
+<graphics type='vnc' port='-1' listen='127.0.0.1'><listen type='address' address='127.0.0.1'/></graphics></devices>
 </domain>"""
 
 
 class DetailReadsTests(TestCase):
     def setUp(self):
-        self.conn = libvirt.open("test:///default")  # each open is a fresh, private test host
+        self.conn = libvirt.open("test:///default")
         self.addCleanup(self.conn.close)
+        # the test host lives on while a libvirt object still refers to it
+        pool = self.conn.storagePoolLookupByName("default-pool")
+        if "read-cache.img" not in pool.listVolumes():
+            pool.createXML("<volume><name>read-cache.img</name><capacity>1048576</capacity></volume>", 0)
         domain = self.conn.defineXML(DOMAIN)
         self.compute = Compute.objects.create(name="testdrv", hostname="localhost", login="", password="", type=4)
         self.vm = Instance.objects.create(compute=self.compute, name=domain.name(), uuid=domain.UUIDString())
@@ -55,6 +61,43 @@ class DetailReadsTests(TestCase):
         _, xml_reads, cap_reads = self.render()
         self.assertEqual(sorted(xml_reads), sorted(set(xml_reads)), "an XML read twice")
         self.assertEqual(len(cap_reads), 1)
+
+    def test_the_state_host_info_and_disk_volume_are_read_once(self):
+        counted = (
+            (libvirt.virDomain, "info"),
+            (libvirt.virConnect, "getInfo"),
+            (libvirt.virConnect, "getDomainCapabilities"),
+            (libvirt.virConnect, "storageVolLookupByPath"),
+            (libvirt.virStorageVol, "info"),
+        )
+        calls = {}
+
+        def counter(cls, name):
+            real = getattr(cls, name)
+
+            def call(*args, **kwargs):
+                key = f"{cls.__name__}.{name}"
+                calls[key] = calls.get(key, 0) + 1
+                return real(*args, **kwargs)
+
+            return call
+
+        patches = [patch.object(cls, name, counter(cls, name)) for cls, name in counted]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        response, _, _ = self.render()
+        self.assertContains(response, "read-cache.img")
+        self.assertEqual(
+            calls,
+            {
+                "virDomain.info": 1,
+                "virConnect.getInfo": 1,
+                "virConnect.getDomainCapabilities": 1,
+                "virConnect.storageVolLookupByPath": 1,
+                "virStorageVol.info": 1,
+            },
+        )
 
     def test_a_change_after_the_page_reads_fresh_xml(self):
         # outside the page the getters read libvirt each time, as changes need
