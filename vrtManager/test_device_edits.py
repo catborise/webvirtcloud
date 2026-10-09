@@ -14,7 +14,7 @@ from lxml import etree
 
 from vrtManager import util
 from vrtManager.instance import PERSISTENT_XML, wvmInstance
-from libvirt import VIR_DOMAIN_AFFECT_CONFIG, VIR_DOMAIN_AFFECT_LIVE, VIR_DOMAIN_XML_SECURE
+from libvirt import VIR_DOMAIN_AFFECT_CONFIG, VIR_DOMAIN_AFFECT_LIVE
 
 PERSISTENT = """<domain><os><type>hvm</type></os><devices>
 <disk type='file' device='disk'><source file='/pool/a.qcow2'/><target dev='vda' bus='virtio'/></disk>
