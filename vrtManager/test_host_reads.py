@@ -1,6 +1,7 @@
-"""A wvmConnect reads the host's capabilities once, and its domain
+"""A wvmConnect reads the host's info and capabilities once, and its domain
 capabilities once per emulator, arch, machine and domain type: the create
-page's getters parse them some 60 times. An object lives for one request."""
+page's getters parse the capabilities some 60 times, the overview reads the
+info four times. An object lives for one request."""
 
 import unittest
 
@@ -10,6 +11,7 @@ if not settings.configured:
     settings.configure(MAC_OUI="52:54:10")
 
 from vrtManager.connection import wvmConnect
+from vrtManager.hostdetails import wvmHostDetails
 
 CAPABILITIES = """<capabilities><host><cpu><arch>x86_64</arch></cpu></host>
 <guest><os_type>hvm</os_type><arch name='x86_64'><emulator>/usr/bin/qemu-kvm</emulator>
@@ -25,13 +27,30 @@ class FakeConn:
         self.reads.append("capabilities")
         return CAPABILITIES
 
+    def getInfo(self):
+        self.reads.append("info")
+        return ["x86_64", 2048, 4, 0, 1, 2, 2, 1]
+
+    def getMemoryStats(self, cell, flags):
+        self.reads.append("memory")
+        return {"buffers": 0, "free": 1048576, "cached": 0}
+
+    def getHostname(self):
+        return "host"
+
+    def getSysinfo(self, flags):
+        return "<sysinfo/>"
+
+    def getURI(self):
+        return "qemu:///system"
+
     def getDomainCapabilities(self, emulator, arch, machine, virttype):
         self.reads.append((emulator, arch, machine, virttype))
         return "<domainCapabilities/>"
 
 
-def connection():
-    conn = wvmConnect.__new__(wvmConnect)  # no libvirt connection: only these calls
+def connection(cls=wvmConnect):
+    conn = cls.__new__(cls)  # no libvirt connection: only these calls
     conn.wvm = FakeConn()
     return conn
 
@@ -56,6 +75,13 @@ class CapabilitiesOnceTestCase(unittest.TestCase):
             conn.wvm.reads,
             ["capabilities", ("/usr/bin/qemu-kvm", "x86_64", "q35", "kvm"), ("/usr/bin/qemu-kvm", "x86_64", "pc", "kvm")],
         )
+
+    def test_the_overview_reads_the_info_once_and_the_free_memory_each_time(self):
+        conn = connection(wvmHostDetails)
+        conn.get_node_info()
+        conn.get_memory_usage()
+        self.assertEqual(conn.get_memory_usage()["total"], 2048 * 1048576)
+        self.assertEqual(conn.wvm.reads, ["info", "memory", "memory"])
 
     def test_two_objects_do_not_share_their_reads(self):
         a, b = connection(), connection()

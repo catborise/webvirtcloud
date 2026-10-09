@@ -55,7 +55,7 @@ def instance(state, clock):
     proxy._read_cache = None
     proxy.instance = FakeDomain(state, clock)
     proxy._XMLDesc = lambda flags: XML
-    proxy._host_info = lambda: ["x86_64", 0, 4]  # 4 host CPUs
+    proxy.host_info = ["x86_64", 0, 4]  # 4 host CPUs
     proxy.get_status = lambda: state
     return proxy
 
@@ -106,7 +106,7 @@ class UsageTestCase(unittest.TestCase):
             proxy.instance.domain_id = 8
 
         def other_host_cpus(proxy):
-            proxy._host_info = lambda: ["x86_64", 0, 8]
+            proxy.host_info = ["x86_64", 0, 8]
 
         def nic_renamed(proxy):
             proxy._XMLDesc = lambda flags: XML.replace("vnet0", "vnet1")

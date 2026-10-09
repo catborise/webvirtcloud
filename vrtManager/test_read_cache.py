@@ -1,7 +1,7 @@
 """wvmInstance.cached_reads(): inside the block the domain XML (per flags),
-the VM's state, the host info and each disk's volume are read from libvirt
-once; outside it every read goes to libvirt, as code that changes the VM
-needs. The host capabilities are read once per object."""
+the VM's state and each disk's volume are read from libvirt once; outside it
+every read goes to libvirt, as code that changes the VM needs. The host's
+info and capabilities are read once per object."""
 
 import unittest
 from unittest.mock import MagicMock
@@ -60,20 +60,17 @@ class CachedReadsTestCase(unittest.TestCase):
         p = proxy()
         p._XMLDesc(0)
         p._XMLDesc(0)
-        p._host_info()
-        p._host_info()
-        self.assertEqual((p.instance.reads, p.wvm.caps), ([0, 0], 2))
+        p.get_status()
+        p.get_status()
+        self.assertEqual(p.instance.reads, [0, 0, "info", "info"])
 
     def test_inside_the_block_each_flags_value_is_read_once(self):
         p = proxy()
         with p.cached_reads():
             first = [p._XMLDesc(0), p._XMLDesc(1), p._XMLDesc(3)]
             again = [p._XMLDesc(0), p._XMLDesc(1), p._XMLDesc(3)]
-            p._host_info()
-            p._host_info()
         self.assertEqual(first, again)
         self.assertEqual(p.instance.reads, [0, 1, 3])
-        self.assertEqual(p.wvm.caps, 1)
 
     def test_the_block_ends_with_its_cache(self):
         p = proxy()

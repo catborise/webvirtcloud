@@ -404,6 +404,11 @@ class wvmConnect(object):
         return self.wvm.getCapabilities()
 
     @cached_property
+    def host_info(self):
+        """The host's info (architecture, memory in MiB, CPUs, ...), read once per object"""
+        return self.wvm.getInfo()
+
+    @cached_property
     def dom_cap_xmls(self):
         """The domain capabilities read so far, by emulator, arch, machine and domain type"""
         return {}

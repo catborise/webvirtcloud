@@ -34,7 +34,7 @@ class wvmHostDetails(wvmConnect):
         """
         Function return memory usage on node.
         """
-        all_mem = self.wvm.getInfo()[1] * 1048576
+        all_mem = self.host_info[1] * 1048576
         freemem = self.wvm.getMemoryStats(-1, 0)
         if isinstance(freemem, dict):
             free = (freemem["buffers"] + freemem["free"] + freemem["cached"]) * 1024
@@ -78,9 +78,9 @@ class wvmHostDetails(wvmConnect):
         Function return host server information: hostname, cpu, memory, ...
         """
         info = [self.wvm.getHostname()]  # hostname
-        info.append(self.wvm.getInfo()[0])  # architecture
-        info.append(self.wvm.getInfo()[1] * 1048576)  # memory
-        info.append(self.wvm.getInfo()[2])  # cpu core count
+        info.append(self.host_info[0])  # architecture
+        info.append(self.host_info[1] * 1048576)  # memory
+        info.append(self.host_info[2])  # cpu core count
         info.append(
             get_xml_path(self.wvm.getSysinfo(0), func=cpu_version)
         )  # cpu version

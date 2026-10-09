@@ -490,13 +490,13 @@ class wvmInstance(wvmConnect):
     @contextlib.contextmanager
     def cached_reads(self):
         """
-        Within the block the domain XML (per flags value), the VM's state,
-        the host's info and each disk's volume are read from libvirt once
-        (the host's capabilities are read once per object anyway), for pages
-        that only read: a VM page reads the XML in some 30 getters and each
-        disk in two lists. Code that changes the VM must not run inside: most
-        changes (devices, QoS, memory) do not go through _defineXML, the only
-        call that drops the cache.
+        Within the block the domain XML (per flags value), the VM's state and
+        each disk's volume are read from libvirt once (the host's info and
+        capabilities are read once per object anyway), for pages that only
+        read: a VM page reads the XML in some 30 getters and each disk in two
+        lists. Code that changes the VM must not run inside: most changes
+        (devices, QoS, memory) do not go through _defineXML, the only call
+        that drops the cache.
         """
         if self._read_cache is not None:
             raise RuntimeError("cached_reads blocks do not nest")
@@ -521,9 +521,6 @@ class wvmInstance(wvmConnect):
         if self._read_cache is not None:
             self._read_cache.clear()
         return self.wvm.defineXML(xml)
-
-    def _host_info(self):
-        return self._cached("host info", self.wvm.getInfo)
 
     def get_status(self):
         """
@@ -617,11 +614,11 @@ class wvmInstance(wvmConnect):
         return description or ""
 
     def get_max_memory(self):
-        return self._host_info()[1] * 1048576
+        return self.host_info[1] * 1048576
 
     def get_max_cpus(self):
         """Get number of physical CPUs."""
-        hostinfo = self._host_info()
+        hostinfo = self.host_info
         pcpus = hostinfo[4] * hostinfo[5] * hostinfo[6] * hostinfo[7]
         return range(1, int(pcpus + 1))
 
@@ -1308,7 +1305,7 @@ class wvmInstance(wvmConnect):
                 "nics": [{"dev": i, "rx": 0, "tx": 0} for i in range(len(nics))],
             }
 
-        key = [self.instance.ID(), self._host_info()[2], disks, nics]
+        key = [self.instance.ID(), self.host_info[2], disks, nics]
         unread = (-1,) * 8
 
         def read():
