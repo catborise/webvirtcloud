@@ -1,6 +1,7 @@
 """Device edits of a VM: each definition is changed as it describes the
 device, every NIC type can be a boot device, posted values stay values, and
-definition changes go through _defineXML."""
+definition changes go through _defineXML. An active VM's memory is resized
+by balloon, a stopped one's in its definition."""
 
 import unittest
 from unittest.mock import MagicMock
@@ -104,6 +105,26 @@ class DeviceEditsTestCase(unittest.TestCase):
         p.add_network("52:54:10:00:00:09", "default", model="default")
         xml, _ = p.instance.attachDeviceFlags.call_args.args
         self.assertIsNone(etree.fromstring(xml).find("model"))
+
+
+class ResizeMemTestCase(unittest.TestCase):
+    def test_an_active_vm_changes_only_its_current_memory(self):
+        # a paused VM is active too: its guest applies the balloon once resumed
+        p = proxy(active=True)
+        p.resize_mem(96, 160)
+        self.assertEqual(
+            [c.args for c in p.instance.setMemoryFlags.call_args_list],
+            [(96 * 1024, VIR_DOMAIN_AFFECT_LIVE), (96 * 1024, VIR_DOMAIN_AFFECT_CONFIG)],
+        )
+        p._defineXML.assert_not_called()
+
+    def test_a_stopped_vm_gets_both_values_in_its_definition(self):
+        p = proxy(active=False)
+        p._XMLDesc = lambda flags: "<domain><memory>131072</memory><currentMemory>131072</currentMemory></domain>"
+        p.resize_mem(96, 160)
+        tree = defined(p)
+        self.assertEqual((tree.findtext("memory"), tree.findtext("currentMemory")), (str(160 * 1024), str(96 * 1024)))
+        p.instance.setMemoryFlags.assert_not_called()
 
 
 if __name__ == "__main__":

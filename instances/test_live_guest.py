@@ -380,3 +380,22 @@ class LiveGuestTestCase(TestCase):
         self.assertEqual(dom.state()[0], libvirt.VIR_DOMAIN_RUNNING)
         self.wait_agent(dom)
         self.assert_guest_matches_config(dom)
+
+    def test_a_paused_guest_gets_its_new_memory_once_resumed(self):
+        dom, inst = self.boot("gmem")
+
+        def balloon_mib():
+            return dom.memoryStats().get("actual", 0) >> 10
+
+        def config_mib(tag):
+            return int(etree.fromstring(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)).findtext(tag)) >> 10
+
+        for cur in (1536, 2048):  # down, then back up to the maximum
+            self.post("suspend", inst)
+            # the posted maximum is ignored: an active VM keeps its own
+            self.post("resize_memory", inst, {"memory": "4096", "cur_memory": str(cur)})
+            self.assertEqual(dom.state()[0], libvirt.VIR_DOMAIN_PAUSED)
+            self.assertEqual((config_mib("currentMemory"), config_mib("memory")), (cur, 2048))
+            self.post("resume", inst)
+            self.assertTrue(wait_for(lambda: balloon_mib() == cur, 60), f"balloon at {balloon_mib()} MiB, not {cur}")
+            self.wait_agent(dom)

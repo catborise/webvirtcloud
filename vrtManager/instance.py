@@ -15,7 +15,6 @@ try:
         VIR_DOMAIN_AFFECT_LIVE,
         VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_AGENT,
         VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_ARP,
-        VIR_DOMAIN_RUNNING,
         VIR_DOMAIN_XML_SECURE,
         VIR_DOMAIN_XML_INACTIVE,
         VIR_DOMAIN_XML_MIGRATABLE,
@@ -1431,8 +1430,9 @@ class wvmInstance(wvmConnect):
         """
         memory = int(memory) * 1024
         cur_memory = int(cur_memory) * 1024
-        # if dom is running change only ram
-        if self.get_status() == VIR_DOMAIN_RUNNING:
+        # an active VM (running, paused, ...) changes only its current memory;
+        # a paused guest's balloon driver applies it once it is resumed
+        if self.instance.isActive():
             self.set_memory(cur_memory, VIR_DOMAIN_AFFECT_LIVE)
             self.set_memory(cur_memory, VIR_DOMAIN_AFFECT_CONFIG)
             return

@@ -13,7 +13,7 @@ from django.test import TestCase
 from django.urls import reverse
 from instances.models import Instance
 from instances.utils import QUOTA_UNVERIFIED, check_user_quota
-from libvirt import VIR_DOMAIN_RUNNING
+from libvirt import VIR_DOMAIN_PAUSED, VIR_DOMAIN_RUNNING
 from vrtManager.util import OperationError
 
 
@@ -131,6 +131,7 @@ class QuotaViewTests(TestCase):
             wvm.return_value.get_memory.return_value = 2048
             wvm.return_value.get_cur_memory.return_value = 2048
             wvm.return_value.get_status.return_value = status
+            wvm.return_value.instance.isActive.return_value = status != 5
             response = self.client.post(reverse(view, args=[self.vm.id]), data)
         messages = [str(m) for m in get_messages(response.wsgi_request)]
         return messages, check, wvm.return_value
@@ -148,6 +149,11 @@ class QuotaViewTests(TestCase):
         self.assertEqual(check.call_args.args[1:], (0, 0, 0, 0))
         # the maximum passed is the current one: if the VM shut down meanwhile,
         # resize_mem would write it, and it must not be the unchecked 8192
+        proxy.resize_mem.assert_called_once_with("1024", 2048)
+
+    def test_paused_vm_memory_charges_no_maximum_change(self):
+        _, check, proxy = self.post("instances:resize_memory", {"memory": 8192, "cur_memory": 1024}, status=VIR_DOMAIN_PAUSED)
+        self.assertEqual(check.call_args.args[1:], (0, 0, 0, 0))
         proxy.resize_mem.assert_called_once_with("1024", 2048)
 
     def test_shut_off_vm_memory_charges_the_maximum_change(self):
