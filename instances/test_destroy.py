@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from instances.models import Instance
-from libvirt import libvirtError
+from libvirt import VIR_DOMAIN_UNDEFINE_KEEP_NVRAM, VIR_DOMAIN_UNDEFINE_NVRAM, libvirtError
 
 
 class DestroyOrderTestCase(TestCase):
@@ -19,14 +19,28 @@ class DestroyOrderTestCase(TestCase):
             compute=compute, name="destroy-vm", uuid="11111111-2222-3333-4444-555555555555"
         )
 
-    def destroy(self, undefine_error=None):
+    def destroy(self, undefine_error=None, data=None):
         with patch("instances.models.wvmInstance") as wvm:
             proxy = wvm.return_value
             proxy.instance.isActive.return_value = False
             proxy.split_disk_paths_by_use.return_value = (["/pool/own.qcow2"], ["/pool/shared.qcow2"])
             proxy.delete.side_effect = undefine_error
-            self.client.post(reverse("instances:destroy", args=[self.instance.id]), {"delete_disk": "1"})
+            self.client.post(reverse("instances:destroy", args=[self.instance.id]), data or {"delete_disk": "1"})
         return proxy
+
+    def test_the_nvram_goes_only_when_asked(self):
+        for data, wanted, unwanted in (
+            ({"delete_nvram": "1"}, VIR_DOMAIN_UNDEFINE_NVRAM, VIR_DOMAIN_UNDEFINE_KEEP_NVRAM),
+            ({}, VIR_DOMAIN_UNDEFINE_KEEP_NVRAM, VIR_DOMAIN_UNDEFINE_NVRAM),
+        ):
+            with self.subTest(data=data):
+                Instance.objects.get_or_create(
+                    compute=self.instance.compute, name="destroy-vm", uuid="11111111-2222-3333-4444-555555555555"
+                )
+                self.instance = Instance.objects.get(uuid="11111111-2222-3333-4444-555555555555")
+                flags = self.destroy(data=data).delete.call_args[0][0]
+                self.assertTrue(flags & wanted)
+                self.assertFalse(flags & unwanted)
 
     def test_disks_are_deleted_after_the_undefine(self):
         proxy = self.destroy()

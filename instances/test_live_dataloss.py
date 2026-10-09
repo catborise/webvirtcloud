@@ -210,6 +210,72 @@ class LiveDataLossTestCase(TestCase):
 
         self.assertFalse(self.domain_exists(dom.UUIDString()), "paused VM is still running")
 
+    def nvram_files(self):
+        """The test VMs' files in libvirt's NVRAM directory, read through a
+        transient pool (libvirt lists files only as volumes)."""
+        pool = self.conn.storagePoolCreateXML(
+            f"<pool type='dir'><name>{P}nvram</name><target><path>/var/lib/libvirt/qemu/nvram</path></target></pool>", 0
+        )
+        try:
+            return {name for name in pool.listVolumes() if name.startswith(P)}
+        finally:
+            pool.destroy()
+
+    def _destroy_uefi_vm(self, data):
+        dom = self.conn.defineXML(
+            f"<domain type='kvm'><name>{P}r14-nvram</name><memory unit='MiB'>128</memory><vcpu>1</vcpu>"
+            "<os firmware='efi'><type arch='x86_64' machine='q35'>hvm</type></os>"
+            "<features><acpi/></features><devices/></domain>"
+        )
+        refr(self.compute)
+        inst = Instance.objects.get(compute=self.compute, uuid=dom.UUIDString())
+        dom.createWithFlags(libvirt.VIR_DOMAIN_START_PAUSED)  # creates the NVRAM file
+        dom.destroy()
+        self.assertIn(f"{P}r14-nvram_VARS.fd", self.nvram_files())
+
+        self.post("destroy", inst, data)
+
+        self.assertFalse(self.domain_exists(dom.UUIDString()), "VM is still defined")
+        return f"{P}r14-nvram_VARS.fd" in self.nvram_files()
+
+    def test_destroy_deletes_the_nvram_when_asked(self):
+        self.assertFalse(self._destroy_uefi_vm({"delete_nvram": "1"}), "the NVRAM file is still there")
+
+    def test_destroy_keeps_the_nvram_otherwise(self):
+        try:
+            self.assertTrue(self._destroy_uefi_vm({}), "the NVRAM file was deleted")
+        finally:
+            pool = self.conn.storagePoolCreateXML(
+                f"<pool type='dir'><name>{P}nvram</name><target><path>/var/lib/libvirt/qemu/nvram</path></target></pool>", 0
+            )
+            try:
+                for name in pool.listVolumes():
+                    if name.startswith(P):
+                        pool.storageVolLookupByName(name).delete(0)
+            finally:
+                pool.destroy()
+
+    def test_destroy_of_an_overlay_keeps_its_base(self):
+        # The base may be a template other images grow from; only the VM's
+        # own top image goes, with the snapshot metadata.
+        base = livetest.create_volume(self.conn, P + "r14-chain-base")
+        pool = self.conn.storagePoolLookupByName(livetest.POOL)
+        overlay = pool.createXML(
+            f"<volume><name>{P}r14-chain.qcow2</name><capacity unit='MiB'>64</capacity>"
+            f"<target><format type='qcow2'/></target><backingStore><path>{base}</path>"
+            "<format type='qcow2'/></backingStore></volume>",
+            0,
+        ).path()
+        dom, inst = self.vm("r14-chain", [overlay])
+        dom.snapshotCreateXML("<domainsnapshot><name>snap</name></domainsnapshot>", 0)
+
+        response = self.post("destroy", inst, {"delete_disk": "1"})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(self.domain_exists(dom.UUIDString()), "VM is still defined")
+        self.assertFalse(livetest.volume_exists(self.conn, overlay), "the VM's own image is still there")
+        self.assertTrue(livetest.volume_exists(self.conn, base), "the base image was deleted")
+
     # Delete a volume only after it is detached
 
     def _delete_attached_volume(self, pause):
