@@ -3,7 +3,6 @@ its compute; the next poll sends it back so that the rates are averages since
 then, without waiting."""
 
 import json
-import re
 import shutil
 import subprocess
 import unittest
@@ -15,6 +14,7 @@ from django.contrib.auth import get_user_model
 from django.core import signing
 from django.test import TestCase
 from django.urls import reverse
+from lxml import html
 from instances.models import Instance
 from vrtManager.instance import USAGE_MAX_WINDOW
 
@@ -140,7 +140,7 @@ class StatsScriptTestCase(TestDriverVM, TestCase):
         return response.content.decode()
 
     def test_the_next_poll_sends_the_previous_sample(self):
-        script = next(s for s in re.findall(r"<script>(.*?)</script>", self.page(), re.S) if "statsSample" in s)
+        script = next(s for s in html.fromstring(self.page()).xpath("//script[not(@src)]/text()") if "statsSample" in s)
         js = """
         const vm = require("vm");
         const charts = [], requests = [], handlers = {};

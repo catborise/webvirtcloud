@@ -3,7 +3,6 @@ previous answer and now, without waiting, when that sample is recent and
 unaltered; otherwise over one second as before."""
 
 import json
-import re
 import shutil
 import subprocess
 import unittest
@@ -15,6 +14,7 @@ from django.core import signing
 from django.test import TestCase
 from django.urls import reverse
 from libvirt import libvirtError
+from lxml import html
 
 from computes.models import Compute
 from computes.views import CPU_SAMPLE_MAX_AGE, CPU_SAMPLE_SIGNER
@@ -127,7 +127,7 @@ class GraphScriptTestCase(TestCase):
             details.return_value.get_node_info.return_value = ("h", "x86_64", 1024, 2, "cpu", "qemu+tcp://h/system")
             details.return_value.get_memory_usage.return_value = {"total": 1024, "usage": 512, "percent": 50}
             page = self.client.get(reverse("overview", args=[compute.id])).content.decode()
-        script = next(s for s in re.findall(r"<script>(.*?)</script>", page, re.S) if "pollWhileVisible(" in s)
+        script = next(s for s in html.fromstring(page).xpath("//script[not(@src)]/text()") if "pollWhileVisible(" in s)
         js = """
         const vm = require("vm");
         const charts = [], requests = [];
