@@ -534,6 +534,7 @@ A rollback leaves the clone on a detached HEAD at the restored commit; the updat
 - A VM that vanishes from its compute keeps its owners for `INSTANCE_OWNERSHIP_RETENTION_DAYS` (30) in case the same UUID comes back; superusers list and remove these records on the "Removed VMs" admin page.
 - The log rotates (10 MB × 5) in `data/webvirtcloud.log`.
 - A disk can be grown while its VM runs or is paused, not only when it is shut off.
+- Enabling vCPU hot plug keeps the VM's current vCPU count (it enabled all of them up to the maximum).
 - A host's CPU graph shows the average since its previous point (normally 5 s) instead of a 1 s sample taken while a worker waits.
 - A VM's stats are polled every 5 s like the host graph, the first point as soon as the tab opens; each point is the average since the previous one, disk rates in MB/s (they were MiB/s labelled Mb/s); a counter the host does not report shows a gap instead of 0.
 - An ISO uploads to an SSH compute about 3.5 times faster (SFTP writes no longer wait for each 32 KiB); a failed write still fails the upload.
