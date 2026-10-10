@@ -278,3 +278,17 @@ class LiveXmlEffectsTestCase(SimpleTestCase):
 
     def test_edits_of_a_paused_vm(self):
         self.check(running=True, paused=True)
+
+    def test_enabling_vcpu_hotplug_keeps_the_current_vcpus(self):
+        try:
+            dom, vm = self.vm(running=False)
+            vm.resize_cpu("2", "4")
+            vm.set_vcpu_hotplug(True)
+            after = self.persistent(dom)
+            self.assertEqual((after.findtext("vcpu"), first(after, "vcpu/@current")), ("4", "2"))
+            self.assertEqual(after.xpath("vcpus/vcpu/@enabled"), ["yes", "yes", "no", "no"])
+            self.assertEqual(after.xpath("vcpus/vcpu/@hotpluggable"), ["no", "yes", "yes", "yes"])
+            dom.create()
+            self.assertEqual(dom.vcpusFlags(libvirt.VIR_DOMAIN_AFFECT_LIVE), 2)
+        finally:
+            livetest.cleanup(self.conn)

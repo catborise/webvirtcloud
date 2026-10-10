@@ -1,7 +1,8 @@
 """Device edits of a VM: each definition is changed as it describes the
 device, every NIC type can be a boot device, posted values stay values, and
 definition changes go through _defineXML. An active VM's memory is resized
-by balloon, a stopped one's in its definition."""
+by balloon, a stopped one's in its definition. Enabling vCPU hot plug keeps
+the vCPUs enabled at boot."""
 
 import unittest
 from unittest.mock import MagicMock
@@ -63,6 +64,15 @@ class DetachDiskTestCase(unittest.TestCase):
         with self.assertRaises(util.OperationError):
             p.detach_disk("vdz")
         p.instance.detachDeviceFlags.assert_not_called()
+
+
+class VcpuHotplugTestCase(unittest.TestCase):
+    def test_enabling_hotplug_keeps_the_current_vcpus_enabled(self):
+        p = proxy(active=False)
+        p.instance.info.return_value = [5]
+        p._XMLDesc = lambda flags: "<domain><vcpu current='2'>4</vcpu></domain>"
+        p.set_vcpu_hotplug(True)
+        self.assertEqual(defined(p).xpath("vcpus/vcpu/@enabled"), ["yes", "yes"])
 
 
 class DeviceEditsTestCase(unittest.TestCase):

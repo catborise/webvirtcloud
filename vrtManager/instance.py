@@ -1105,8 +1105,9 @@ class wvmInstance(wvmConnect):
         self.instance.setVcpu(str(cpu_id), enabled)
 
     def set_vcpu_hotplug(self, status, vcpus_hotplug=0):
-        """vcpus_hotplug = 0 make all vpus hotpluggable"""
-        vcpus_hotplug = int(self.get_vcpu()) if vcpus_hotplug == 0 else vcpus_hotplug
+        """vcpus_hotplug: the vCPUs enabled at boot, 0 keeps the current ones;
+        libvirt adds the rest up to the maximum as disabled hotpluggable vCPUs"""
+        vcpus_hotplug = self.get_cur_vcpu() if vcpus_hotplug == 0 else vcpus_hotplug
         if self.get_status() == 5:  # shutoff
             if status:
                 xml = """ <vcpus>"""
