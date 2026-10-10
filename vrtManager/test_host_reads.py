@@ -2,7 +2,8 @@
 capabilities once per emulator, arch, machine and domain type: the create
 page's getters parse the capabilities some 60 times, the overview reads the
 info four times. An object lives for one request. The interfaces page lists
-only the host's network devices, not all of them."""
+only the host's network devices, not all of them, and knows whether the host
+can change interfaces at all."""
 
 import unittest
 from unittest.mock import MagicMock
@@ -12,7 +13,7 @@ from django.conf import settings
 if not settings.configured:
     settings.configure(MAC_OUI="52:54:10")
 
-from libvirt import VIR_CONNECT_LIST_NODE_DEVICES_CAP_NET
+from libvirt import VIR_CONNECT_LIST_NODE_DEVICES_CAP_NET, VIR_ERR_NO_SUPPORT, VIR_ERR_OPERATION_DENIED, VIR_ERR_XML_ERROR, libvirtError
 from vrtManager.connection import wvmConnect
 from vrtManager.hostdetails import wvmHostDetails
 
@@ -114,3 +115,20 @@ class NetDevicesTestCase(unittest.TestCase):
         }
         conn.wvm.listAllDevices = lambda flags: devices.get(flags, [])
         self.assertEqual(conn.get_net_devices(), ["eth0", "br0"])
+
+
+class ChangeInterfacesTestCase(unittest.TestCase):
+    def error(self, code):
+        err = libvirtError("refused")
+        err.get_error_code = lambda: code
+        return err
+
+    def test_a_backend_without_define_cannot_change_interfaces(self):
+        conn = connection()
+        # any other refusal (access denied, ...) leaves the page as it was
+        for code, changeable in ((VIR_ERR_NO_SUPPORT, False), (VIR_ERR_XML_ERROR, True), (VIR_ERR_OPERATION_DENIED, True)):
+            with self.subTest(code=code):
+                conn.wvm.interfaceDefineXML = MagicMock(side_effect=self.error(code))
+                self.assertIs(conn.can_change_interfaces(), changeable)
+                # an invalid definition: nothing can be defined by asking
+                conn.wvm.interfaceDefineXML.assert_called_once_with("<interface/>", 0)

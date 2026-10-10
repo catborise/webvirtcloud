@@ -35,6 +35,7 @@
         </div>
     </div>
 
+    {% if changeable is False %}{% include 'interfaces_unchangeable.html' %}{% endif %}
     <div class="row">
         <dl class="ms-3 row">
             <dt class="col-4">{% trans "Interface" %}</dt>
@@ -55,6 +56,9 @@
             <dd class="col-8">{{ start_mode }}</dd>
             <dt class="col-4">{% trans "State" %}</dt>
             <dd class="col-8">
+                {% if changeable is False %}
+                    {% if state == 0 %}{% trans "Inactive" %}{% else %}{% trans "Active" %}{% endif %}
+                {% else %}
                 <form action="" method="post" role="form" aria-label="Interface start/stop/delete form">{% csrf_token %}
                     {% if state == 0 %}
                         <input type="submit" class="btn btn-sm btn-primary" name="start" value="{% trans "Start" %}">
@@ -63,6 +67,7 @@
                         <input type="submit" class="btn btn-sm btn-secondary" name="stop" value="{% trans "Stop" %}" onclick="return confirm('{% trans "Are you sure?" %}')">
                     {% endif %}
                 </form>
+                {% endif %}
             </dd>
         </dl>
 

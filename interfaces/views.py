@@ -29,13 +29,16 @@ def interfaces(request, compute_id):
             compute.type
         )
         ifaces = conn.get_ifaces()
+        changeable = conn.can_change_interfaces()
 
+        # the host's devices are only the create form's choices
         netdevs, netdev_error = [], None
-        try:
-            netdevs = conn.get_net_devices()
-        except Exception as err:
-            netdev_error = err
-            messages.error(request, _("The network devices of this host could not be read: %(error)s") % {"error": err})
+        if changeable:
+            try:
+                netdevs = conn.get_net_devices()
+            except Exception as err:
+                netdev_error = err
+                messages.error(request, _("The network devices of this host could not be read: %(error)s") % {"error": err})
 
         for iface in ifaces:
             interf = wvmInterface(
@@ -48,8 +51,9 @@ def interfaces(request, compute_id):
             ifaces_all.append(interf.get_details())
 
         if request.method == "POST":
-            # without the host's devices nothing can be checked, so nothing is created
-            if "create" in request.POST and netdev_error is None:
+            # the page says why nothing is created on a host that cannot change
+            # interfaces; without the host's devices nothing can be checked
+            if "create" in request.POST and changeable and netdev_error is None:
                 form = AddInterface(request.POST, netdevs=netdevs)
                 if form.is_valid():
                     data = form.cleaned_data
@@ -108,8 +112,10 @@ def interface(request, compute_id, iface):
         ipv6_type = conn.get_ipv6_type()
         bridge = conn.get_bridge()
         slave_ifaces = conn.get_bridge_slave_ifaces()
+        changeable = conn.can_change_interfaces()
 
-        if request.method == "POST":
+        # the page says why nothing is done on a host that cannot change interfaces
+        if request.method == "POST" and changeable:
             if "stop" in request.POST:
                 conn.stop_iface()
                 return HttpResponseRedirect(request.get_full_path())
