@@ -376,3 +376,28 @@ class LiveDataLossTestCase(TestCase):
         self.assertEqual((disk.find("driver").get("cache"), disk.findtext("serial")), ("none", "wvc-serial"))
         self.assertEqual(dom.XMLDesc(0), live)
 
+    def test_pending_qos_change_is_shown_and_kept_by_the_next_edit(self):
+        from lxml import etree, html
+
+        mac = "52:54:00:aa:05:11"
+        nic = (f"<interface type='network'><mac address='{mac}'/><source network='default'/>"
+               "<bandwidth><inbound average='500' peak='0' burst='0'/></bandwidth></interface>")
+        dom, inst = self.vm("qos-pending", [], extra_devices=nic)
+        dom.create()
+        live = dom.XMLDesc(0)
+
+        def row():
+            page = html.fromstring(self.client.get(reverse("instances:instance", args=[inst.id])).content)
+            (label,) = page.xpath("//label[@class='col-form-label'][contains(., 'Inbound')]")
+            fields = label.xpath("ancestor::tr[1]//input[@name]")  # the browser posts the row's inputs
+            return {f.get("name"): f.get("value") for f in fields}
+
+        self.post("set_qos", inst, {**row(), "qos_average": "1000"})
+        form = row()
+        self.assertEqual(form["qos_average"], "1000")
+        self.post("set_qos", inst, {**form, "qos_peak": "600"})
+
+        inbound = etree.fromstring(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)).find("devices/interface/bandwidth/inbound")
+        self.assertEqual((inbound.get("average"), inbound.get("peak")), ("1000", "600"))
+        self.assertEqual(dom.XMLDesc(0), live)
+

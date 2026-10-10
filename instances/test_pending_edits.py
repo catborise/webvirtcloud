@@ -26,7 +26,7 @@ class PendingEditsTestCase(TestCase):
         compute = Compute.objects.create(name="pe", hostname="127.0.0.1:1", login="root", password="", type=1)
         self.instance = Instance.objects.create(compute=compute, name="pe-vm", uuid="aaaaaaaa-1111-2222-3333-444444444444")
 
-    def page(self, live, config):  # disks of the live and the persistent definition
+    def page(self, live=(), config=(), qos=({}, {})):  # disks and QoS of the live and the persistent definition
         with patch("instances.models.wvmInstance") as wvm, patch.object(
             Compute, "status", new_callable=PropertyMock, return_value=True
         ):
@@ -41,6 +41,7 @@ class PendingEditsTestCase(TestCase):
                            "get_snapshot", "get_external_snapshots"):
                 getattr(proxy, getter).return_value = []
             proxy.get_disk_devices.side_effect = lambda **kw: config if kw.get("config") else live
+            proxy.get_all_qos.side_effect = lambda **kw: qos[1] if kw.get("config") else qos[0]
             proxy.get_console_type.return_value = "vnc"
             proxy.get_cache_modes.return_value = {"default": "Default", "none": "Disabled"}
             response = self.client.get(reverse("instances:instance", args=[self.instance.id]))
@@ -58,6 +59,15 @@ class PendingEditsTestCase(TestCase):
         vda = forms[0]
         self.assertEqual(vda.xpath(".//select[@name='vol_cache']/option[@selected]/@value"), ["none"])
         self.assertEqual(vda.xpath("string(.//input[@name='vol_serial']/@value)"), "")
+
+    def test_the_qos_form_shows_the_pending_definition(self):
+        mac = "52:54:10:00:00:01"
+        inbound = {"direction": "inbound", "average": "500", "peak": "0", "burst": "0", "floor": None}
+        doc = self.page(qos=({mac: [inbound]}, {mac: [{**inbound, "average": "1000"}, {**inbound, "direction": "outbound"}]}))
+        self.assertEqual(doc.xpath("//input[@name='qos_average']/@value"), ["1000", "500"])
+        # the pending outbound has a row
+        self.assertEqual([" ".join(t.split()) for t in doc.xpath("//label[@class='col-form-label']/text()")],
+                         [f"{mac} Inbound", f"{mac} Outbound"])
 
     def test_a_disk_with_a_pending_source_is_not_deleted(self):
         # running: vda is A, its definition for the next start uses B

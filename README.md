@@ -540,7 +540,7 @@ A rollback leaves the clone on a detached HEAD at the restored commit; the updat
 - A VM's stats are polled every 5 s like the host graph, the first point as soon as the tab opens; each point is the average since the previous one, disk rates in MB/s (they were MiB/s labelled Mb/s); a counter the host does not report shows a gap instead of 0.
 - An ISO uploads to an SSH compute about 3.5 times faster (SFTP writes no longer wait for each 32 KiB); a failed write still fails the upload.
 - On a host whose libvirt cannot change network interfaces (the udev backend: RHEL 9 and later, Debian 12), the interface pages offer no create, start, stop or delete; they only failed there.
-- On a running VM the disk list and its edit form show the disks as they will be at the next start, so saving an edit no longer reverts another pending disk change.
+- On a running VM the disk list, its edit form and the QoS table show the settings as they will be at the next start, so saving an edit no longer reverts another pending change. A QoS edit keeps the inbound floor.
 - The VM page shows each NIC's own QoS and each CD-ROM's own pool (they showed the previous device's), and a NIC without a source or model no longer breaks it.
 - A volume of an LVM or iSCSI pool can be attached to a VM, and bridge and direct NICs can be boot devices. The NIC model `default` lets libvirt choose, and `rt18139` is `rtl8139`: a VM with either did not start; a migration corrects the default NIC type setting.
 - A paused VM's memory is resized as a running VM's: the current memory changes and the guest takes it once resumed, the maximum stays (both only reached the VM at its next boot).
