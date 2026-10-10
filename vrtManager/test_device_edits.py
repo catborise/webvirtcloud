@@ -1,6 +1,6 @@
 """Device edits of a VM: each definition is changed as it describes the
 device, every NIC type can be a boot device, posted values stay values, and
-definition changes go through _defineXML. An active VM's memory is resized
+definition changes go through _defineXML, a QoS edit keeps the floor. An active VM's memory is resized
 by balloon, a stopped one's in its definition. Enabling vCPU hot plug keeps
 the vCPUs enabled at boot."""
 
@@ -23,7 +23,7 @@ PERSISTENT = """<domain><os><type>hvm</type></os><devices>
 <disk type='file' device='disk'><source file='/pool/b.qcow2'/><target dev='vdb' bus='virtio'/></disk>
 <interface type='bridge'><mac address='52:54:10:00:00:02'/><source bridge='br0'/></interface>
 <interface type='network'><mac address='52:54:10:00:00:01'/><source network='default'/>
-<bandwidth><inbound average='1' peak='2' burst='3'/></bandwidth></interface>
+<bandwidth><inbound average='1' peak='2' burst='3' floor='4'/></bandwidth></interface>
 <video><model type='vga'/></video>
 </devices></domain>"""
 LIVE = """<domain><devices>
@@ -106,6 +106,14 @@ class DeviceEditsTestCase(unittest.TestCase):
             change(p)
             p._defineXML.assert_called_once()
             p.wvm.defineXML.assert_not_called()
+
+    def test_qos_is_read_from_either_definition_and_an_edit_keeps_the_floor(self):
+        p = proxy()
+        self.assertEqual(p.get_all_qos(config=True)["52:54:10:00:00:01"][0]["floor"], "4")
+        self.assertEqual(p.get_all_qos(), {})  # the running VM has none
+        p.set_qos("52:54:10:00:00:01", "inbound", 10, 20, 30)
+        inbound = defined(p).find("devices/interface[@type='network']/bandwidth/inbound")
+        self.assertEqual(inbound.attrib, {"average": "10", "peak": "20", "burst": "30", "floor": "4"})
 
     def test_the_default_nic_model_leaves_the_choice_to_libvirt(self):
         p = proxy()
