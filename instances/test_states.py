@@ -59,7 +59,7 @@ class StateTests(TestCase):
             return SimpleNamespace(instance=Domain(by_uuid[uuid]), get_title=lambda: "", get_uuid=lambda: uuid)
 
         self.client.force_login(user)
-        props = {"status": True, "connection_error": None, "cpu_count": 1, "ram_size": 1, "ram_usage": 0, "cpu_usage": 0}
+        props = {"status": True, "connection_error": None, "cpu_count": 1, "ram_size": 1, "ram_usage": 0}
         patches = [patch.object(Compute, k, new_callable=PropertyMock, return_value=v) for k, v in props.items()]
         patches += [patch("instances.views.utils.refr"), patch("computes.views.utils.refresh_instance_database"),
                     patch("instances.models.wvmInstance", side_effect=wvm)]

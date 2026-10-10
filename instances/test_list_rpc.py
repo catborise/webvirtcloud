@@ -50,7 +50,7 @@ class ListInfoCallTests(TestCase):
         )
 
     def get(self, url):
-        compute_patches = {"status": True, "cpu_count": 1, "ram_size": 1024, "ram_usage": 0, "cpu_usage": 0}
+        compute_patches = {"status": True, "cpu_count": 1, "ram_size": 1024, "ram_usage": 0}
         with patch("instances.views.utils.refr"), patch("computes.views.utils.refresh_instance_database"), patch(
             "instances.models.wvmInstance", side_effect=self.proxy
         ):

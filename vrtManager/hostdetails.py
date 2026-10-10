@@ -49,17 +49,14 @@ class wvmHostDetails(wvmConnect):
         stats = self.wvm.getCPUStats(VIR_NODE_CPU_STATS_ALL_CPUS, 0)
         return stats["idle"], sum(stats.get(name, 0) for name in CPU_TIMES)
 
-    def get_cpu_usage(self, diff=True, previous=None):
+    def get_cpu_usage(self, previous=None):
         """
-        Busy share of all host CPUs in percent. diff=False: since the host
-        started. Otherwise since previous, an (idle, total, time) sample this
-        method returned, or over one second when there is none or it does not
-        lead to this one (the host restarted). Also returns the closing sample
-        and the seconds the usage covers.
+        Busy share of all host CPUs in percent since previous, an (idle, total,
+        time) sample this method returned, or over one second when there is
+        none or it does not lead to this one (the host restarted). Also returns
+        the closing sample and the seconds the usage covers.
         """
         times = self._cpu_times()
-        if not diff:
-            return {"usage": cpu_percent((0, 0), times)}
         now = time.time()
         usage = None
         if previous is not None:

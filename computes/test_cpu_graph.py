@@ -66,10 +66,6 @@ class CpuUsageTestCase(UnitTestCase):
         clock.sleep.assert_called_once_with(1)
         self.assertEqual((usage["usage"], usage["window"]), (80.0, 1.0))
 
-    def test_since_the_host_started(self, clock):
-        self.assertEqual(host((25, 75)).get_cpu_usage(diff=False), {"usage": 75.0})
-        clock.sleep.assert_not_called()
-
 
 class GraphTestCase(TestCase):
     def setUp(self):

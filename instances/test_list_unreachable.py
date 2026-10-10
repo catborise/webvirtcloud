@@ -44,7 +44,7 @@ class UnreachableListTests(TestCase):
 
         props = {"status": up, "connection_error": None if up else ERROR}
         patches = [patch.object(Compute, k, new_callable=PropertyMock, return_value=v) for k, v in props.items()]
-        for name in ("cpu_count", "ram_size", "ram_usage", "cpu_usage"):
+        for name in ("cpu_count", "ram_size", "ram_usage"):
             if up:
                 patches.append(patch.object(Compute, name, new_callable=PropertyMock, return_value=1))
             else:

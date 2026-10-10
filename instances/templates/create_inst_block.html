@@ -32,12 +32,13 @@
                                         <tr style="text-decoration: none">
                                             <td>{{ compute.name }}</td>
                                             <td>{{ compute.cpu_count }}</td>
-                                            <td>
+                                            <td class="cpu-usage" data-url="{% url 'compute_graph' compute.id %}">
                                                 <div class="progress">
-                                                    <div class="progress-bar bg-primary" role="progressbar" style="width: {{ compute.cpu_usage }}%"
-                                                        aria-valuenow="{{ compute.cpu_usage }}" aria-valuemin="0" aria-valuemax="100">{{ compute.cpu_usage }}%
+                                                    <div class="progress-bar bg-primary" role="progressbar" style="width: 0%"
+                                                        aria-valuemin="0" aria-valuemax="100" aria-label="{% trans "CPU Usage" %}">
                                                     </div>
                                                 </div>
+                                                <small class="cpu-usage-value"></small>
                                             </td>
                                             <td>{{ compute.ram_size|filesizeformat }}</td>
                                             <td>

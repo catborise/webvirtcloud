@@ -36,8 +36,6 @@ class InstancesIndexTests(TestCase):
             Compute, "ram_size", new_callable=PropertyMock, return_value=1024
         ), patch.object(
             Compute, "ram_usage", new_callable=PropertyMock, return_value=0
-        ), patch.object(
-            Compute, "cpu_usage", new_callable=PropertyMock, return_value=0
         ):
             response = self.client.get(reverse("instances:index"))
 
