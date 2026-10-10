@@ -335,7 +335,7 @@ class LiveDataLossTestCase(TestCase):
 
         self.assertNotIn("<title>for-old</title>", dom_new.XMLDesc(0))
 
-    # NIC edits of a running VM are pending until restart; the form must show them
+    # Edits of a running VM are pending until restart; the forms must show them
 
     def test_pending_nic_change_is_shown_and_can_be_edited_again(self):
         nic = "<interface type='network'><mac address='52:54:00:aa:05:01'/><source network='default'/></interface>"
@@ -353,4 +353,26 @@ class LiveDataLossTestCase(TestCase):
 
         change("52:54:00:aa:05:02", "52:54:00:aa:05:03")
         self.assertIn("52:54:00:aa:05:03", dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
+
+    def test_pending_disk_change_is_shown_and_kept_by_the_next_edit(self):
+        from lxml import etree, html
+
+        dom, inst = self.vm("disk-pending", [livetest.create_volume(self.conn, P + "disk-pending")])
+        dom.create()
+        live = dom.XMLDesc(0)
+
+        def edit_form():
+            page = self.client.get(reverse("instances:instance", args=[inst.id])).content
+            action = reverse("instances:edit_volume", args=[inst.id])
+            (form,) = html.fromstring(page).xpath("//form[@action=$a][.//input[@name='dev'][@value='vda']]", a=action)
+            return {**dict(form.form_values()), "edit_volume": ""}  # what the browser posts
+
+        self.post("edit_volume", inst, {**edit_form(), "vol_cache": "none"})
+        form = edit_form()
+        self.assertEqual(form["vol_cache"], "none")
+        self.post("edit_volume", inst, {**form, "vol_serial": "wvc-serial"})
+
+        disk = etree.fromstring(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)).find("devices/disk")
+        self.assertEqual((disk.find("driver").get("cache"), disk.findtext("serial")), ("none", "wvc-serial"))
+        self.assertEqual(dom.XMLDesc(0), live)
 

@@ -156,7 +156,9 @@ class Instance(models.Model):
 
     @cached_property
     def config_disks(self) -> list[dict]:
-        """Disks of the persistent definition, which a clone copies."""
+        """Disks of the persistent definition, which the disk list, its edit
+        form and a clone use: on a running VM a pending change shows, and an
+        edit does not post the live value back over it."""
         return self.proxy.get_disk_devices(config=True)
 
     @cached_property

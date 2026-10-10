@@ -1189,6 +1189,13 @@ def delete_vol(request, pk):
             _("Disk %(dev)s is not a storage volume of this instance") % {"dev": dev},
         )
         return _back(request, pk, "disks")
+    # the page lists the persistent disks: delete only a volume both definitions use there
+    if not any(d["dev"] == dev and d["path"] == disk["path"] for d in instance.config_disks):
+        messages.error(
+            request,
+            _("Disk %(dev)s has a pending change; delete it once the VM is shut down") % {"dev": dev},
+        )
+        return _back(request, pk, "disks")
 
     conn_delete = wvmStorage(
         instance.compute.hostname,
