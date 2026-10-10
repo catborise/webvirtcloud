@@ -8,7 +8,7 @@
 {% block page_heading %}{{ compute.name }} - {% trans "Interfaces" %}{% endblock page_heading %}
 
 {% block page_heading_extra %}
-{% include 'create_iface_block.html' %}
+{% if changeable %}{% include 'create_iface_block.html' %}{% endif %}
 {% endblock page_heading_extra %}
 
 {% block content %}
@@ -42,6 +42,7 @@
         </div>
     </div>
 
+    {% if changeable is False %}{% include 'interfaces_unchangeable.html' %}{% endif %}
     <div class="row">
         {% if not  ifaces_all %}
             <div class="col-lg-12">

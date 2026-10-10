@@ -8,7 +8,7 @@ from computes.models import Compute
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
-from lxml import etree
+from lxml import etree, html
 from vrtManager.interface import wvmInterfaces
 
 from interfaces.forms import AddInterface
@@ -295,6 +295,7 @@ class CreateViewTestCase(TestCase):
             with self.subTest(netdev=netdev), patch("interfaces.views.wvmInterfaces") as conn_cls:
                 conn = conn_cls.return_value
                 conn.get_ifaces.return_value = []
+                conn.can_change_interfaces.return_value = True
                 conn.get_net_devices.return_value = ["eth0", "eth1"]
                 self.client.post(
                     reverse("interfaces", args=[compute.id]),
@@ -309,6 +310,7 @@ class CreateViewTestCase(TestCase):
         with patch("interfaces.views.wvmInterfaces") as conn_cls:
             conn = conn_cls.return_value
             conn.get_ifaces.return_value = []
+            conn.can_change_interfaces.return_value = True
             conn.get_net_devices.side_effect = RuntimeError("nodedev driver not running")
             response = self.client.post(
                 reverse("interfaces", args=[compute.id]),
@@ -318,6 +320,78 @@ class CreateViewTestCase(TestCase):
         messages = [str(m) for m in response.context["messages"]]
         self.assertTrue(any("nodedev driver not running" in m for m in messages), messages)
         self.assertFalse(any("not on this host" in m for m in messages), messages)
+
+
+class UnchangeableHostTestCase(TestCase):
+    """A host whose libvirt cannot change interfaces (udev backend) gets no
+    create form and no start/stop/delete, only a note; posts change nothing."""
+
+    NOTE = "does not support changing network interfaces"
+
+    def setUp(self):
+        self.client.force_login(get_user_model().objects.create_superuser("iface_ro", "ro@example.com", "x"))
+        self.compute = Compute.objects.create(name="iface-ro", hostname="127.0.0.1:1", login="root", password="", type=1)
+
+    def interfaces_page(self, changeable, post=None):
+        with patch("interfaces.views.wvmInterfaces") as conn_cls:
+            conn = conn_cls.return_value
+            conn.get_ifaces.return_value = []
+            conn.can_change_interfaces.return_value = changeable
+            conn.get_net_devices.return_value = ["eth0", "eth1"]
+            url = reverse("interfaces", args=[self.compute.id])
+            response = self.client.post(url, post) if post else self.client.get(url)
+        return conn, response.content.decode()
+
+    def test_the_interfaces_page_offers_create_only_where_it_works(self):
+        for changeable in (True, False):
+            with self.subTest(changeable=changeable):
+                conn, page = self.interfaces_page(changeable)
+                self.assertEqual("#AddInterface" in page, changeable)
+                self.assertEqual(self.NOTE in page, not changeable)
+                # the devices are only the form's choices
+                self.assertEqual(conn.get_net_devices.called, changeable)
+
+    def test_a_create_post_creates_nothing(self):
+        conn, page = self.interfaces_page(False, {**BASE, "netdev": "eth1", "ipv6_type": "none", "create": ""})
+        conn.create_iface.assert_not_called()
+        self.assertIn(self.NOTE, page)
+
+    def interface_page(self, changeable, state, post=None):
+        with patch("interfaces.views.wvmInterface") as conn_cls:
+            conn = conn_cls.return_value
+            conn.can_change_interfaces.return_value = changeable
+            conn.is_active.return_value = state
+            conn.get_bridge_slave_ifaces.return_value = []
+            url = reverse("interface", args=[self.compute.id, "br0"])
+            response = self.client.post(url, post) if post else self.client.get(url)
+        return conn, response
+
+    def test_the_interface_page_shows_the_state_without_actions(self):
+        for state, shown in ((1, "Active"), (0, "Inactive")):
+            with self.subTest(state=state):
+                _conn, response = self.interface_page(False, state)
+                page = response.content.decode()
+                self.assertNotIn('name="start"', page)
+                self.assertNotIn('name="stop"', page)
+                state_cell = html.fromstring(page).xpath("//dt[normalize-space()='State']/following-sibling::dd[1]")[0]
+                self.assertEqual(state_cell.text_content().strip(), shown)
+                self.assertIn(self.NOTE, page)
+        _conn, response = self.interface_page(True, 0)
+        self.assertIn('name="start"', response.content.decode())
+
+    def test_a_host_that_could_not_be_read_keeps_the_page_as_it_was(self):
+        with patch("interfaces.views.wvmInterface", side_effect=libvirt.libvirtError("unreachable")):
+            page = self.client.get(reverse("interface", args=[self.compute.id, "br0"])).content.decode()
+        self.assertNotIn(self.NOTE, page)
+        self.assertIn("Interface start/stop/delete form", page)
+
+    def test_start_stop_and_delete_posts_change_nothing(self):
+        for action in ("start", "stop", "delete"):
+            with self.subTest(action=action):
+                conn, response = self.interface_page(False, 1, {action: ""})
+                self.assertEqual(response.status_code, 200)
+                for method in (conn.start_iface, conn.stop_iface, conn.delete_iface):
+                    method.assert_not_called()
 
 
 class EthernetDeviceTestCase(SimpleTestCase):

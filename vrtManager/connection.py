@@ -958,6 +958,17 @@ class wvmConnect(object):
                 instance.append(dom.name())
         return instance
 
+    def can_change_interfaces(self):
+        """False when the host's libvirt cannot define interfaces (the udev
+        backend only reads them). The definition sent is invalid, so nothing is
+        defined: a backend without define refuses it with VIR_ERR_NO_SUPPORT,
+        one with define with an XML error."""
+        try:
+            self.wvm.interfaceDefineXML("<interface/>", 0)
+        except libvirtError as err:
+            return err.get_error_code() != libvirt.VIR_ERR_NO_SUPPORT
+        return True
+
     def get_net_devices(self):
         """The host's network interface names; libvirt lists only the network devices"""
         return [
