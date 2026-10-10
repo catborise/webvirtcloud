@@ -162,8 +162,9 @@ class Instance(models.Model):
         return self.proxy.get_disk_devices(config=True)
 
     @cached_property
-    def qos(self):
-        return self.proxy.get_all_qos()
+    def config_qos(self):
+        """QoS of the persistent definition, which the QoS form changes."""
+        return self.proxy.get_all_qos(config=True)
 
     @cached_property
     def telnet_port(self):

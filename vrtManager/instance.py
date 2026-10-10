@@ -1979,9 +1979,9 @@ class wvmInstance(wvmConnect):
     def set_memory(self, size, flags=0):
         self.instance.setMemoryFlags(size, flags)
 
-    def get_all_qos(self):
+    def get_all_qos(self, config=False):
         qos_values = dict()
-        tree = etree.fromstring(self._XMLDesc(0))
+        tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML if config else 0))
         qos = tree.xpath("/domain/devices/interface")
 
         for q in qos:
@@ -2029,10 +2029,7 @@ class wvmInstance(wvmConnect):
         peak = int(peak)
         burst = int(burst)
 
-        if direction == "inbound":
-            xml = f"<inbound average='{average}' peak='{peak}' burst='{burst}'/>"
-        else:
-            xml = f"<outbound average='{average}' peak='{peak}' burst='{burst}'/>"
+        xml = f"<{direction} average='{average}' peak='{peak}' burst='{burst}'/>"
 
         tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
 
@@ -2048,9 +2045,8 @@ class wvmInstance(wvmConnect):
                 else:
                     direct = band.find(direction)
                     if direct is not None:
-                        parent = direct.getparent()
-                        parent.remove(direct)
-                        parent.append(etree.fromstring(xml))
+                        # keep what the form does not post (an inbound floor)
+                        direct.attrib.update(etree.fromstring(xml).attrib)
                     else:
                         band.append(etree.fromstring(xml))
         new_xml = etree.tostring(tree).decode()

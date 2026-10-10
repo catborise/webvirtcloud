@@ -511,7 +511,7 @@
             </div>
             </div>
 
-            {% if instance.qos %}
+            {% if instance.config_qos %}
             <div class="row mt-3">
                 <div class="col-sm-10">
                     <p><strong>{% trans "QoS Configuration" %}</strong></p>
@@ -528,7 +528,7 @@
                         </tr>
                         </thead>
                         <tbody>
-                        {% for q, attrs in instance.qos.items %}
+                        {% for q, attrs in instance.config_qos.items %}
                             {% for att in attrs  %}
                                 <tr class="d-flex">
                                     <form action="{% url 'instances:set_qos' instance.id %}" method="post" role="form" aria-label="Instance QoS configuration form">
