@@ -179,7 +179,7 @@ nginx -t && systemctl restart nginx supervisord
 
 ```bash
 # 1. System packages (Python 3.11 stack)
-zypper --non-interactive install -y git hostname python311 python311-base python311-devel python311-pip python311-libvirt-python python311-lxml python311-ldap libvirt-devel cyrus-sasl-devel libopenssl-devel gcc pkg-config nginx
+zypper --non-interactive install -y git hostname python311 python311-base python311-devel python311-pip python311-libvirt-python python311-lxml python311-ldap libvirt-devel openldap2-devel cyrus-sasl-devel libopenssl-devel gcc pkg-config nginx
 zypper --non-interactive install -y python3-supervisor || zypper --non-interactive install -y supervisor
 
 # 2. Code
@@ -458,7 +458,7 @@ docker compose up -d
    - a literal `SECRET_KEY = "..."` (older installers wrote it there): put the value into `data/secret_key` instead, or every user is signed out;
    - `SHOW_PROFILE_EDIT_PASSWORD`: keep it for this one `migrate` if you have it (migration `accounts.0008` reads it), then delete it.
 
-3. Install, migrate, and fix ownership and modes (`nginx:nginx` instead of `www-data:www-data` on RHEL / openSUSE):
+3. Install, migrate, and fix ownership and modes (`nginx:nginx` instead of `www-data:www-data` on RHEL / openSUSE). On openSUSE first `zypper --non-interactive install -y openldap2-devel`: pip builds `python-ldap` in the venv:
 
    ```bash
    venv/bin/pip3 install -U -r conf/requirements.txt &&
@@ -595,7 +595,7 @@ Run every step as your normal user, not with `sudo`: if `manage.py` ever runs as
    sudo apt-get update && sudo apt-get -y install git python3-venv python3-dev python3-lxml python3-libvirt python3-ldap libvirt-dev zlib1g-dev libldap2-dev libsasl2-dev gcc pkg-config
 
    # openSUSE Leap 15.x / Tumbleweed / SLES 15 (use python3.11 instead of python3 below)
-   sudo zypper --non-interactive install -y git hostname python311 python311-devel python311-pip python311-libvirt-python python311-lxml python311-ldap libvirt-devel cyrus-sasl-devel libopenssl-devel gcc pkg-config
+   sudo zypper --non-interactive install -y git hostname python311 python311-devel python311-pip python311-libvirt-python python311-lxml python311-ldap libvirt-devel openldap2-devel cyrus-sasl-devel libopenssl-devel gcc pkg-config
    ```
 
 2. Virtualenv and dependencies (`--system-site-packages` is required to see the distro bindings; `dev/requirements.txt` includes `conf/requirements.txt`):
