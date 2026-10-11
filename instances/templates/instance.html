@@ -255,21 +255,21 @@
     });
     $(document).ready(function () {
         // set current console keymap or fall back to default
-        var keymap = "{{ instance.console_keymap }}";
+        var keymap = "{{ instance.config_console_keymap }}";
         if (keymap != '') {
             $("#console_select_keymap option[value='" + keymap + "']").prop('selected', true);
         }
     });
     $(document).ready(function () {
         // set current console listen address or fall back to default
-        var console_listener_address = "{{ instance.console_listener_address }}";
+        var console_listener_address = "{{ instance.config_console_listener_address }}";
         if (console_listener_address != '') {
             $("#console_select_listener_address option[value='" + console_listener_address + "']").prop('selected', true);
         }
     });
     $(document).ready(function () {
         // get video model or fall back to default
-        let video_model = "{{ instance.video_model }}";
+        let video_model = "{{ instance.config_video_model }}";
         if (video_model != '') {
             $("#video_model_select option[value='" + video_model + "']").prop('selected', true);
         }

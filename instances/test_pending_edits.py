@@ -6,10 +6,12 @@ from unittest.mock import PropertyMock, patch
 
 from computes.models import Compute
 from django.contrib.auth import get_user_model
+from django.contrib.messages import get_messages
 from django.test import TestCase
 from django.urls import reverse
 from instances.models import Instance
 from lxml import html
+from vrtManager import util
 
 
 def disk(dev, cache, serial):
@@ -48,6 +50,7 @@ class PendingEditsTestCase(TestCase):
             proxy.get_disk_devices.side_effect = lambda **kw: config if kw.get("config") else live
             proxy.get_all_qos.side_effect = lambda **kw: qos[1] if kw.get("config") else qos[0]
             proxy.get_console_type.return_value = "vnc"
+            proxy.get_video_models.return_value = ["vga", "virtio"]
             proxy.get_cache_modes.return_value = {"default": "Default", "none": "Disabled"}
             response = self.client.get(reverse("instances:instance", args=[self.instance.id]))
         self.assertEqual(response.status_code, 200)
@@ -102,3 +105,28 @@ class PendingEditsTestCase(TestCase):
             with self.subTest(action):
                 (form,) = doc.xpath("//form[@action=$a]", a=reverse(f"instances:{action}", args=[self.instance.id]))
                 self.assertTrue(all(b.get("disabled") is not None for b in form.xpath(".//button")))
+
+    def test_the_boot_video_and_console_forms_show_the_pending_definition(self):
+        cd = {"dev": "sda", "image": "pending.iso", "storage": "default", "path": "/pool/pending.iso", "bus": "sata"}
+        with patch("instances.models.Instance.config_networks", new_callable=PropertyMock, return_value=[]):
+            doc = self.page(
+                live=[disk("vda", "default", "")], config=[disk("vda", "default", ""), disk("vdb", "default", "")],
+                get_bootmenu=(False, True), get_bootorder=({}, {0: {"type": "file", "dev": "cdrom", "target": "sda"}}),
+                get_media_devices=([], [cd]), get_video_model=("vga", "virtio"),
+                get_console_listener_addr=("127.0.0.1", "0.0.0.0"), get_console_keymap=("", "de"),
+                get_console_passwd=("live-pw", "pending-pw"),
+            )
+        (boot,) = doc.xpath("//form[@action=$a]", a=reverse("instances:set_bootorder", args=[self.instance.id]))
+        self.assertEqual(boot.xpath(".//input[@type='checkbox']/@value"), ["disk:vda", "disk:vdb", "cdrom:sda"])
+        self.assertIn("1:sda", doc.xpath("string(//div[label[contains(., ':')]])"))
+        self.assertEqual(doc.xpath("//select[@name='video_model']/option[@selected]/@value"), ["virtio"])
+        self.assertEqual(doc.xpath("//select[@name='keymap']/option[@selected]/@value"), ["de"])
+        self.assertEqual(doc.xpath("//select[@name='listen_on']/option[@selected]/@value"), ["0.0.0.0"])
+        self.assertEqual(doc.xpath("//input[@name='password']/@value"), ["pending-pw"])
+
+    def test_a_boot_order_choice_not_in_the_definition_is_refused(self):
+        with patch("instances.models.wvmInstance") as wvm:
+            wvm.return_value.set_bootorder.side_effect = util.OperationError("Boot device vdz is not in the definition")
+            response = self.client.post(reverse("instances:set_bootorder", args=[self.instance.id]),
+                                        {"bootorder": "disk:vda,disk:vdz"})
+        self.assertEqual([str(m) for m in get_messages(response.wsgi_request)], ["Boot device vdz is not in the definition"])

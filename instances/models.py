@@ -186,6 +186,38 @@ class Instance(models.Model):
         return self.proxy.get_description(config=True)
 
     @cached_property
+    def config_media(self) -> list[dict]:
+        """CD-ROMs, boot menu and boot order of the persistent definition,
+        which the boot order editor changes."""
+        return self.proxy.get_media_devices(config=True)
+
+    @cached_property
+    def config_bootmenu(self) -> bool:
+        return self.proxy.get_bootmenu(config=True)
+
+    @cached_property
+    def config_boot_order(self) -> dict:
+        return self.proxy.get_bootorder(config=True)
+
+    @cached_property
+    def config_video_model(self) -> str | None:
+        """Video model and console settings of the persistent definition,
+        which their forms change."""
+        return self.proxy.get_video_model(config=True)
+
+    @cached_property
+    def config_console_listener_address(self) -> str:
+        return self.proxy.get_console_listener_addr(config=True)
+
+    @cached_property
+    def config_console_passwd(self):
+        return self.proxy.get_console_passwd(config=True)
+
+    @cached_property
+    def config_console_keymap(self) -> str:
+        return self.proxy.get_console_keymap(config=True)
+
+    @cached_property
     def telnet_port(self):
         return self.proxy.get_telnet_port()
 
