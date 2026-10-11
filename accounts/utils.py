@@ -1,9 +1,12 @@
 import base64
 import binascii
 import struct
+from decimal import Decimal
 
+import segno
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
+from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _
 from django_otp import devices_for_user
 from django_otp.plugins.otp_totp.models import TOTPDevice
@@ -54,6 +57,10 @@ def validate_ssh_key(key):
 
 
 def send_email_with_otp(user, device):
+    # An inline SVG (1.8 mm modules) and, for mail clients that show no SVG,
+    # a PNG (12 px modules); error correction M, 4-module border.
+    qr = segno.make(device.config_url, error="m", mode="byte", encoding="utf-8", micro=False)
+    style = {"border": 4, "dark": "black", "light": "white"}
     send_mail(
         _("OTP QR Code"),
         _("Please view HTML version of this message."),
@@ -64,6 +71,8 @@ def send_email_with_otp(user, device):
             {
                 "totp_url": device.config_url,
                 "user": user,
+                "qr_svg": mark_safe(qr.svg_inline(scale=Decimal("1.8"), unit="mm", **style)),
+                "qr_png": qr.png_data_uri(scale=12, **style),
             },
         ),
         fail_silently=False,
