@@ -79,7 +79,6 @@ INSTALLED_APPS = [
     "storages",
     "virtsecrets",
     "logs",
-    "qr_code",
     "rest_framework",
     "axes",
 ]
