@@ -446,13 +446,13 @@ class wvmInstance(wvmConnect):
     def get_uuid(self):
         return self.instance.UUIDString()
 
-    def get_vcpu(self):
-        vcpu = util.get_xml_path(self._XMLDesc(0), "/domain/vcpu")
+    def get_vcpu(self, config=False):
+        vcpu = util.get_xml_path(self._XMLDesc(PERSISTENT_XML if config else 0), "/domain/vcpu")
         return int(vcpu)
 
-    def get_cur_vcpu(self):
-        cur_vcpu = util.get_xml_path(self._XMLDesc(0), "/domain/vcpu/@current")
-        return int(cur_vcpu) if cur_vcpu else self.get_vcpu()
+    def get_cur_vcpu(self, config=False):
+        cur_vcpu = util.get_xml_path(self._XMLDesc(PERSISTENT_XML if config else 0), "/domain/vcpu/@current")
+        return int(cur_vcpu) if cur_vcpu else self.get_vcpu(config)
 
     def get_arch(self):
         return util.get_xml_path(self._XMLDesc(0), "/domain/os/type/@arch")
@@ -497,8 +497,8 @@ class wvmInstance(wvmConnect):
         mem = util.get_xml_path(self._XMLDesc(0), "/domain/currentMemory")
         return int(mem) // 1024
 
-    def get_title(self):
-        title = util.get_xml_path(self._XMLDesc(0), "/domain/title")
+    def get_title(self, config=False):
+        title = util.get_xml_path(self._XMLDesc(PERSISTENT_XML if config else 0), "/domain/title")
         return title or ""
 
     def get_filterrefs(self):
@@ -512,8 +512,8 @@ class wvmInstance(wvmConnect):
 
         return util.get_xml_path(self._XMLDesc(0), func=filterrefs)
 
-    def get_description(self):
-        description = util.get_xml_path(self._XMLDesc(0), "/domain/description")
+    def get_description(self, config=False):
+        description = util.get_xml_path(self._XMLDesc(PERSISTENT_XML if config else 0), "/domain/description")
         return description or ""
 
     def get_max_memory(self):

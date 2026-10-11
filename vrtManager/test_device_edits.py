@@ -1,6 +1,6 @@
 """Device edits of a VM: each definition is changed as it describes the
 device, every NIC type can be a boot device, posted values stay values, and
-definition changes go through _defineXML, a QoS edit keeps the floor. An active VM's memory is resized
+definition changes go through _defineXML, a QoS edit keeps the floor, and the CPU, title and description are read from either definition. An active VM's memory is resized
 by balloon, a stopped one's in its definition. Enabling vCPU hot plug keeps
 the vCPUs enabled at boot."""
 
@@ -18,7 +18,7 @@ from vrtManager import util
 from vrtManager.instance import PERSISTENT_XML, wvmInstance
 from libvirt import VIR_DOMAIN_AFFECT_CONFIG, VIR_DOMAIN_AFFECT_LIVE
 
-PERSISTENT = """<domain><os><type>hvm</type></os><devices>
+PERSISTENT = """<domain><title>pending</title><vcpu current='2'>4</vcpu><os><type>hvm</type></os><devices>
 <disk type='file' device='disk'><source file='/pool/a.qcow2'/><target dev='vda' bus='virtio'/></disk>
 <disk type='file' device='disk'><source file='/pool/b.qcow2'/><target dev='vdb' bus='virtio'/></disk>
 <interface type='bridge'><mac address='52:54:10:00:00:02'/><source bridge='br0'/></interface>
@@ -26,7 +26,7 @@ PERSISTENT = """<domain><os><type>hvm</type></os><devices>
 <bandwidth><inbound average='1' peak='2' burst='3' floor='4'/></bandwidth></interface>
 <video><model type='vga'/></video>
 </devices></domain>"""
-LIVE = """<domain><devices>
+LIVE = """<domain><vcpu>1</vcpu><devices>
 <disk type='file' device='disk'><source file='/pool/a.qcow2'/><target dev='vda' bus='virtio'/><alias name='virtio-disk0'/></disk>
 </devices></domain>"""
 
@@ -114,6 +114,11 @@ class DeviceEditsTestCase(unittest.TestCase):
         p.set_qos("52:54:10:00:00:01", "inbound", 10, 20, 30)
         inbound = defined(p).find("devices/interface[@type='network']/bandwidth/inbound")
         self.assertEqual(inbound.attrib, {"average": "10", "peak": "20", "burst": "30", "floor": "4"})
+
+    def test_cpu_title_and_description_are_read_from_either_definition(self):
+        p = proxy()
+        self.assertEqual((p.get_vcpu(), p.get_cur_vcpu(), p.get_title(), p.get_description()), (1, 1, "", ""))
+        self.assertEqual((p.get_vcpu(config=True), p.get_cur_vcpu(config=True), p.get_title(config=True)), (4, 2, "pending"))
 
     def test_the_default_nic_model_leaves_the_choice_to_libvirt(self):
         p = proxy()

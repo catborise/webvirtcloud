@@ -376,6 +376,31 @@ class LiveDataLossTestCase(TestCase):
         self.assertEqual((disk.find("driver").get("cache"), disk.findtext("serial")), ("none", "wvc-serial"))
         self.assertEqual(dom.XMLDesc(0), live)
 
+    def test_pending_options_and_cpu_changes_are_shown_and_kept_by_the_next_edit(self):
+        from lxml import etree, html
+
+        dom, inst = self.vm("options-pending", [])
+        dom.create()
+        live = dom.XMLDesc(0)
+
+        def form(view):
+            page = self.client.get(reverse("instances:instance", args=[inst.id])).content
+            (form,) = html.fromstring(page).xpath("//form[@action=$a]", a=reverse(f"instances:{view}", args=[inst.id]))
+            return dict(form.form_values())  # what the form would post
+
+        # the buttons are disabled while it runs; a direct post is pending
+        self.post("change_options", inst, {**form("change_options"), "title": "wvc-title"})
+        self.post("resizevm_cpu", inst, {**form("resizevm_cpu"), "vcpu": "2"})
+        options, cpu = form("change_options"), form("resizevm_cpu")
+        self.assertEqual((options["title"], cpu["vcpu"]), ("wvc-title", "2"))
+        self.post("change_options", inst, {**options, "description": "wvc-description"})
+        self.post("resizevm_cpu", inst, {**cpu, "cur_vcpu": "1"})
+
+        tree = etree.fromstring(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
+        self.assertEqual((tree.findtext("title"), tree.findtext("description"), tree.findtext("vcpu")),
+                         ("wvc-title", "wvc-description", "2"))
+        self.assertEqual(dom.XMLDesc(0), live)
+
     def test_pending_qos_change_is_shown_and_kept_by_the_next_edit(self):
         from lxml import etree, html
 

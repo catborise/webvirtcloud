@@ -26,7 +26,9 @@ class PendingEditsTestCase(TestCase):
         compute = Compute.objects.create(name="pe", hostname="127.0.0.1:1", login="root", password="", type=1)
         self.instance = Instance.objects.create(compute=compute, name="pe-vm", uuid="aaaaaaaa-1111-2222-3333-444444444444")
 
-    def page(self, live=(), config=(), qos=({}, {})):  # disks and QoS of the live and the persistent definition
+    def page(self, live=(), config=(), qos=({}, {}), **getters):
+        """live and config: disks; qos and getters (get_vcpu=(2, 4)): values of
+        the live and the persistent definition."""
         with patch("instances.models.wvmInstance") as wvm, patch.object(
             Compute, "status", new_callable=PropertyMock, return_value=True
         ):
@@ -34,8 +36,11 @@ class PendingEditsTestCase(TestCase):
             proxy.get_status.return_value = 1
             proxy.get_memory.return_value = proxy.get_cur_memory.return_value = 1024
             proxy.get_max_memory.return_value = 4096
-            proxy.get_vcpu.return_value = proxy.get_cur_vcpu.return_value = 1
-            proxy.get_max_cpus.return_value = [1, 2]
+            getters = {"get_vcpu": (1, 1), "get_cur_vcpu": (1, 1), "get_title": ("", ""),
+                       "get_description": ("", ""), **getters}
+            for getter, values in getters.items():
+                getattr(proxy, getter).side_effect = lambda config=False, values=values: values[config]
+            proxy.get_max_cpus.return_value = [1, 2, 3, 4]
             proxy.get_vcpus.return_value = {}
             for getter in ("get_networks", "get_ifaces", "get_storages", "get_media_devices", "get_net_devices",
                            "get_snapshot", "get_external_snapshots"):
@@ -78,3 +83,22 @@ class PendingEditsTestCase(TestCase):
             self.client.post(reverse("instances:delete_vol", args=[self.instance.id]), {"dev": "vda"})
         proxy.detach_disk.assert_not_called()
         storage.return_value.del_volume.assert_not_called()
+
+    def test_the_options_and_cpu_forms_show_the_pending_definition(self):
+        doc = self.page(get_vcpu=(2, 4), get_cur_vcpu=(1, 3), get_title=("old", "new"),
+                        get_description=("live text", "pending text"))
+        self.assertEqual(doc.xpath("//input[@name='title']/@value"), ["new"])
+        self.assertEqual(doc.xpath("//textarea[@name='description']/text()"), ["pending text"])
+        self.assertEqual(doc.xpath("//select[@name='vcpu']/option[@selected]/@value"), ["4"])
+        self.assertEqual(doc.xpath("//select[@name='cur_vcpu']/option[@selected]/@value"), ["3"])
+
+    def test_buttons_shown_as_disabled_cannot_submit(self):
+        # running: the CPU, options, video and XML forms wait for a shutdown
+        doc = self.page(live=[disk("vda", "default", "")], config=[disk("vda", "default", "")])
+        shown = doc.xpath("//button[contains(concat(' ', @class, ' '), ' disabled ')]")
+        self.assertGreater(len(shown), 5)
+        self.assertEqual([b for b in shown if b.get("disabled") is None], [])
+        for action in ("resizevm_cpu", "change_options", "set_video_model", "change_xml", "detach_vol", "delete_vol"):
+            with self.subTest(action):
+                (form,) = doc.xpath("//form[@action=$a]", a=reverse(f"instances:{action}", args=[self.instance.id]))
+                self.assertTrue(all(b.get("disabled") is not None for b in form.xpath(".//button")))

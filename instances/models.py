@@ -167,6 +167,25 @@ class Instance(models.Model):
         return self.proxy.get_all_qos(config=True)
 
     @cached_property
+    def config_vcpu(self) -> int:
+        """vCPUs of the persistent definition, which the CPU form changes."""
+        return self.proxy.get_vcpu(config=True)
+
+    @cached_property
+    def config_cur_vcpu(self) -> int:
+        return self.proxy.get_cur_vcpu(config=True)
+
+    @cached_property
+    def config_title(self) -> str:
+        """Title and description of the persistent definition, which the
+        options form changes."""
+        return self.proxy.get_title(config=True)
+
+    @cached_property
+    def config_description(self) -> str:
+        return self.proxy.get_description(config=True)
+
+    @cached_property
     def telnet_port(self):
         return self.proxy.get_telnet_port()
 
