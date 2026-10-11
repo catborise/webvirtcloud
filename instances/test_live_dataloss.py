@@ -401,6 +401,34 @@ class LiveDataLossTestCase(TestCase):
                          ("wvc-title", "wvc-description", "2"))
         self.assertEqual(dom.XMLDesc(0), live)
 
+    def test_pending_boot_order_and_video_are_shown_and_a_live_only_choice_changes_nothing(self):
+        from lxml import etree, html
+
+        nic = "<interface type='network'><mac address='52:54:00:aa:05:21'/><source network='default'/></interface>"
+        graphics = "<graphics type='vnc' autoport='yes' listen='127.0.0.1'/>"
+        dom, inst = self.vm("boot-pending", [livetest.create_volume(self.conn, P + "boot-pending")],
+                            extra_devices=nic + graphics)
+        self.post("set_bootmenu", inst)
+        dom.create()
+        # pending order; a NIC the running VM has but its next start will not
+        self.post("set_bootorder", inst, {"bootorder": "network:52:54:00:aa:05:21,disk:vda"})
+        dom.attachDeviceFlags(nic.replace("05:21", "05:22"), libvirt.VIR_DOMAIN_AFFECT_LIVE)
+        persistent = lambda: etree.fromstring(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))  # noqa: E731
+        video = "virtio" if persistent().find("devices/video/model").get("type") != "virtio" else "vga"
+        self.post("set_video_model", inst, {"video_model": video})
+        live = dom.XMLDesc(0)
+
+        page = html.fromstring(self.client.get(reverse("instances:instance", args=[inst.id])).content)
+        (boot,) = page.xpath("//form[@action=$a]", a=reverse("instances:set_bootorder", args=[inst.id]))
+        self.assertEqual(boot.xpath(".//input[@type='checkbox']/@value"), ["disk:vda", "network:52:54:00:aa:05:21"])
+        self.assertEqual(page.xpath("//select[@name='video_model']/option[@selected]/@value"), [video])
+
+        self.post("set_bootorder", inst, {"bootorder": "network:52:54:00:aa:05:22,disk:vda"})
+        tree = persistent()
+        self.assertEqual(tree.xpath("devices/interface/boot/@order"), ["1"])
+        self.assertEqual(tree.xpath("devices/disk[target/@dev='vda']/boot/@order"), ["2"])
+        self.assertEqual(dom.XMLDesc(0), live)
+
     def test_pending_qos_change_is_shown_and_kept_by_the_next_edit(self):
         from lxml import etree, html
 

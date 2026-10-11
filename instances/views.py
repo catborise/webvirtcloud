@@ -121,9 +121,9 @@ def _instance_page(request, pk, instance, compute):
     if can_manage_console:
         console_form = ConsoleForm(
             initial={
-                "listen_on": instance.console_listener_address,
-                "password": instance.console_passwd,
-                "keymap": instance.console_keymap,
+                "listen_on": instance.config_console_listener_address,
+                "password": instance.config_console_passwd,
+                "keymap": instance.config_console_keymap,
             },
             can_set_listener=request.user.is_superuser,
         )
@@ -1501,7 +1501,11 @@ def set_bootorder(request, pk):
         for idx, val in enumerate(bootorder.split(",")):
             dev_type, dev = val.split(":", 1)
             order_list[idx] = {"type": dev_type, "dev": dev}
-        instance.proxy.set_bootorder(order_list)
+        try:
+            instance.proxy.set_bootorder(order_list)
+        except util.OperationError as err:
+            messages.error(request, err)
+            return _back(request, pk, "boot_opt")
         msg = _("Set boot order")
 
         if not instance.proxy.get_status() == 5:

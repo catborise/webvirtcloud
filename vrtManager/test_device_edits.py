@@ -1,6 +1,7 @@
 """Device edits of a VM: each definition is changed as it describes the
 device, every NIC type can be a boot device, posted values stay values, and
-definition changes go through _defineXML, a QoS edit keeps the floor, and the CPU, title and description are read from either definition. An active VM's memory is resized
+definition changes go through _defineXML, a QoS edit keeps the floor, and what the edit forms show is read from either definition. A boot order with a
+missing device changes nothing. An active VM's memory is resized
 by balloon, a stopped one's in its definition. Enabling vCPU hot plug keeps
 the vCPUs enabled at boot."""
 
@@ -18,15 +19,17 @@ from vrtManager import util
 from vrtManager.instance import PERSISTENT_XML, wvmInstance
 from libvirt import VIR_DOMAIN_AFFECT_CONFIG, VIR_DOMAIN_AFFECT_LIVE
 
-PERSISTENT = """<domain><title>pending</title><vcpu current='2'>4</vcpu><os><type>hvm</type></os><devices>
+PERSISTENT = """<domain><title>pending</title><vcpu current='2'>4</vcpu><os><type>hvm</type><bootmenu enable='yes'/></os><devices>
 <disk type='file' device='disk'><source file='/pool/a.qcow2'/><target dev='vda' bus='virtio'/></disk>
 <disk type='file' device='disk'><source file='/pool/b.qcow2'/><target dev='vdb' bus='virtio'/></disk>
 <interface type='bridge'><mac address='52:54:10:00:00:02'/><source bridge='br0'/></interface>
 <interface type='network'><mac address='52:54:10:00:00:01'/><source network='default'/>
 <bandwidth><inbound average='1' peak='2' burst='3' floor='4'/></bandwidth></interface>
+<disk type='file' device='cdrom'><target dev='sda' bus='sata'/><boot order='1'/></disk>
 <video><model type='vga'/></video>
+<graphics type='vnc' passwd='pending' keymap='de'><listen type='address' address='0.0.0.0'/></graphics>
 </devices></domain>"""
-LIVE = """<domain><vcpu>1</vcpu><devices>
+LIVE = """<domain><vcpu>1</vcpu><os><type>hvm</type></os><devices>
 <disk type='file' device='disk'><source file='/pool/a.qcow2'/><target dev='vda' bus='virtio'/><alias name='virtio-disk0'/></disk>
 </devices></domain>"""
 
@@ -119,6 +122,25 @@ class DeviceEditsTestCase(unittest.TestCase):
         p = proxy()
         self.assertEqual((p.get_vcpu(), p.get_cur_vcpu(), p.get_title(), p.get_description()), (1, 1, "", ""))
         self.assertEqual((p.get_vcpu(config=True), p.get_cur_vcpu(config=True), p.get_title(config=True)), (4, 2, "pending"))
+
+    def test_boot_video_and_console_are_read_from_either_definition(self):
+        p = proxy()
+        live = (p.get_bootmenu(), p.get_bootorder(), p.get_media_devices(), p.get_video_model(),
+                p.get_console_listener_addr(), p.get_console_passwd(), p.get_console_keymap())
+        self.assertEqual(live, (False, {}, [], None, "127.0.0.1", None, ""))
+        self.assertEqual((p.get_bootmenu(config=True), p.get_bootorder(config=True), p.get_video_model(config=True)),
+                         (True, {0: {"type": "file", "dev": "cdrom", "target": "sda"}}, "vga"))
+        self.assertEqual([m["dev"] for m in p.get_media_devices(config=True)], ["sda"])
+        self.assertEqual((p.get_console_listener_addr(config=True), p.get_console_passwd(config=True),
+                          p.get_console_keymap(config=True)), ("0.0.0.0", "pending", "de"))
+
+    def test_a_boot_order_with_a_device_not_in_the_definition_changes_nothing(self):
+        p = proxy()
+        for choice in ({"type": "disk", "dev": "vdz"}, {"type": "network", "dev": "52:54:10:00:00:99"},
+                       {"type": "floppy", "dev": "fda"}):
+            with self.subTest(choice), self.assertRaises(util.OperationError):
+                p.set_bootorder({0: {"type": "disk", "dev": "vda"}, 1: choice})
+        p._defineXML.assert_not_called()
 
     def test_the_default_nic_model_leaves_the_choice_to_libvirt(self):
         p = proxy()

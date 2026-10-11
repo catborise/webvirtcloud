@@ -99,7 +99,7 @@
                     <div class="col-sm-12 text-center">
                     {% if instance.status == 5 %}
                         <p>{% trans "Enable Boot Menu for your instance when it starts up " %}
-                        {% if instance.bootmenu == 0 %}
+                        {% if instance.config_bootmenu == 0 %}
                             <form action="{% url 'instances:set_bootmenu' instance.id %}" method="post" role="form" aria-label="Enable/disable instance boot order form">{% csrf_token %}
                                 <input type="submit" class="btn btn-success" name="set_bootmenu" title="{% trans 'Show boot menu' %}" value="{% trans "Enable" %}">
                             </form>
@@ -109,17 +109,17 @@
                             </form>
                         {% endif %}
                     {% else %}
-                        {% if instance.bootmenu == 0  %}
+                        {% if instance.config_bootmenu == 0  %}
                             <p>**** {% trans "Please shutdown instance to modify boot menu" %} ****</p>
                         {% endif %}
                     {% endif %}
                     </div>
                 </div>
 
-            {% if instance.bootmenu == 1  %}
+            {% if instance.config_bootmenu == 1  %}
                 <div class="d-flex justify-content-center">
                     <div class="col-sm-6 bg-light rounded shadow-sm">
-                        {% for idx, val in instance.boot_order.items %}
+                        {% for idx, val in instance.config_boot_order.items %}
                             <label>{{ idx|add:1 }}:{{ val.target }}, </label>
                         {% endfor %}
                     </div>
@@ -128,13 +128,13 @@
                     <input id="bootorder" name="bootorder" hidden>
                     <div class="d-flex justify-content-center">
                         <div id="b_order" class="multipleselect border-0">
-                            {% for disk in instance.disks %}
+                            {% for disk in instance.config_disks %}
                                 <label><input type="checkbox" name="disk:{{ disk.dev }}" value="disk:{{ disk.dev }}" onclick="set_orderlist($('#bootorder'))" />{{ disk.dev }} - {{ disk.image }}</label>
                             {% endfor %}
-                            {% for cd in instance.media %}
+                            {% for cd in instance.config_media %}
                                 <label><input type="checkbox" name="cdrom:{{ cd.dev }}" value="cdrom:{{ cd.dev }}" onclick="set_orderlist($('#bootorder'))"/>{{ cd.dev }} - {{ cd.image }}</label>
                             {% endfor %}
-                            {% for net in instance.networks %}
+                            {% for net in instance.config_networks %}
                                 <label><input type="checkbox" name="network:{{ net.mac }}" value="network:{{ net.mac }}" onclick="set_orderlist($('#bootorder'))"/>NIC - {{ net.mac|slice:"9:" }}</label>
                             {% endfor %}
                         </div>
@@ -857,7 +857,7 @@
                             <select id="video_model_select" class="form-select" name="video_model">
                                 <option class="fw-bold" value="">{% trans "please choose" %}</option>
                                 {% for vmodel in instance.video_models %}
-                                    <option value="{{ vmodel }}"{% if vmodel == instance.video_model %} selected{% endif %}>{{ vmodel }}</option>
+                                    <option value="{{ vmodel }}"{% if vmodel == instance.config_video_model %} selected{% endif %}>{{ vmodel }}</option>
                                 {% endfor %}
                             </select>
                             {% if instance.status == 5 %}

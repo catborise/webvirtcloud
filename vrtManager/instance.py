@@ -732,7 +732,7 @@ class wvmInstance(wvmConnect):
 
         return self._cached(("volume", path), read)
 
-    def get_media_devices(self):
+    def get_media_devices(self, config=False):
         def disks(doc):
             result = []
             for media in doc.xpath("/domain/devices/disk[@device='cdrom']"):
@@ -753,10 +753,10 @@ class wvmInstance(wvmConnect):
                 )
             return result
 
-        return util.get_xml_path(self._XMLDesc(0), func=disks)
+        return util.get_xml_path(self._XMLDesc(PERSISTENT_XML if config else 0), func=disks)
 
-    def get_bootmenu(self):
-        menu = util.get_xml_path(self._XMLDesc(0), "/domain/os/bootmenu/@enable")
+    def get_bootmenu(self, config=False):
+        menu = util.get_xml_path(self._XMLDesc(PERSISTENT_XML if config else 0), "/domain/os/bootmenu/@enable")
         return menu == "yes"
 
     def set_bootmenu(self, flag):
@@ -783,10 +783,10 @@ class wvmInstance(wvmConnect):
         xmldom = etree.tostring(tree).decode()
         self._defineXML(xmldom)
 
-    def get_bootorder(self):
+    def get_bootorder(self, config=False):
         boot_order = {}
         dev_type = target = None
-        tree = ElementTree.fromstring(self._XMLDesc(0))
+        tree = ElementTree.fromstring(self._XMLDesc(PERSISTENT_XML if config else 0))
         os = tree.find("os")
         boot = os.findall("boot")
 
@@ -858,7 +858,10 @@ class wvmInstance(wvmConnect):
             elif dev["type"] == "network":  # any NIC type: network, bridge, direct
                 devices = tree.xpath("./devices/interface[mac/@address=$mac]", mac=dev["dev"])
             else:
-                raise Exception("Invalid Device Type for boot order")
+                raise util.OperationError("Invalid Device Type for boot order")
+            # nothing is defined until every choice is found: the order above is cleared
+            if not devices:
+                raise util.OperationError(f"Boot device {dev['dev']} is not in the definition")
             for d in devices:
                 d.append(order)
         self._defineXML(etree.tostring(tree).decode())
@@ -1252,13 +1255,13 @@ class wvmInstance(wvmConnect):
                                 telnet_port = service_port
         return telnet_port
 
-    def get_console_listener_addr(self):
+    def get_console_listener_addr(self, config=False):
         listener_addr = util.get_xml_path(
-            self._XMLDesc(0), "/domain/devices/graphics/@listen"
+            self._XMLDesc(PERSISTENT_XML if config else 0), "/domain/devices/graphics/@listen"
         )
         if listener_addr is None:
             listener_addr = util.get_xml_path(
-                self._XMLDesc(0), "/domain/devices/graphics/listen/@address"
+                self._XMLDesc(PERSISTENT_XML if config else 0), "/domain/devices/graphics/listen/@address"
             )
             if listener_addr is None:
                 return "127.0.0.1"
@@ -1341,9 +1344,9 @@ class wvmInstance(wvmConnect):
         )
         return websocket_port
 
-    def get_console_passwd(self):
+    def get_console_passwd(self, config=False):
         return util.get_xml_path(
-            self._XMLDesc(VIR_DOMAIN_XML_SECURE), "/domain/devices/graphics/@passwd"
+            self._XMLDesc(PERSISTENT_XML if config else VIR_DOMAIN_XML_SECURE), "/domain/devices/graphics/@passwd"
         )
 
     def set_console_passwd(self, passwd):
@@ -1374,17 +1377,17 @@ class wvmInstance(wvmConnect):
         newxml = etree.tostring(root).decode()
         self._defineXML(newxml)
 
-    def get_console_keymap(self):
+    def get_console_keymap(self, config=False):
         return (
             util.get_xml_path(
-                self._XMLDesc(VIR_DOMAIN_XML_SECURE), "/domain/devices/graphics/@keymap"
+                self._XMLDesc(PERSISTENT_XML if config else VIR_DOMAIN_XML_SECURE), "/domain/devices/graphics/@keymap"
             )
             or ""
         )
 
-    def get_video_model(self):
+    def get_video_model(self, config=False):
         """:return only primary video card"""
-        xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
+        xml = self._XMLDesc(PERSISTENT_XML if config else VIR_DOMAIN_XML_SECURE)
         tree = etree.fromstring(xml)
         video_models = tree.xpath("/domain/devices/video/model")
         for model in video_models:
