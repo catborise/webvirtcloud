@@ -993,8 +993,7 @@ class wvmInstance(wvmConnect):
         if serial is not None and serial != "None" and serial != "":
             xml_disk += f"""<serial>{serial}</serial>"""
         xml_disk += """</disk>"""
-        for _, affect in self._definitions():
-            self.instance.attachDeviceFlags(xml_disk, affect)
+        self._attach_device(xml_disk)
 
     def detach_disk(self, target_dev):
         """Detach target_dev from each definition that has it, as that definition describes it."""
@@ -1883,10 +1882,21 @@ class wvmInstance(wvmConnect):
             etree.SubElement(iface, "model", type=model)
         if nwfilter:
             etree.SubElement(iface, "filterref", filter=nwfilter)
-        xml_iface = etree.tostring(iface).decode()
+        self._attach_device(etree.tostring(iface).decode())
 
-        for _, affect in self._definitions():
-            self.instance.attachDeviceFlags(xml_iface, affect)
+    def _attach_device(self, xml):
+        """Attach to the persistent definition and, when the VM is active, to
+        the running one, in one call. QEMU checks a copy of the persistent
+        definition before the hotplug, so a conflict there (a disk target or
+        an agent channel already pending) changes neither, and a NIC without
+        a MAC gets the same one in both. Still possible: a failure after a
+        successful hotplug leaves the device in the running VM only, and a
+        SCSI controller added for a disk that then fails to plug stays. An
+        error never proves that a new volume is unused."""
+        flags = VIR_DOMAIN_AFFECT_CONFIG
+        if self.instance.isActive():
+            flags |= VIR_DOMAIN_AFFECT_LIVE
+        self.instance.attachDeviceFlags(xml, flags)
 
     def _definitions(self):
         """(XMLDesc flags, affect flag) of the definitions a device edit applies to:
@@ -2076,8 +2086,7 @@ class wvmInstance(wvmConnect):
                             <target type='virtio' name='org.qemu.guest_agent.0'/>
                         </channel>
                       """
-        for _, affect in self._definitions():
-            self.instance.attachDeviceFlags(channel_xml, affect)
+        self._attach_device(channel_xml)
 
     def remove_guest_agent(self):
         for xml_flags, affect in self._definitions():

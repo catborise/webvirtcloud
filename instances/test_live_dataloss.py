@@ -463,6 +463,58 @@ class LiveDataLossTestCase(TestCase):
         # the new volume stays in the pool: it is never deleted unasked
         self.assertIn(P + "sata-new.qcow2", self.conn.storagePoolLookupByName(livetest.POOL).listVolumes())
 
+    def test_an_attach_that_conflicts_with_a_pending_device_changes_neither_definition(self):
+        controllers = "<controller type='scsi' index='0' model='virtio-scsi'/><controller type='virtio-serial'/>"
+        def disk(path):
+            return (f"<disk type='file' device='disk'><driver name='qemu' type='qcow2'/><source file='{path}'/>"
+                    "<target dev='sda' bus='scsi'/></disk>")
+
+        agent = "<channel type='unix'><target type='virtio' name='org.qemu.guest_agent.0'/></channel>"
+        cases = (
+            ("disk", lambda n: disk(livetest.create_volume(self.conn, P + n + "-pending")),
+             lambda vm, n: vm.attach_disk("sda", livetest.create_volume(self.conn, P + n + "-new"),
+                                          target_bus="scsi", format_type="qcow2")),
+            ("agent", lambda n: agent, lambda vm, n: vm.add_guest_agent()),
+        )
+        both = (0, libvirt.VIR_DOMAIN_XML_INACTIVE)
+        for paused in (False, True):
+            for case, pending, attach in cases:
+                with self.subTest(case=case, paused=paused):
+                    name = f"attach-{case}-{int(paused)}"  # own volumes: a leftover plug must not lock them
+                    dom, inst = self.vm(name, [], extra_devices=controllers)
+                    dom.create()
+                    dom.attachDeviceFlags(pending(name), libvirt.VIR_DOMAIN_AFFECT_CONFIG)  # pending: persistent only
+                    if paused:
+                        dom.suspend()
+                    before = [dom.XMLDesc(flags) for flags in both]
+                    with self.assertRaises(libvirt.libvirtError):
+                        attach(inst.proxy, name)
+                    self.assertEqual([dom.XMLDesc(flags) for flags in both], before)
+
+    def test_a_nic_without_a_mac_gets_the_same_one_in_both_definitions(self):
+        from lxml import etree
+
+        nic = "<interface type='network'><mac address='52:54:00:aa:18:09'/><source network='default'/></interface>"
+        dom, inst = self.vm("nic-mac", [], extra_devices=nic)
+        dom.create()
+        self.post("add_network", inst, {"add-net-network": "net:default", "add-net-mac": "", "add-net-model": "virtio"})
+
+        def macs(flags):
+            return set(etree.fromstring(dom.XMLDesc(flags)).xpath("devices/interface/mac/@address")) - {"52:54:00:aa:18:09"}
+
+        self.assertEqual(len(macs(0)), 1)
+        self.assertEqual(macs(libvirt.VIR_DOMAIN_XML_INACTIVE), macs(0))
+
+    def test_an_empty_scsi_cdrom_reaches_both_definitions_of_a_running_vm(self):
+        from lxml import etree
+
+        dom, inst = self.vm("cdrom-scsi", [], extra_devices="<controller type='scsi' index='0' model='virtio-scsi'/>")
+        dom.create()
+        self.post("add_cdrom", inst, {"bus": "scsi"})
+        for flags in (0, libvirt.VIR_DOMAIN_XML_INACTIVE):
+            tree = etree.fromstring(dom.XMLDesc(flags))
+            self.assertEqual(tree.xpath("devices/disk[@device='cdrom']/target/@dev"), ["sda"])
+
     def test_pending_qos_change_is_shown_and_kept_by_the_next_edit(self):
         from lxml import etree, html
 

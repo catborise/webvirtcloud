@@ -64,38 +64,30 @@ class XmlFidelityTestCase(unittest.TestCase):
                 edit(vm)
                 self.assertIn("<app:info", vm.wvm.defineXML.call_args[0][0])
 
-    def test_paused_vm_gets_nic_changes_live_and_persistent(self):
-        from libvirt import VIR_DOMAIN_AFFECT_CONFIG, VIR_DOMAIN_AFFECT_LIVE
-
-        vm = wvmInstance.__new__(wvmInstance)
-        vm.instance = MagicMock()
-        vm.instance.isActive.return_value = True
-        vm.get_status = MagicMock(return_value=3)  # paused
-        vm.add_network("52:54:00:00:00:09", "default", "net", "virtio")
-        self.assertEqual(
-            [c.args[1] for c in vm.instance.attachDeviceFlags.call_args_list],
-            [VIR_DOMAIN_AFFECT_LIVE, VIR_DOMAIN_AFFECT_CONFIG],
-        )
-
 
 AGENT_DOMAIN = """<domain><name>vm</name><devices><channel type='unix'>
 <target type='virtio' name='org.qemu.guest_agent.0'/></channel></devices></domain>"""
 
 
 class DeviceEditsByStateTestCase(unittest.TestCase):
-    """Disk and agent channel changes reach the running definition whenever the
-    VM is active, paused included, and the persistent one always."""
+    """Disk, NIC and agent channel changes reach the running definition
+    whenever the VM is active, paused included, and the persistent one
+    always. An attach is one call for both; a removal is one per definition,
+    from that definition's own XML."""
 
     EDITS = {
         "attach_disk": ("attachDeviceFlags", lambda vm: vm.attach_disk("vdb", "/var/lib/libvirt/images/d.qcow2")),
+        "add_network": ("attachDeviceFlags", lambda vm: vm.add_network("52:54:00:00:00:09", "default")),
         "add_guest_agent": ("attachDeviceFlags", lambda vm: vm.add_guest_agent()),
         "remove_guest_agent": ("detachDeviceFlags", lambda vm: vm.remove_guest_agent()),
     }
+    ATTACHES = ("attach_disk", "add_network", "add_guest_agent")
 
     def affected(self, state, active):
         from libvirt import VIR_DOMAIN_AFFECT_CONFIG, VIR_DOMAIN_AFFECT_LIVE
 
-        names = {VIR_DOMAIN_AFFECT_LIVE: "live", VIR_DOMAIN_AFFECT_CONFIG: "config"}
+        names = {VIR_DOMAIN_AFFECT_LIVE: "live", VIR_DOMAIN_AFFECT_CONFIG: "config",
+                 VIR_DOMAIN_AFFECT_LIVE | VIR_DOMAIN_AFFECT_CONFIG: "live+config"}
         result = {}
         for name, (method, edit) in self.EDITS.items():
             vm = wvmInstance.__new__(wvmInstance)
@@ -109,15 +101,28 @@ class DeviceEditsByStateTestCase(unittest.TestCase):
 
     def test_paused_vm(self):
         for name, affected in self.affected(state=3, active=True).items():
-            self.assertEqual(affected, ["live", "config"], name)
+            self.assertEqual(affected, ["live+config"] if name in self.ATTACHES else ["live", "config"], name)
 
     def test_running_vm(self):
         for name, affected in self.affected(state=1, active=True).items():
-            self.assertEqual(affected, ["live", "config"], name)
+            self.assertEqual(affected, ["live+config"] if name in self.ATTACHES else ["live", "config"], name)
 
     def test_stopped_vm(self):
         for name, affected in self.affected(state=5, active=False).items():
             self.assertEqual(affected, ["config"], name)
+
+    def test_a_refused_attach_is_not_tried_again(self):
+        from libvirt import libvirtError
+
+        for name in self.ATTACHES:
+            with self.subTest(name):
+                vm = wvmInstance.__new__(wvmInstance)
+                vm.instance = MagicMock()
+                vm.instance.isActive.return_value = True
+                vm.instance.attachDeviceFlags.side_effect = libvirtError("target sda already exists")
+                with self.assertRaises(libvirtError):
+                    self.EDITS[name][1](vm)
+                vm.instance.attachDeviceFlags.assert_called_once()
 
 
 if __name__ == "__main__":
