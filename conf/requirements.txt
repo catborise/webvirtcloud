@@ -1,5 +1,5 @@
 Django==5.2.18
-django_bootstrap5==26.2
+django_bootstrap5==26.3
 django-bootstrap-icons==0.9.0
 django-otp==1.7.3
 django-qr-code==4.2.0
