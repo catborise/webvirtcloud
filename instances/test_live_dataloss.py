@@ -429,6 +429,40 @@ class LiveDataLossTestCase(TestCase):
         self.assertEqual(tree.xpath("devices/disk[target/@dev='vda']/boot/@order"), ["2"])
         self.assertEqual(dom.XMLDesc(0), live)
 
+    def test_a_new_disk_does_not_take_a_name_pending_in_the_persistent_definition(self):
+        from lxml import html
+
+        disks = [livetest.create_volume(self.conn, P + n) for n in ("name-a", "name-b")]
+        dom, inst = self.vm("disk-name", disks, extra_devices="<controller type='scsi' model='virtio-scsi'/>")
+        dom.create()
+        # vdb becomes sata: renamed sda in the persistent definition only
+        page = self.client.get(reverse("instances:instance", args=[inst.id])).content
+        action = reverse("instances:edit_volume", args=[inst.id])
+        (form,) = html.fromstring(page).xpath("//form[@action=$a][.//input[@name='dev'][@value='vdb']]", a=action)
+        self.post("edit_volume", inst, {**dict(form.form_values()), "edit_volume": "", "vol_bus": "sata"})
+        self.assertEqual(self.disk_sources(dom, libvirt.VIR_DOMAIN_XML_INACTIVE).get("sda"), disks[1])
+
+        # scsi shares the sd names: the new disk must not be sda
+        self.post("add_new_vol", inst, {"storage": livetest.POOL, "name": P + "name-new", "format": "qcow2",
+                                        "size": "1", "bus": "scsi", "cache": "default"})
+        new = f"{livetest.POOL_PATH}/{P}name-new.qcow2"
+        self.assertEqual(self.disk_sources(dom).get("sdb"), new)
+        self.assertEqual(self.disk_sources(dom, libvirt.VIR_DOMAIN_XML_INACTIVE).get("sdb"), new)
+        dom.destroy()
+        dom.create()
+        self.assertEqual(self.disk_sources(dom), {"vda": disks[0], "sda": disks[1], "sdb": new})
+
+    def test_a_sata_disk_cannot_be_added_to_a_running_vm_and_nothing_changes(self):
+        dom, inst = self.vm("sata-hotplug", [livetest.create_volume(self.conn, P + "sata-a")])
+        dom.create()
+        before = (self.disk_sources(dom), self.disk_sources(dom, libvirt.VIR_DOMAIN_XML_INACTIVE))
+        response = self.post("add_new_vol", inst, {"storage": livetest.POOL, "name": P + "sata-new", "format": "qcow2",
+                                                   "size": "1", "bus": "sata", "cache": "default"})
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual((self.disk_sources(dom), self.disk_sources(dom, libvirt.VIR_DOMAIN_XML_INACTIVE)), before)
+        # the new volume stays in the pool: it is never deleted unasked
+        self.assertIn(P + "sata-new.qcow2", self.conn.storagePoolLookupByName(livetest.POOL).listVolumes())
+
     def test_pending_qos_change_is_shown_and_kept_by_the_next_edit(self):
         from lxml import etree, html
 

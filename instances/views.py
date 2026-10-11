@@ -968,8 +968,6 @@ def resize_disk(request, pk):
 @serialize_instance_mutation
 def add_new_vol(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
-    media = instance.proxy.get_media_devices()
-    disks = instance.proxy.get_disk_devices()
     storage = request.POST.get("storage", "")
     name = request.POST.get("name", "")
     format = request.POST.get("format", app_settings.INSTANCE_VOLUME_DEFAULT_FORMAT)
@@ -990,7 +988,11 @@ def add_new_vol(request, pk):
         instance.compute.password,
         instance.compute.type,
     )
-    target_dev = utils.get_new_disk_dev(media, disks, bus)
+    # a name either definition uses is taken: on an active VM a disk can be
+    # pending in the persistent one only
+    target_dev = utils.get_new_disk_dev(
+        instance.media + instance.config_media, instance.disks + instance.config_disks, bus
+    )
 
     source = conn_create.create_volume(
         storage,
@@ -1052,9 +1054,6 @@ def add_existing_vol(request, pk):
     if invalid:
         return reject_disk_options(request, pk, invalid)
 
-    media = instance.proxy.get_media_devices()
-    disks = instance.proxy.get_disk_devices()
-
     conn_create = wvmStorage(
         instance.compute.hostname,
         instance.compute.login,
@@ -1080,7 +1079,9 @@ def add_existing_vol(request, pk):
         # an iSCSI volume's path is not the pool target plus its name
         source = conn_create.get_volume(name).path()
 
-    target_dev = utils.get_new_disk_dev(media, disks, bus)
+    target_dev = utils.get_new_disk_dev(
+        instance.media + instance.config_media, instance.disks + instance.config_disks, bus
+    )
 
     instance.proxy.attach_disk(
         target_dev,
@@ -1252,7 +1253,9 @@ def add_cdrom(request, pk):
     if invalid:
         return reject_disk_options(request, pk, invalid)
 
-    target = utils.get_new_disk_dev(instance.media, instance.disks, bus)
+    target = utils.get_new_disk_dev(
+        instance.media + instance.config_media, instance.disks + instance.config_disks, bus
+    )
     instance.proxy.attach_disk(
         target,
         "",
