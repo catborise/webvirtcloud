@@ -28,14 +28,14 @@ class PendingEditsTestCase(TestCase):
         compute = Compute.objects.create(name="pe", hostname="127.0.0.1:1", login="root", password="", type=1)
         self.instance = Instance.objects.create(compute=compute, name="pe-vm", uuid="aaaaaaaa-1111-2222-3333-444444444444")
 
-    def page(self, live=(), config=(), qos=({}, {}), **getters):
+    def page(self, live=(), config=(), qos=({}, {}), status=1, **getters):
         """live and config: disks; qos and getters (get_vcpu=(2, 4)): values of
         the live and the persistent definition."""
         with patch("instances.models.wvmInstance") as wvm, patch.object(
             Compute, "status", new_callable=PropertyMock, return_value=True
         ):
             proxy = wvm.return_value
-            proxy.get_status.return_value = 1
+            proxy.get_status.return_value = status
             proxy.get_memory.return_value = proxy.get_cur_memory.return_value = 1024
             proxy.get_max_memory.return_value = 4096
             getters = {"get_vcpu": (1, 1), "get_cur_vcpu": (1, 1), "get_title": ("", ""),
@@ -130,3 +130,8 @@ class PendingEditsTestCase(TestCase):
             response = self.client.post(reverse("instances:set_bootorder", args=[self.instance.id]),
                                         {"bootorder": "disk:vda,disk:vdz"})
         self.assertEqual([str(m) for m in get_messages(response.wsgi_request)], ["Boot device vdz is not in the definition"])
+
+    def test_an_active_vm_says_its_settings_apply_at_the_next_start(self):
+        for status, shown in ((1, True), (3, True), (5, False)):
+            with self.subTest(status=status):
+                self.assertEqual(bool(self.page(status=status).xpath("//p[@id='next-start-note']")), shown)
