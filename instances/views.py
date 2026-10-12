@@ -35,7 +35,6 @@ from libvirt import (VIR_DOMAIN_UNDEFINE_KEEP_NVRAM,
                      VIR_DOMAIN_UNDEFINE_MANAGED_SAVE,
                      VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA,
                      VIR_DOMAIN_UNDEFINE_NVRAM,
-                     VIR_DOMAIN_START_PAUSED,
                      libvirtError)
 from logs.views import addlogmsg
 from webvirtcloud.middleware import error_text
@@ -1342,7 +1341,11 @@ def delete_snapshot(request, pk):
     if not request.user.has_perm("instances.snapshot_instances"):
         raise PermissionDenied
     snap_name = request.POST.get("name", "")
-    instance.proxy.snapshot_delete(snap_name)
+    try:
+        instance.proxy.snapshot_delete(snap_name)
+    except libvirtError as err:
+        messages.error(request, _("Snapshot was not deleted: %(err)s") % {"err": error_text(request, err)})
+        return _back(request, pk, "managesnapshot")
     msg = _("Delete snapshot: %(snap)s") % {"snap": snap_name}
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     return _back(request, pk, "managesnapshot")
@@ -1376,9 +1379,14 @@ def create_external_snapshot(request, pk):
         raise PermissionDenied
     name = request.POST.get("name", "")
     desc = request.POST.get("description", "")
-    instance.proxy.create_external_snapshot("s1." + name, instance, desc=desc)
-    msg = _("Create external snapshot: %(snap)s") % {"snap": name}
-    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    memory = request.POST.get("memory") == "on"
+    try:
+        instance.proxy.create_external_snapshot(name, desc, memory)
+    except libvirtError as err:
+        messages.error(request, _("Snapshot was not created: %(err)s") % {"err": error_text(request, err)})
+    else:
+        msg = _("Create external snapshot: %(snap)s") % {"snap": name}
+        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     return _back(request, pk, "managesnapshot")
 
 
@@ -1388,15 +1396,15 @@ def revert_external_snapshot(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
     if not request.user.has_perm("instances.snapshot_instances"):
         raise PermissionDenied
-    instance_state = True if instance.proxy.get_status() != 5 else False
     name = request.POST.get("name", "")
-    date = request.POST.get("date", "")
-    desc = request.POST.get("desc", "")
-    instance.proxy.force_shutdown() if instance_state else None
-    instance.proxy.revert_external_snapshot(name, date, desc)
-    instance.proxy.start() if instance_state else None
-    msg = _("Revert external snapshot: %(snap)s") % {"snap": name}
-    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+    try:
+        instance.proxy.revert_external_snapshot(name)
+    except libvirtError as err:
+        messages.error(request, _("Snapshot was not reverted: %(err)s") % {"err": error_text(request, err)})
+    else:
+        messages.success(request, _("Successful revert snapshot: ") + name)
+        msg = _("Revert external snapshot: %(snap)s") % {"snap": name}
+        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     return _back(request, pk, "managesnapshot")
 
 
@@ -1406,18 +1414,14 @@ def delete_external_snapshot(request, pk):
     instance = get_instance(request.user, pk, perm_type="change")
     if not request.user.has_perm("instances.snapshot_instances"):
         raise PermissionDenied
-    instance_state = True if instance.proxy.get_status() == 5 else False
     name = request.POST.get("name", "")
-
-    instance.proxy.start(VIR_DOMAIN_START_PAUSED) if instance_state else None
-
     try:
         instance.proxy.delete_external_snapshot(name)
+    except libvirtError as err:
+        messages.error(request, _("Snapshot was not deleted: %(err)s") % {"err": error_text(request, err)})
+    else:
         msg = _("Delete external snapshot: %(snap)s") % {"snap": name}
         addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    finally:
-        instance.proxy.force_shutdown() if instance_state else None
-
     return _back(request, pk, "managesnapshot")
 
 

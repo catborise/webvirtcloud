@@ -2,7 +2,12 @@ from computes.models import Compute
 from django.db import models
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
-from libvirt import VIR_DOMAIN_XML_SECURE, libvirtError
+from libvirt import (
+    VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL,
+    VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL,
+    VIR_DOMAIN_XML_SECURE,
+    libvirtError,
+)
 from vrtManager.instance import wvmInstance
 from webvirtcloud.settings import QEMU_CONSOLE_LISTENER_ADDRESSES
 
@@ -253,13 +258,24 @@ class Instance(models.Model):
     def video_models(self):
         return self.proxy.get_video_models(self.arch, self.machine)
 
-    @cached_property
-    def snapshots(self) -> list[dict]:
-        return sorted(self.proxy.get_snapshot(), reverse=True, key=lambda k: k["date"])
+    def _snapshots(self, flag):
+        return sorted(self.proxy.get_snapshot(flag), reverse=True, key=lambda k: k["date"])
 
     @cached_property
-    def external_snapshots(self):
-        return sorted(self.proxy.get_external_snapshots(), reverse=True, key=lambda k: k["date"])
+    def snapshots(self) -> list[dict]:
+        return self._snapshots(VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL | VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL)
+
+    @cached_property
+    def internal_snapshots(self) -> list[dict]:
+        return self._snapshots(VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL)
+
+    @cached_property
+    def external_snapshots(self) -> list[dict]:
+        return self._snapshots(VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL)
+
+    @cached_property
+    def snapshot_jobs(self) -> list[dict]:
+        return self.proxy.get_snapshot_jobs()
 
     @cached_property
     def inst_xml(self):

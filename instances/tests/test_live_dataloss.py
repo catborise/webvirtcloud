@@ -92,7 +92,6 @@ class LiveDataLossTestCase(TestCase):
 
     # External snapshots
 
-    @unittest.expectedFailure
     def test_revert_external_snapshot_keeps_disk_added_later(self):
         base = livetest.create_volume(self.conn, P + "r03-a")
         dom, inst = self.vm("r03-a", [base])
@@ -104,11 +103,11 @@ class LiveDataLossTestCase(TestCase):
             f"<source file='{later}'/><target dev='vdb' bus='virtio'/></disk>",
             libvirt.VIR_DOMAIN_AFFECT_CONFIG,
         )
-        self.post("revert_external_snapshot", inst, {"name": "s1.snap", "date": "", "desc": ""})
+        self.post("revert_external_snapshot", inst, {"name": "snap"})
 
         self.assertTrue(livetest.volume_exists(self.conn, later), "revert deleted a disk the snapshot never had")
+        self.assertEqual(set(self.disk_sources(dom, libvirt.VIR_DOMAIN_XML_INACTIVE)), {"vda"})
 
-    @unittest.expectedFailure
     def test_delete_older_external_snapshot_keeps_newer_snapshot_files(self):
         base = livetest.create_volume(self.conn, P + "r03-b")
         dom, inst = self.vm("r03-b", [base])
@@ -116,11 +115,11 @@ class LiveDataLossTestCase(TestCase):
         self.post("create_external_snapshot", inst, {"name": "newer"})
         sources = set(self.disk_sources(dom).values())
 
-        self.post("delete_external_snapshot", inst, {"name": "s1.older"})
+        self.post("delete_external_snapshot", inst, {"name": "older"})
 
         for path in sources:
             self.assertTrue(livetest.volume_exists(self.conn, path), f"{path} was deleted")
-        self.assertIn("s1.newer", dom.snapshotListNames(0))
+        self.assertIn("newer", dom.snapshotListNames(0))
 
     # Internal snapshots of UEFI VMs
 
