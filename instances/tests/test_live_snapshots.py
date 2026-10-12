@@ -54,6 +54,12 @@ class LiveExternalSnapshotTestCase(SimpleTestCase):
             dom.suspend()
         return dom, wvmInstance(*self.args, None, uuid=dom.UUIDString())
 
+    def pool_files(self, name):
+        """The test pool's files whose names start with the VM's name."""
+        pool = self.conn.storagePoolLookupByName(livetest.POOL)
+        pool.refresh(0)
+        return {vol for vol in pool.listVolumes() if vol.startswith(P + name + ".")}
+
     def top(self, dom):
         return etree.fromstring(dom.XMLDesc(0)).xpath("string(devices/disk[@device='disk']/source/@file)")
 
@@ -66,10 +72,11 @@ class LiveExternalSnapshotTestCase(SimpleTestCase):
                 base = self.top(dom)
                 vm.create_external_snapshot("one", "first")
                 vm.create_external_snapshot("two")
-                vm.revert_external_snapshot("one")
+                self.assertEqual(vm.revert_external_snapshot("one"), [], "files left behind")
                 self.assertEqual(dom.state()[0], expected)
-                vm.delete_external_snapshot("two")
-                vm.delete_external_snapshot("one")
+                self.assertEqual(vm.delete_external_snapshot("two"), [], "files left behind")
+                self.assertEqual(vm.delete_external_snapshot("one"), [], "files left behind")
+                self.assertEqual(self.pool_files("snap-" + state), {os.path.basename(base)}, "an overlay stayed on disk")
                 self.assertEqual(dom.snapshotNum(0), 0)
                 self.assertEqual(dom.state()[0], expected)
                 self.assertTrue(livetest.volume_exists(self.conn, base))
@@ -82,7 +89,7 @@ class LiveExternalSnapshotTestCase(SimpleTestCase):
         dom.suspend()
         vm.revert_external_snapshot("m")
         self.assertEqual(dom.state()[0], libvirt.VIR_DOMAIN_RUNNING)
-        vm.delete_external_snapshot("m")
+        self.assertEqual(vm.delete_external_snapshot("m"), [])
         self.assertFalse(livetest.volume_exists(self.conn, mem))
 
     def test_uefi_vm_keeps_its_loader(self):

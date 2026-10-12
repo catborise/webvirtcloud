@@ -1371,6 +1371,20 @@ def revert_snapshot(request, pk):
     return _back(request, pk, "managesnapshot")
 
 
+def _warn_left_behind(request, files):
+    """libvirt only logs it when it cannot remove a snapshot file."""
+    if files:
+        messages.warning(
+            request,
+            _(
+                "These snapshot files were not removed, although nothing uses them any more: %(files)s. "
+                "On NFS libvirt removes them as the qemu user, who needs write access to their directory. "
+                "Remove them by hand."
+            )
+            % {"files": ", ".join(files)},
+        )
+
+
 @require_POST
 @serialize_instance_mutation
 def create_external_snapshot(request, pk):
@@ -1398,11 +1412,12 @@ def revert_external_snapshot(request, pk):
         raise PermissionDenied
     name = request.POST.get("name", "")
     try:
-        instance.proxy.revert_external_snapshot(name)
+        left = instance.proxy.revert_external_snapshot(name)
     except libvirtError as err:
         messages.error(request, _("Snapshot was not reverted: %(err)s") % {"err": error_text(request, err)})
     else:
         messages.success(request, _("Successful revert snapshot: ") + name)
+        _warn_left_behind(request, left)
         msg = _("Revert external snapshot: %(snap)s") % {"snap": name}
         addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     return _back(request, pk, "managesnapshot")
@@ -1416,10 +1431,11 @@ def delete_external_snapshot(request, pk):
         raise PermissionDenied
     name = request.POST.get("name", "")
     try:
-        instance.proxy.delete_external_snapshot(name)
+        left = instance.proxy.delete_external_snapshot(name)
     except libvirtError as err:
         messages.error(request, _("Snapshot was not deleted: %(err)s") % {"err": error_text(request, err)})
     else:
+        _warn_left_behind(request, left)
         msg = _("Delete external snapshot: %(snap)s") % {"snap": name}
         addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     return _back(request, pk, "managesnapshot")

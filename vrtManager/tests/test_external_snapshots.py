@@ -78,6 +78,7 @@ def proxy(status=1, internal=(), external=(), xml=DOMAIN, jobs=None, managed_sav
     dom.hasManagedSaveImage.return_value = managed_save
     dom.isActive.return_value = status in (1, 3)
     dom.blockJobInfo.side_effect = lambda dev, flags: (jobs or {}).get(dev, {})
+    dom.XMLDesc.side_effect = lambda flags: xml
     p.instance = dom
     return p
 
@@ -364,6 +365,110 @@ class DeleteTestCase(unittest.TestCase):
             p.delete_external_snapshot("s")
         snap.delete.assert_not_called()
 
+
+CHAIN = """<domain><devices>
+  <disk type='file' device='disk'><source file='/pool/a.two'/><target dev='vda'/>
+    <backingStore type='file'><source file='/pool/a.one'/>
+      <backingStore type='file'><source file='/pool/a.qcow2'/><backingStore/></backingStore>
+    </backingStore>
+  </disk>
+</devices></domain>"""
+
+
+def chain_snap(name, overlay, memory=None):
+    snap = fake_snap(name)
+    mem = f"<memory snapshot='external' file='{memory}'/>" if memory else "<memory snapshot='no'/>"
+    snap.getXMLDesc.return_value = (
+        f"<domainsnapshot><name>{name}</name><creationTime>1700000000</creationTime>{mem}"
+        f"<disks><disk name='vda' snapshot='external'><source file='{overlay}'/></disk></disks>"
+        "<domain><devices/></domain></domainsnapshot>"
+    )
+    return snap
+
+
+class LeftBehindTestCase(unittest.TestCase):
+    """libvirt only logs a warning when it cannot remove a merged or
+    discarded file (on NFS it removes them as the qemu user), so the delete
+    and revert report the files nothing uses any more that still exist."""
+
+    def run_delete(self, still_there):
+        one = chain_snap("one", "/pool/a.one", memory="/pool/vm.one.mem")
+        two = chain_snap("two", "/pool/a.two")
+        p = proxy(external=[one, two])
+        after = CHAIN.replace("<source file='/pool/a.one'/>", "<source file='/pool/a.qcow2'/>").replace(
+            "<backingStore type='file'><source file='/pool/a.qcow2'/><backingStore/></backingStore>", "<backingStore/>"
+        )
+        p.instance.XMLDesc.side_effect = [CHAIN, after]
+        p.instance.listAllSnapshots.side_effect = [[one, two], [two]]
+
+        def volume(path):
+            if path not in still_there:
+                raise libvirtError("no volume")
+            return MagicMock()
+
+        p.get_volume_by_path = volume
+        return p.delete_external_snapshot("one")
+
+    def test_files_libvirt_could_not_remove_are_reported(self):
+        self.assertEqual(
+            self.run_delete({"/pool/a.one", "/pool/vm.one.mem", "/pool/a.two", "/pool/a.qcow2"}),
+            ["/pool/a.one", "/pool/vm.one.mem"],
+        )
+
+    def test_nothing_is_reported_when_libvirt_removed_them(self):
+        # files still in use (base, the newer overlay) are never reported
+        self.assertEqual(self.run_delete({"/pool/a.two", "/pool/a.qcow2"}), [])
+
+    def revert(self, before, after, backing):
+        """Revert to one; backing maps each file still on disk to its backing file."""
+        one = chain_snap("one", "/pool/a.one")
+        p = proxy(external=[one])
+        p.instance.XMLDesc.side_effect = [before, after]
+        p.instance.listAllSnapshots.side_effect = [[one], [one]]
+
+        def volume(path):
+            if path not in backing:
+                raise libvirtError("no volume")
+            parent = f"<backingStore><path>{backing[path]}</path></backingStore>" if backing[path] else ""
+            return MagicMock(**{"XMLDesc.return_value": f"<volume><target><path>{path}</path></target>{parent}</volume>"})
+
+        p.get_volume_by_path = volume
+        return p.revert_external_snapshot("one")
+
+    def test_revert_reports_a_discarded_overlay_left_on_disk(self):
+        before = CHAIN.replace("/pool/a.two", "/pool/a.after")
+        after = CHAIN.replace("/pool/a.two", "/pool/a.1700000001")
+        left = self.revert(before, after, {"/pool/a.after": "/pool/a.one", "/pool/a.1700000001": "/pool/a.one"})
+        self.assertEqual(left, ["/pool/a.after"])
+
+    def test_a_shut_off_vm_overlay_is_found_through_the_storage(self):
+        # a shut-off VM's definition does not show the backing chain
+        def plain(top):
+            return f"<domain><devices><disk type='file' device='disk'><source file='{top}'/><target dev='vda'/></disk></devices></domain>"
+
+        left = self.revert(plain("/pool/a.after"), plain("/pool/a.1700000001"), {"/pool/a.after": "/pool/a.one"})
+        self.assertEqual(left, ["/pool/a.after"])
+
+    def test_revert_never_reports_a_detached_disk(self):
+        # vdb and vdc were added after the snapshot: the revert detaches them
+        # and keeps their files on purpose, also when vdc is itself an overlay
+        later = (
+            "<disk type='file' device='disk'><source file='/pool/later.qcow2'/><target dev='vdb'/></disk>"
+            "<disk type='file' device='disk'><source file='/pool/clone.qcow2'/><target dev='vdc'/>"
+            "<backingStore type='file'><source file='/templates/base.qcow2'/><backingStore/></backingStore></disk>"
+        )
+        before = CHAIN.replace("</devices>", later + "</devices>")
+        left = self.revert(before, CHAIN, {"/pool/later.qcow2": None, "/pool/clone.qcow2": "/templates/base.qcow2"})
+        self.assertEqual(left, [])
+
+    def test_revert_never_reports_a_detached_overlay_of_a_snapshot_file(self):
+        linked = (
+            "<disk type='file' device='disk'><source file='/pool/linked.qcow2'/><target dev='vdb'/>"
+            "<backingStore type='file'><source file='/pool/a.one'/><backingStore/></backingStore></disk>"
+        )
+        before = CHAIN.replace("</devices>", linked + "</devices>")
+        left = self.revert(before, CHAIN, {"/pool/linked.qcow2": "/pool/a.one"})
+        self.assertEqual(left, [])
 
 class KindTestCase(unittest.TestCase):
     def test_internal_endpoints_refuse_external_names(self):

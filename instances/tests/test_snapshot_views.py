@@ -25,7 +25,7 @@ class SnapshotViewsTestCase(TestCase):
         admin = get_user_model().objects.create_superuser("snap_admin", "s@example.com", "pw")
         self.client.force_login(admin)
 
-    def post(self, view, data, error=None):
+    def post(self, view, data, error=None, left=()):
         with patch("instances.models.wvmInstance") as mock_wvm:
             proxy = mock_wvm.return_value
             method = {
@@ -36,8 +36,10 @@ class SnapshotViewsTestCase(TestCase):
                 "delete_snapshot": proxy.snapshot_delete,
                 "snapshot": proxy.create_snapshot,
             }[view]
+            method.return_value = list(left)  # files revert and delete left behind
             if error:
                 method.side_effect = util.OperationError(error)
+            self.client.cookies.pop("messages", None)  # only this request's messages
             response = self.client.post(
                 reverse(f"instances:{view}", args=[self.instance.id]),
                 data,
@@ -59,6 +61,16 @@ class SnapshotViewsTestCase(TestCase):
                 method.assert_called_once_with("a")
                 for power in ("start", "force_shutdown", "shutdown"):
                     getattr(proxy, power).assert_not_called()
+
+    def test_files_left_behind_are_named_in_a_warning(self):
+        for view in ("revert_external_snapshot", "delete_external_snapshot"):
+            with self.subTest(view):
+                _, _, messages = self.post(view, {"name": "a"}, left=["/pool/a.one", "/pool/vm.one.mem"])
+                warning = [m for m in messages if "/pool/a.one, /pool/vm.one.mem" in m]
+                self.assertEqual(len(warning), 1, messages)
+                self.assertIn("qemu user", warning[0])
+                _, _, messages = self.post(view, {"name": "a"})
+                self.assertFalse([m for m in messages if "not removed" in m], messages)
 
     def test_refusals_become_messages(self):
         for view in ("create_external_snapshot", "revert_external_snapshot", "delete_external_snapshot",
