@@ -69,7 +69,7 @@ class PageControls:
             }
             for getter in ("get_networks", "get_ifaces", "get_storages", "get_disk_devices",
                            "get_media_devices", "get_net_devices", "get_snapshot",
-                           "get_external_snapshots"):
+                           "get_snapshot_jobs"):
                 getattr(proxy, getter).return_value = []
             proxy.get_console_type.return_value = "vnc"
             proxy.get_status.return_value = status

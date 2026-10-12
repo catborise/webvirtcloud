@@ -3,6 +3,7 @@ import ipaddress
 import json
 import logging
 import os.path
+import re
 import string
 import threading
 import time
@@ -31,14 +32,13 @@ try:
         VIR_MIGRATE_PERSIST_DEST,
         VIR_MIGRATE_UNDEFINE_SOURCE,
         VIR_MIGRATE_UNSAFE,
+        VIR_DOMAIN_SNAPSHOT_CREATE_ATOMIC,
         VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY,
-        VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY,
+        VIR_DOMAIN_SNAPSHOT_REVERT_PAUSED,
+        VIR_DOMAIN_SNAPSHOT_REVERT_RUNNING,
+        VIR_ERR_CONFIG_UNSUPPORTED,
         VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL,
         VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL,
-        VIR_DOMAIN_BLOCK_COMMIT_DELETE,
-        VIR_DOMAIN_BLOCK_COMMIT_ACTIVE,
-        VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT,
-        VIR_DOMAIN_START_PAUSED,
         libvirtError,
     )
     from libvirt_qemu import VIR_DOMAIN_QEMU_AGENT_COMMAND_DEFAULT, qemuAgentCommand
@@ -59,6 +59,9 @@ from vrtManager.storage import wvmStorage, wvmStorages
 # with secrets. Live XML would drop pending changes, non-secure XML the VNC
 # password.
 PERSISTENT_XML = VIR_DOMAIN_XML_INACTIVE | VIR_DOMAIN_XML_SECURE
+
+# External snapshot names become part of overlay and memory file names.
+SNAPSHOT_NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}")
 # the longest window wvmInstance.usage() averages over
 USAGE_MAX_WINDOW = 30
 
@@ -1509,17 +1512,12 @@ class wvmInstance(wvmConnect):
             [path for path in own if path in used_elsewhere],
         )
 
-    def delete_all_disks(self):
-        self.refresh_instance_pools()
-        disks = self.get_disk_devices()
-        for disk in disks:
-            vol = self.get_volume_by_path(disk.get("path"))
-            vol.delete(0)
-
     def _snapshotCreateXML(self, xml, flag):
         self.instance.snapshotCreateXML(xml, flag)
 
     def create_snapshot(self, name, desc=None):
+        if self.instance.snapshotListNames(VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL):
+            raise util.OperationError("The VM has external snapshots; internal snapshots cannot be mixed with them")
         state = "shutoff" if self.get_status() == 5 else "running"
         name_esc = util.xml_escape(name)
         desc_esc = util.xml_escape(desc) if desc else ""
@@ -1540,139 +1538,184 @@ class wvmInstance(wvmConnect):
                   </domainsnapshot>"""
         self._snapshotCreateXML(xml, 0)
 
-    def change_snapshot_xml(self):
-        try:
-            raw_xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-            tree = ElementTree.fromstring(raw_xml)
-            loader = tree.find("./os/loader")
-            if loader is not None and loader.get("type") == "pflash":
-                loader.set("type", "rom")
-                self._defineXML(ElementTree.tostring(tree, encoding="unicode"))
-                return True
-            return False
-        except Exception as e:
-            logger.error("Failed to change snapshot XML loader: %s", e)
-            raise
-
-    def recover_snapshot_xml(self):
-        try:
-            raw_xml = self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-            tree = ElementTree.fromstring(raw_xml)
-            loader = tree.find("./os/loader")
-            if loader is not None and loader.get("type") == "rom":
-                loader.set("type", "pflash")
-                self._defineXML(ElementTree.tostring(tree, encoding="unicode"))
-                return True
-            return False
-        except Exception as e:
-            logger.error("Failed to recover snapshot XML loader: %s", e)
-            raise
-
-    def create_external_snapshot(self, name, date=None, desc=None):
-        creation_time = time.time()
-        state = "shutoff" if self.get_status() == 5 else "running"
-        name_esc = util.xml_escape(name)
-        desc_esc = util.xml_escape(desc) if desc else ""
-        #<seclabel type='none' model='dac' relabel='no'/>
-        xml = """<domainsnapshot>
-                     <name>%s</name>
-                     <description>%s</description>
-                     <state>%s</state>
-                     <creationTime>%d</creationTime>
-                     """ % (
-            name_esc,
-            desc_esc,
-            state,
-            creation_time,
+    def create_external_snapshot(self, name, desc="", memory=False):
+        """A disk-only snapshot, or with memory too (running VMs only). Every
+        disk gets a libvirt-named overlay next to it; the memory file goes
+        next to the first disk."""
+        if not SNAPSHOT_NAME.fullmatch(name):
+            raise util.OperationError(
+                "Snapshot names are 1-64 letters, digits, '.', '_' or '-' and do not start with '.'"
+            )
+        self._check_snapshot_state()
+        if self.instance.snapshotListNames(VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL):
+            raise util.OperationError("The VM has internal snapshots; external snapshots cannot be mixed with them")
+        if name in self.instance.snapshotListNames(0):
+            raise util.OperationError(f"A snapshot named {name} already exists")
+        if self.instance.hasCurrentSnapshot(0):
+            if self.instance.snapshotCurrent(0).numChildren(0):
+                raise util.OperationError("Newer snapshots exist after the last revert; delete them first")
+        elif self.instance.snapshotListNames(0):
+            # only after changes outside WebVirtCloud; a create would start a second root
+            raise util.OperationError("No snapshot is current; revert to a snapshot first")
+        tree = etree.fromstring(self._XMLDesc(0))
+        for disk in tree.xpath("devices/disk"):
+            dev = disk.xpath("string(target/@dev)")
+            if disk.get("device") in ("cdrom", "floppy"):
+                if disk.xpath("source/@file|source/@dev|source/@name"):
+                    raise util.OperationError(f"Eject the media from {dev} first")
+            elif disk.get("type") != "file":
+                raise util.OperationError(f"Disk {dev} is not a file; external snapshots need file disks")
+        memory_xml = self._snapshot_memory_xml(name, tree) if memory else ""
+        xml = (
+            f"<domainsnapshot><name>{name}</name>"
+            f"<description>{util.xml_escape(desc)}</description>{memory_xml}</domainsnapshot>"
         )
-
-        changed = self.change_snapshot_xml()
-        try:
-            xml += self._XMLDesc(VIR_DOMAIN_XML_SECURE)
-            xml += """<active>0</active>
-                      </domainsnapshot>"""
-
-            self._snapshotCreateXML(xml, VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY)
-        finally:
-            if changed:
-                self.recover_snapshot_xml()
+        flags = VIR_DOMAIN_SNAPSHOT_CREATE_ATOMIC
+        if not memory:
+            flags |= VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY
+        self._snapshotCreateXML(xml, flags)
         self.refresh_instance_pools()
 
-    def get_external_snapshots(self):
-        return self.get_snapshot(VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL)
-    
+    def _snapshot_memory_xml(self, name, tree):
+        """The <memory> element of a snapshot that saves memory: a file in the
+        storage pool of the first disk, which must have room for it."""
+        if self.get_status() != 1:
+            raise util.OperationError("Memory is saved only from a running VM")
+        disks = list(self._disk_sources(tree).values())
+        if not disks:
+            raise util.OperationError("The VM has no disk to keep its memory next to")
+        # the top overlay is known to its pool only after a refresh
+        self.refresh_instance_pools()
+        try:
+            pool = self.get_volume_by_path(disks[0]).storagePoolLookupByVolume()
+        except libvirtError:
+            raise util.OperationError(f"{disks[0]} is not in a storage pool; memory is saved only into one") from None
+        if pool.info()[3] < self.get_cur_memory() * 1024 * 1024:
+            raise util.OperationError(f"Storage pool {pool.name()} has less free space than the VM's memory")
+        path = os.path.join(os.path.dirname(disks[0]), f"{self.get_uuid()}.{name}.mem")
+        return f"<memory snapshot='external' file='{util.xml_escape(path)}'/>"
+
+    def revert_external_snapshot(self, name):
+        """libvirt returns the disks and the definition to the snapshot's. A
+        disk-only snapshot keeps the VM running, paused or shut off as it is;
+        a snapshot with memory resumes the VM as it was saved."""
+        snap = self._snapshot(name, external=True)
+        self._check_snapshot_state()
+        tree = etree.fromstring(snap.getXMLDesc(0))
+        # Snapshots of UEFI VMs taken before WebVirtCloud used libvirt's
+        # snapshot API saved the loader switched to rom; a revert would
+        # restore that.
+        saved = self._saved_definition(tree)
+        saved_loader = saved.xpath("string(os/loader/@type)") if saved is not None else ""
+        current_loader = util.get_xml_path(self._XMLDesc(PERSISTENT_XML), "/domain/os/loader/@type")
+        if saved_loader == "rom" and current_loader == "pflash":
+            raise util.OperationError(
+                "This snapshot was taken by an older version on a UEFI VM and cannot be reverted; delete it instead"
+            )
+        if tree.find("memory[@snapshot='external']") is not None:
+            flags = 0
+        else:
+            flags = {1: VIR_DOMAIN_SNAPSHOT_REVERT_RUNNING, 3: VIR_DOMAIN_SNAPSHOT_REVERT_PAUSED}.get(
+                self.get_status(), 0
+            )
+        # libvirt names the new overlays after the second, so a revert within
+        # the second of the previous one finds them taken, after it has
+        # already stopped a running VM; one retry a second later finishes it.
+        try:
+            self.instance.revertToSnapshot(snap, flags)
+        except libvirtError as err:
+            if err.get_error_code() != VIR_ERR_CONFIG_UNSUPPORTED or "already exists" not in str(err):
+                raise
+            time.sleep(1)
+            try:
+                self.instance.revertToSnapshot(snap, flags)
+            except libvirtError as retry_err:
+                state = "running" if self.instance.isActive() else "shut off"
+                raise util.OperationError(
+                    f"The revert failed twice; try again in a moment ({retry_err}). The VM is {state}."
+                ) from None
+        self.refresh_instance_pools()
+
     def delete_external_snapshot(self, name):
-        disk_info = self.get_disk_devices()
-        for disk in disk_info:
-            target_dev = disk["dev"]
-            backing_file = disk["backing_file"]
-            snap_source_file = disk["path"]
-            self.instance.blockCommit(target_dev, backing_file, snap_source_file,
-                                                  flags=VIR_DOMAIN_BLOCK_COMMIT_DELETE|
-                                                  VIR_DOMAIN_BLOCK_COMMIT_ACTIVE)
-            while True:
-                info = self.instance.blockJobInfo(target_dev, 0)
-                if info.get('cur') == info.get('end'):
-                    self.instance.blockJobAbort(target_dev,flags=VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT)
-                    time.sleep(2)
-                    break
-            # Check again pool for snapshot delta volume; if it exist, remove it manually
-            with contextlib.suppress(libvirtError):
-                vol_snap = self.get_volume_by_path(snap_source_file)
-                pool = vol_snap.storagePoolLookupByVolume()
-                pool.refresh(0)
-                vol_snap.delete(0)
+        """libvirt merges the snapshot's overlays and removes its files."""
+        snap = self._snapshot(name, external=True)
+        self._check_snapshot_state()
+        snap.delete(0)
+        self.refresh_instance_pools()
 
-        snap = self.instance.snapshotLookupByName(name, 0)
-        snap.delete(VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY)
+    @staticmethod
+    def _disk_sources(xml):
+        """Target dev -> source file of the disks (not CD-ROMs) in a domain definition."""
+        tree = etree.fromstring(xml) if isinstance(xml, str) else xml
+        return {
+            disk.xpath("string(target/@dev)"): disk.xpath("string(source/@file|source/@dev|source/@name)")
+            for disk in tree.xpath("devices/disk[@device='disk']")
+        }
 
-    
-    def revert_external_snapshot(self, name, date, desc):
-        snap = self.instance.snapshotLookupByName(name, 0)
-        snap_xml = snap.getXMLDesc(0)
-        snapXML = ElementTree.fromstring(snap_xml)
+    @staticmethod
+    def _saved_definition(tree):
+        """The definition a revert to this snapshot restores as the persistent one."""
+        definition = tree.find("inactiveDomain")
+        return tree.find("domain") if definition is None else definition
 
-        self.start(flags=VIR_DOMAIN_START_PAUSED) if self.get_status() == 5 else None
-        self.delete_all_disks()
-        
-        self.force_shutdown()
-
-        snap.delete(VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY)
-
-        disks = snapXML.findall('inactiveDomain/devices/disk')
-        if not disks: disks = snapXML.findall('domain/devices/disk')
-        for disk in disks:
-            self.instance.updateDeviceFlags(ElementTree.tostring(disk).decode("UTF-8"))
-        name = name.replace("s1", "s2")
-        self.create_external_snapshot(name, date, desc)
-
-    def get_snapshot(self, flag=VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL|VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL):
+    def get_snapshot(self, flag):
+        """Snapshots of one kind (VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL or
+        _EXTERNAL; both flags for all), with whether each saved memory, is the
+        current one, and which disks of the persistent definition a revert to
+        it detaches."""
+        current_disks = self._disk_sources(self._XMLDesc(PERSISTENT_XML))
         snapshots = []
-        snapshot_list = self.instance.snapshotListNames(flag)
-        for snapshot in snapshot_list:
-            snap = self.instance.snapshotLookupByName(snapshot, 0)
-            snap_description = util.get_xml_path(
-                snap.getXMLDesc(0), "/domainsnapshot/description"
-            )
-            snap_time_create = util.get_xml_path(
-                snap.getXMLDesc(0), "/domainsnapshot/creationTime"
-            )
+        for snap in self.instance.listAllSnapshots(flag):
+            tree = etree.fromstring(snap.getXMLDesc(0))
+            definition = self._saved_definition(tree)
+            saved_disks = self._disk_sources(definition) if definition is not None else {}
             snapshots.append(
                 {
-                    "date": datetime.fromtimestamp(int(snap_time_create)),
-                    "name": snapshot,
-                    "description": snap_description,
+                    "date": datetime.fromtimestamp(int(tree.findtext("creationTime"))),
+                    "name": snap.getName(),
+                    "description": tree.findtext("description") or "",
+                    "memory": tree.find("memory[@snapshot='external']") is not None,
+                    "current": bool(snap.isCurrent(0)),
+                    "detaches": [
+                        {"dev": dev, "path": path} for dev, path in current_disks.items() if dev not in saved_disks
+                    ],
                 }
             )
         return snapshots
 
+    def get_snapshot_jobs(self):
+        """Block jobs (snapshot merges) running on the VM's disks."""
+        if not self.instance.isActive():
+            return []
+        jobs = []
+        for dev in self._disk_sources(self._XMLDesc(0)):
+            info = self.instance.blockJobInfo(dev, 0)
+            if info:
+                jobs.append({"dev": dev, "cur": info["cur"], "end": info["end"]})
+        return jobs
+
+    def _snapshot(self, name, external):
+        """The named snapshot; a snapshot of the other kind is refused."""
+        flag = VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL if external else VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL
+        if name not in self.instance.snapshotListNames(flag):
+            kind = "external" if external else "internal"
+            raise util.OperationError(f"The VM has no {kind} snapshot named {name}")
+        return self.instance.snapshotLookupByName(name, 0)
+
+    def _check_snapshot_state(self):
+        """Refusals shared by external snapshot create, revert and delete. The
+        internal/external mix is checked only on create, so a VM that is
+        already mixed can still be cleaned up."""
+        if self.instance.hasManagedSaveImage(0):
+            raise util.OperationError("The VM has a saved state; start it or remove the saved state first")
+        if self.get_snapshot_jobs():
+            raise util.OperationError("A snapshot job is still running on this VM; try again when it ends")
+
     def snapshot_delete(self, snapshot):
-        snap = self.instance.snapshotLookupByName(snapshot, 0)
-        snap.delete(0)
+        self._snapshot(snapshot, external=False).delete(0)
 
     def snapshot_revert(self, snapshot):
-        snap = self.instance.snapshotLookupByName(snapshot, 0)
-        self.instance.revertToSnapshot(snap, 0)
+        self.instance.revertToSnapshot(self._snapshot(snapshot, external=False), 0)
 
     def get_managed_save_image(self):
         return self.instance.hasManagedSaveImage(0)

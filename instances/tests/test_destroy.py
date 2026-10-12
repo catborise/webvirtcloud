@@ -50,7 +50,6 @@ class DestroyOrderTestCase(TestCase):
     def test_failed_undefine_deletes_no_disk(self):
         proxy = self.destroy(undefine_error=libvirtError("refused"))
         proxy.get_volume_by_path.assert_not_called()
-        proxy.delete_all_disks.assert_not_called()
         self.assertTrue(Instance.objects.filter(pk=self.instance.pk).exists())
 
     def test_destroy_and_delete_vol_hold_the_compute_exclusively(self):
