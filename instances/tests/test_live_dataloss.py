@@ -275,6 +275,52 @@ class LiveDataLossTestCase(TestCase):
         self.assertFalse(livetest.volume_exists(self.conn, overlay), "the VM's own image is still there")
         self.assertTrue(livetest.volume_exists(self.conn, base), "the base image was deleted")
 
+    def test_destroy_deletes_the_external_snapshot_chain_but_not_its_template(self):
+        # The VM grew from a template; its snapshots added overlays above its
+        # disk and saved memory. Deleting the disks takes all of those, which
+        # nothing else uses once the VM and its snapshot metadata are gone.
+        template = livetest.create_volume(self.conn, P + "r14-ext-template")
+        pool = self.conn.storagePoolLookupByName(livetest.POOL)
+        disk = pool.createXML(
+            f"<volume><name>{P}r14-ext.qcow2</name><capacity unit='MiB'>64</capacity>"
+            f"<target><format type='qcow2'/></target><backingStore><path>{template}</path>"
+            "<format type='qcow2'/></backingStore></volume>",
+            0,
+        ).path()
+        dom, inst = self.vm("r14-ext", [disk])
+        dom.create()
+        inst.proxy.create_external_snapshot("a", memory=True)
+        inst.proxy.create_external_snapshot("b")
+        memory = os.path.join(livetest.POOL_PATH, f"{dom.UUIDString()}.a.mem")
+        pool.refresh(0)
+        made = {name for name in pool.listVolumes() if name.startswith(P + "r14-ext.")} - {P + "r14-ext.qcow2"}
+        self.assertEqual(len(made), 2, made)  # one overlay per snapshot
+
+        response = self.post("destroy", inst, {"delete_disk": "1"})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(self.domain_exists(dom.UUIDString()), "VM is still defined")
+        pool.refresh(0)
+        left = {name for name in pool.listVolumes() if name.startswith(P + "r14-ext") and "template" not in name}
+        self.assertEqual(left, set(), "files of the VM or its snapshots stayed")
+        self.assertFalse(livetest.volume_exists(self.conn, memory), "the memory file stayed")
+        self.assertTrue(livetest.volume_exists(self.conn, template), "the template was deleted")
+        self.assertEqual([str(m) for m in get_messages(response.wsgi_request) if "kept" in str(m)], [])
+
+    def test_destroy_after_a_revert_deletes_the_newer_snapshots_files_too(self):
+        base = livetest.create_volume(self.conn, P + "r14-rev")
+        dom, inst = self.vm("r14-rev", [base])
+        inst.proxy.create_external_snapshot("a")
+        inst.proxy.create_external_snapshot("b")
+        inst.proxy.revert_external_snapshot("a")  # b's overlay is off the disk's chain now
+
+        response = self.post("destroy", inst, {"delete_disk": "1"})
+
+        self.assertEqual(response.status_code, 302)
+        pool = self.conn.storagePoolLookupByName(livetest.POOL)
+        pool.refresh(0)
+        self.assertEqual({name for name in pool.listVolumes() if name.startswith(P + "r14-rev")}, set())
+
     # Delete a volume only after it is detached
 
     def _delete_attached_volume(self, pause):

@@ -551,3 +551,82 @@ class KindTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DestroyFilesTestCase(unittest.TestCase):
+    """Deleting a VM with its disks takes the files its external snapshots
+    made or were taken on, not a template below them or a file another VM
+    still grows from."""
+
+    TOP = "<domain><devices><disk type='file' device='disk'><source file='/pool/a.two'/><target dev='vda'/></disk></devices></domain>"
+
+    def split(self, other_overlay_on=None, top="/pool/a.two", extra=None):
+        one = chain_snap("one", "/pool/a.one", memory="/pool/vm.one.mem")
+        two = chain_snap("two", "/pool/a.two")
+        snaps = [(one, "/pool/a.qcow2"), (two, "/pool/a.one")]  # each with the file it was taken on
+        if extra:
+            snaps.append((chain_snap("old", extra[0]), extra[1]))
+        for snap, point in snaps:
+            snap.getXMLDesc.return_value = snap.getXMLDesc.return_value.replace(
+                "<devices/>", f"<devices><disk type='file' device='disk'><source file='{point}'/><target dev='vda'/></disk></devices>"
+            )
+        p = proxy(external=[snap for snap, _ in snaps], xml=self.TOP)
+        p.get_disk_devices = lambda: [{"path": top}]
+        backing = {
+            "/pool/a.two": "/pool/a.one", "/pool/a.one": "/pool/a.qcow2", "/pool/a.qcow2": "/templates/base.qcow2",
+        }
+        if top == "/pool/a.reverted":
+            backing[top] = "/pool/a.one"
+        if extra:
+            backing[extra[0]] = extra[1]
+        if other_overlay_on:
+            backing["/pool/other.qcow2"] = other_overlay_on
+
+        def volume(path):
+            parent = f"<backingStore><path>{backing[path]}</path></backingStore>" if path in backing else ""
+            vol = MagicMock(**{"XMLDesc.return_value": f"<volume>{parent}</volume>"})
+            vol.path.return_value = path
+            return vol
+
+        p.get_volume_by_path = volume
+        pool = MagicMock(**{"isActive.return_value": True})
+        pool.listAllVolumes.return_value = [volume(path) for path in backing]
+        p.wvm.listAllStoragePools.return_value = [pool]
+        p.wvm.listAllDomains.return_value = []
+        return p.split_disk_paths_by_use()
+
+    def test_a_backing_file_that_cannot_be_read_is_an_error_not_the_chain_end(self):
+        p = proxy()
+        missing = libvirtError("no volume")
+        missing.err = (libvirt.VIR_ERR_NO_STORAGE_VOL,)
+        p.get_volume_by_path = MagicMock(side_effect=missing)
+        self.assertIsNone(p._backing_path("/elsewhere/base.qcow2"))  # in no pool
+        p.get_volume_by_path = MagicMock(side_effect=libvirtError("connection lost"))
+        with self.assertRaises(libvirtError):
+            p._backing_path("/pool/a.one")
+
+    def test_the_snapshot_chain_and_memory_go_but_not_the_template(self):
+        delete, keep = self.split()
+        self.assertEqual(sorted(delete), ["/pool/a.one", "/pool/a.qcow2", "/pool/a.two", "/pool/vm.one.mem"])
+        self.assertEqual(keep, [])
+
+    def test_a_file_another_vm_grows_from_keeps_the_files_below_it(self):
+        delete, keep = self.split(other_overlay_on="/pool/a.one")
+        self.assertEqual(sorted(delete), ["/pool/a.two", "/pool/vm.one.mem"])
+        self.assertEqual(sorted(keep), ["/pool/a.one", "/pool/a.qcow2"])
+
+    def test_newer_snapshots_kept_after_a_revert_go_too(self):
+        # reverted to one: the disk is a new overlay on a.one, and a.two of
+        # snapshot two branches off it
+        delete, keep = self.split(top="/pool/a.reverted")
+        self.assertEqual(
+            sorted(delete), ["/pool/a.one", "/pool/a.qcow2", "/pool/a.reverted", "/pool/a.two", "/pool/vm.one.mem"]
+        )
+        self.assertEqual(keep, [])
+
+    def test_a_snapshot_file_off_the_disks_chain_stays(self):
+        # a disk detached since: its snapshot overlay grows from a file the
+        # VM's disks do not
+        delete, _ = self.split(extra=("/pool/gone.old", "/pool/gone.qcow2"))
+        self.assertNotIn("/pool/gone.old", delete)
+        self.assertNotIn("/pool/gone.qcow2", delete)

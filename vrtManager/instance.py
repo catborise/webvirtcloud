@@ -1479,8 +1479,9 @@ class wvmInstance(wvmConnect):
             iso.extend(name for name in names if name.lower().endswith(".iso"))
         return iso
 
-    def paths_used_by_other_domains(self):
-        """Paths another domain uses as a disk or as a backing file of one."""
+    def paths_used_by_other_domains(self, own=()):
+        """Paths another domain uses as a disk or as a backing file of one.
+        The volumes in own are this VM's: their backing files do not count."""
         uuid = self.instance.UUIDString()
         used = set()
         for dom in self.wvm.listAllDomains():
@@ -1499,18 +1500,72 @@ class wvmInstance(wvmConnect):
                 pool.refresh(0)
             for vol in pool.listAllVolumes():
                 with contextlib.suppress(libvirtError):
-                    used.update(etree.fromstring(vol.XMLDesc(0)).xpath("./backingStore/path/text()"))
+                    if vol.path() not in own:
+                        used.update(etree.fromstring(vol.XMLDesc(0)).xpath("./backingStore/path/text()"))
         return used
 
     def split_disk_paths_by_use(self):
-        """This VM's disk paths, split into (only this VM, also used by another domain)."""
+        """This VM's disk paths, split into (only this VM, also used by another
+        domain). With external snapshots, the files below a disk that the
+        snapshots were taken on, and their memory files, are the VM's too."""
         self.refresh_instance_pools()
         own = [disk["path"] for disk in self.get_disk_devices() if disk["path"]]
-        used_elsewhere = self.paths_used_by_other_domains()
+        own += self._snapshot_chain_files(own)
+        used_elsewhere = self.paths_used_by_other_domains(own)
+        # a kept file keeps the files below it
+        for path in [path for path in own if path in used_elsewhere]:
+            while (path := self._backing_path(path)) and path not in used_elsewhere:
+                used_elsewhere.add(path)
         return (
             [path for path in own if path not in used_elsewhere],
             [path for path in own if path in used_elsewhere],
         )
+
+    def _snapshot_chain_files(self, tops):
+        """The files of this VM's external snapshots that these disk images
+        grow from or that grow from them: the backing files snapshots were
+        taken on, down the chain, the overlays of snapshots off the chain
+        (newer ones kept after a revert), and the snapshots' memory files. A
+        backing file the VM started from (a template) is no snapshot point
+        and ends the chain; an overlay that does not grow from the chain (a
+        disk detached since) stays."""
+        points, overlays, memory = set(), set(), []
+        for snap in self.instance.listAllSnapshots(VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL):
+            tree = etree.fromstring(snap.getXMLDesc(0))
+            memory += tree.xpath("memory/@file")
+            overlays.update(tree.xpath("disks/disk/source/@file"))
+            saved = self._saved_definition(tree)
+            if saved is not None:
+                points.update(self._disk_sources(saved).values())
+        files = list(tops)
+        for path in tops:
+            while (path := self._backing_path(path)) in points and path not in files:
+                files.append(path)
+        grew = True
+        while grew:
+            grew = False
+            for top in overlays.difference(files):
+                if top in files:  # reached by a branch in this pass
+                    continue
+                branch, path = [top], top
+                while (path := self._backing_path(path)) in points | overlays and path not in files:
+                    branch.append(path)
+                if path in files:
+                    files += branch
+                    grew = True
+        return files[len(tops):] + memory
+
+    def _backing_path(self, path):
+        """The backing file of a volume; None if it has none or is in no pool.
+        Any other error is raised: a chain cut short would let a file a kept
+        one needs count as deletable."""
+        try:
+            vol = self.get_volume_by_path(path)
+        except libvirtError as err:
+            if err.get_error_code() != VIR_ERR_NO_STORAGE_VOL:
+                raise
+            return None
+        return util.get_xml_path(vol.XMLDesc(0), "/volume/backingStore/path")
 
     def _snapshotCreateXML(self, xml, flag):
         self.instance.snapshotCreateXML(xml, flag)
