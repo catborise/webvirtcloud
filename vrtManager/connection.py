@@ -11,6 +11,7 @@ import libvirt
 from django.conf import settings
 from django.utils.functional import cached_property
 from libvirt import libvirtError
+from lxml import etree
 from vrtManager import util
 from vrtManager.rwlock import ReadWriteLock
 
@@ -945,6 +946,59 @@ class wvmConnect(object):
         for name in self.wvm.listDefinedDomains():
             instances.append(name)
         return instances
+
+    def paths_in_use(self, skip_uuid=None, own=()):
+        """Paths (names for network disks) a domain uses as a disk or a
+        backing file of one, or as a file of its snapshots (overlays, memory,
+        the disks they were taken on); and the backing files of volumes.
+        skip_uuid leaves out one domain, own the volumes whose backing files
+        do not count."""
+        used = set()
+        for dom in self.wvm.listAllDomains():
+            if dom.UUIDString() == skip_uuid:
+                continue
+            for flags in (0, libvirt.VIR_DOMAIN_XML_INACTIVE):
+                used.update(self._source_paths(etree.fromstring(dom.XMLDesc(flags))))
+            for snap in dom.listAllSnapshots(0):
+                tree = etree.fromstring(snap.getXMLDesc(0))
+                used.update(tree.xpath("disks/disk/source/@file|memory/@file"))
+                for saved in tree.xpath("domain|inactiveDomain"):
+                    used.update(self._source_paths(saved))
+        # A stopped domain's XML has no backing chain; the volumes have it.
+        # Any volume backed by a path keeps that path, even an unattached one.
+        for pool in self.wvm.listAllStoragePools():
+            if not pool.isActive():
+                continue
+            with contextlib.suppress(libvirtError):
+                pool.refresh(0)
+            for vol in pool.listAllVolumes():
+                # only a volume removed meanwhile is skipped: one that cannot
+                # be read may still keep a backing file
+                try:
+                    if vol.path() not in own:
+                        used.update(etree.fromstring(vol.XMLDesc(0)).xpath("./backingStore/path/text()"))
+                except libvirtError as err:
+                    if err.get_error_code() != libvirt.VIR_ERR_NO_STORAGE_VOL:
+                        raise
+        return used
+
+    def _source_paths(self, domain):
+        """The files, devices or network names of a domain definition's
+        disks and of their backing chains ("//" reaches a running domain's
+        backingStore); a pool volume source as its volume's path."""
+        paths = []
+        for source in domain.xpath("devices/disk//source"):
+            if source.get("pool") and source.get("volume"):
+                try:
+                    pool = self.wvm.storagePoolLookupByName(source.get("pool"))
+                    paths.append(pool.storageVolLookupByName(source.get("volume")).path())
+                except libvirtError as err:
+                    # a volume that is not there cannot be the one deleted
+                    if err.get_error_code() not in (libvirt.VIR_ERR_NO_STORAGE_VOL, libvirt.VIR_ERR_NO_STORAGE_POOL):
+                        raise
+            else:
+                paths += [v for v in (source.get("file"), source.get("dev"), source.get("name")) if v]
+        return paths
 
     def get_snapshots(self):
         instance = []

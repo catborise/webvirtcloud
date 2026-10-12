@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase
+from django.contrib.messages import get_messages
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 
@@ -894,3 +895,80 @@ class GetVolumesViewTests(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["vols"], ["a.qcow2", "b.qcow2"])
+
+
+class VolumeDeleteTests(TestCase):
+    """A volume a VM still needs is refused with its reason, on the page and in the API."""
+
+    def setUp(self):
+        User.objects.create_superuser(username="vol_admin", password="password", email="vol_admin@example.com")
+        self.client.login(request=RequestFactory().get("/"), username="vol_admin", password="password")
+        self.compute = Compute.objects.create(name="VolCompute", hostname="localhost", type=1, login="u", password="p")
+
+    def refused(self, mock_wvm):
+        from vrtManager import util
+
+        conn = mock_wvm.return_value
+        conn.is_active.return_value = False
+        conn.get_size.return_value = (1, 1)
+        conn.del_volume.side_effect = util.OperationError("Volume disk.qcow2 is in use")
+        return conn
+
+    @patch("storages.views.wvmStorage")
+    def test_the_page_shows_the_refusal(self, mock_wvm):
+        conn = self.refused(mock_wvm)
+        url = reverse("storage", args=[self.compute.id, "default"])
+        response = self.client.post(url, {"del_volume": "1", "volname": "disk.qcow2"})
+        self.assertRedirects(response, url, fetch_redirect_response=False)
+        conn.del_volume.assert_called_once_with("disk.qcow2")
+        messages = [str(m) for m in get_messages(response.wsgi_request)]
+        self.assertTrue(any("disk.qcow2 is in use" in m for m in messages), messages)
+        self.assertFalse(any("is deleted" in m for m in messages), messages)
+
+    def test_the_check_and_the_delete_hold_the_compute_lock(self):
+        """No VM operation (they share the compute lock) attaches the volume
+        between the check and the delete."""
+        from contextlib import contextmanager
+
+        held = []
+
+        @contextmanager
+        def lock(compute, *args, **kwargs):
+            held.append((compute.pk, kwargs.get("shared", False)))
+            yield
+            held.pop()
+
+        for module, request in (
+            ("storages.views", lambda: self.client.post(reverse("storage", args=[self.compute.id, "default"]),
+                                                        {"del_volume": "1", "volname": "disk.qcow2"})),
+            ("storages.api.viewsets", lambda: self.client.delete(
+                f"/api/v1/computes/{self.compute.id}/storages/default/volumes/disk.qcow2/")),
+        ):
+            with self.subTest(module), patch(f"{module}.wvmStorage") as mock_wvm, \
+                    patch(f"{module}.libvirt_compute_lock", lock):
+                conn = mock_wvm.return_value
+                conn.is_active.return_value = True
+                conn.get_size.return_value = (1, 1)
+                inside = []
+                conn.del_volume.side_effect = lambda name: inside.append(list(held))
+                request()
+                self.assertEqual(inside, [[(self.compute.pk, False)]])
+
+    @patch("storages.views.wvmStorage")
+    def test_a_busy_compute_is_a_message(self, mock_wvm):
+        conn = self.refused(mock_wvm)
+        url = reverse("storage", args=[self.compute.id, "default"])
+        with patch("storages.views.libvirt_compute_lock", side_effect=TimeoutError):
+            response = self.client.post(url, {"del_volume": "1", "volname": "disk.qcow2"})
+        self.assertRedirects(response, url, fetch_redirect_response=False)
+        conn.del_volume.assert_not_called()
+        messages = [str(m) for m in get_messages(response.wsgi_request)]
+        self.assertTrue(any("Please retry" in m for m in messages), messages)
+
+    @patch("storages.api.viewsets.wvmStorage")
+    def test_the_api_refuses_with_the_reason(self, mock_wvm):
+        conn = self.refused(mock_wvm)
+        conn.is_active.return_value = True
+        response = self.client.delete(f"/api/v1/computes/{self.compute.id}/storages/default/volumes/disk.qcow2/")
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("disk.qcow2 is in use", response.json()["detail"])

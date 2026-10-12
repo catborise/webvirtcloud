@@ -1223,7 +1223,13 @@ def delete_vol(request, pk):
             % {"dev": dev, "vol": disk["image"]},
         )
         return _back(request, pk, "disks")
-    conn_delete.del_volume(disk["image"])
+    try:
+        conn_delete.del_volume(disk["image"])
+    except util.OperationError as err:  # a file of the VM's own snapshots
+        messages.warning(
+            request,
+            _("Disk %(dev)s was detached, but its volume was kept: %(err)s") % {"dev": dev, "err": err},
+        )
 
     addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
     return _back(request, pk, "disks")

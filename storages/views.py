@@ -4,6 +4,7 @@ import re
 from admin.decorators import superuser_only
 from appsettings.settings import app_settings
 from computes.models import Compute
+from computes.utils import libvirt_compute_lock
 from django.contrib import messages
 from django.http import HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -12,6 +13,7 @@ from django.utils.translation import gettext_lazy as _
 from libvirt import libvirtError
 
 from vrtManager.connection import CONN_TCP, CONN_TLS
+from vrtManager.util import OperationError
 from vrtManager.storage import wvmStorage, wvmStorages
 
 from storages.forms import AddStgPool, CloneImage, CreateVolumeForm
@@ -232,11 +234,18 @@ def storage(request, compute_id, pool):
             return HttpResponseRedirect(request.get_full_path())
         if "del_volume" in request.POST:
             volname = request.POST.get("volname", "")
-            vol = conn.get_volume(volname)
-            vol.delete(0)
-            messages.success(
-                request, _("Volume: %(vol)s is deleted.") % {"vol": volname}
-            )
+            try:
+                # no VM operation attaches it between the check and the delete
+                with libvirt_compute_lock(compute):
+                    conn.del_volume(volname)
+            except OperationError as err:
+                messages.error(request, str(err))
+            except TimeoutError:
+                messages.error(request, _("A VM operation on this host is running. Please retry."))
+            else:
+                messages.success(
+                    request, _("Volume: %(vol)s is deleted.") % {"vol": volname}
+                )
             return redirect(reverse("storage", args=[compute.id, pool]))
             # return HttpResponseRedirect(request.get_full_path())
         if "cln_volume" in request.POST:

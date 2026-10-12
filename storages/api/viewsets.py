@@ -1,6 +1,7 @@
 from admin.permissions import IsSuperUser
 from appsettings.settings import app_settings
 from computes.models import Compute
+from computes.utils import libvirt_compute_lock
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status, viewsets
@@ -196,7 +197,9 @@ class VolumeViewSet(viewsets.ViewSet):
         )
 
         if conn.is_active():
-            conn.del_volume(pk)
+            # no VM operation attaches it between the check and the delete
+            with libvirt_compute_lock(compute):
+                conn.del_volume(pk)
             conn.close()
             return Response({"status": "Volume: " + pk + " is deleted"})
         else:
