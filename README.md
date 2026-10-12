@@ -555,6 +555,7 @@ A rollback leaves the clone on a detached HEAD at the restored commit; the updat
 - After a live migration the VM's NVRAM file is deleted on the source, when it is in libvirt's `/var/lib/libvirt/qemu/nvram` and the destination does not share that directory (a VM created there later with the same name would start with those UEFI variables).
 - gstfsd finds the guest's operating system the way libguestfs inspects it, so a root on LVM works, and it always answers (an error when it finds no or several operating systems). Update `/usr/local/bin/gstfsd` on every compute (see [Adding a Compute Node](#adding-a-compute-node), step 3).
 - A theme picked on the Settings page rewrites two tracked files; the update and rollback steps put back the shipped theme. Pick yours again afterwards, also after Docker recreates the container.
+- With the bundled nginx config, browsers revalidate static files on each load (304 when unchanged), so an update or a theme change shows without a hard reload. Files cached before this update can stay until a hard reload (Ctrl+F5) of each affected page, or until the site's browser cache is cleared once; an external caching proxy may need a purge.
 - Docker no longer publishes port 6080; the console goes through nginx on the panel's port (`WS_PUBLIC_PORT`, default 80).
 
 ## Usage
