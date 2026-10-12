@@ -444,6 +444,7 @@ docker compose up -d
    venv/bin/python3 -c "import sqlite3,sys; sqlite3.connect('db.sqlite3').backup(sqlite3.connect(sys.argv[1]))" "$b/db.sqlite3" &&
    cp -p webvirtcloud/settings.py /etc/nginx/conf.d/webvirtcloud.conf "$b"/ &&
    git rev-parse HEAD > "$b/commit" &&
+   git checkout -- static/css/wvc-main.min.css dev/scss/wvc-main.scss &&
    git checkout master && git pull
    ```
 
@@ -507,6 +508,7 @@ b=/root/webvirtcloud-backup-YYYYMMDD-HHMMSS
 supervisorctl stop webvirtcloud novncd
 cd /srv/webvirtcloud &&
 ! supervisorctl status webvirtcloud novncd | grep RUNNING &&
+git checkout -- static/css/wvc-main.min.css dev/scss/wvc-main.scss &&
 git checkout "$(cat "$b/commit")" &&
 venv/bin/python3 -c "import os,sqlite3,sys; [os.remove(p) for p in ('db.sqlite3-journal','db.sqlite3-wal','db.sqlite3-shm') if os.path.exists(p)]; sqlite3.connect(sys.argv[1]).backup(sqlite3.connect('db.sqlite3'))" "$b/db.sqlite3" &&
 cp "$b/settings.py" webvirtcloud/settings.py &&
@@ -552,6 +554,7 @@ A rollback leaves the clone on a detached HEAD at the restored commit; the updat
 - A running VM without a guest agent shows the IPv4 address the host learned by ARP (the lookup always failed before).
 - After a live migration the VM's NVRAM file is deleted on the source, when it is in libvirt's `/var/lib/libvirt/qemu/nvram` and the destination does not share that directory (a VM created there later with the same name would start with those UEFI variables).
 - gstfsd finds the guest's operating system the way libguestfs inspects it, so a root on LVM works, and it always answers (an error when it finds no or several operating systems). Update `/usr/local/bin/gstfsd` on every compute (see [Adding a Compute Node](#adding-a-compute-node), step 3).
+- A theme picked on the Settings page rewrites two tracked files; the update and rollback steps put back the shipped theme. Pick yours again afterwards, also after Docker recreates the container.
 - Docker no longer publishes port 6080; the console goes through nginx on the panel's port (`WS_PUBLIC_PORT`, default 80).
 
 ## Usage
