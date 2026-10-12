@@ -263,7 +263,7 @@ class Instance(models.Model):
 
     @cached_property
     def snapshots(self) -> list[dict]:
-        return self._snapshots(VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL | VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL)
+        return sorted(self.internal_snapshots + self.external_snapshots, reverse=True, key=lambda k: k["date"])
 
     @cached_property
     def internal_snapshots(self) -> list[dict]:
@@ -275,7 +275,11 @@ class Instance(models.Model):
 
     @cached_property
     def snapshot_jobs(self) -> list[dict]:
-        return self.proxy.get_snapshot_jobs()
+        # only for the page; create, revert and delete query the jobs again and refuse if that fails
+        try:
+            return self.proxy.get_snapshot_jobs()
+        except libvirtError:
+            return []
 
     @cached_property
     def inst_xml(self):

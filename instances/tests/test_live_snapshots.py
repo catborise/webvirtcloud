@@ -110,6 +110,23 @@ class LiveExternalSnapshotTestCase(SimpleTestCase):
             vm.revert_external_snapshot("a")
             self.assertEqual(dom.state()[0], libvirt.VIR_DOMAIN_RUNNING)
 
+    def test_a_disk_hot_plugged_live_only_is_named_and_detached_by_a_revert(self):
+        dom, vm = self.vm("snap-hotplug", "running")
+        vm.create_external_snapshot("a")
+        extra = livetest.create_volume(self.conn, P + "snap-hotplug-extra")
+        dom.attachDeviceFlags(
+            f"<disk type='file' device='disk'><driver name='qemu' type='qcow2'/><source file='{extra}'/>"
+            "<target dev='vdb' bus='virtio'/></disk>",
+            libvirt.VIR_DOMAIN_AFFECT_LIVE,
+        )
+        [snap] = vm.get_snapshot(libvirt.VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL)
+        self.assertEqual(snap["detaches"], [{"dev": "vdb", "path": extra}])
+        self.assertEqual(vm.revert_external_snapshot("a"), [], "the detached disk is not a leftover")
+        self.assertNotIn("vdb", etree.fromstring(dom.XMLDesc(0)).xpath("devices/disk/target/@dev"))
+        self.assertEqual(dom.state()[0], libvirt.VIR_DOMAIN_RUNNING)
+        self.assertTrue(livetest.volume_exists(self.conn, extra))
+        vm.delete_external_snapshot("a")
+
     def test_a_mixed_vm_can_be_cleaned_up(self):
         dom, vm = self.vm("snap-mixed-clean")
         dom.snapshotCreateXML("<domainsnapshot><name>i</name></domainsnapshot>", 0)
