@@ -321,6 +321,33 @@ class LiveDataLossTestCase(TestCase):
         pool.refresh(0)
         self.assertEqual({name for name in pool.listVolumes() if name.startswith(P + "r14-rev")}, set())
 
+    # Delete a volume from the storage page
+
+    def test_the_storage_page_keeps_volumes_a_vm_needs(self):
+        disk = livetest.create_volume(self.conn, P + "vol-disk")
+        dom, inst = self.vm("vol-disk", [disk])
+        inst.proxy.create_external_snapshot("a")  # disk is now the file snapshot a was taken on
+        template = livetest.create_volume(self.conn, P + "vol-template")
+        pool = self.conn.storagePoolLookupByName(livetest.POOL)
+        pool.createXML(
+            f"<volume><name>{P}vol-clone.qcow2</name><capacity unit='MiB'>64</capacity>"
+            f"<target><format type='qcow2'/></target><backingStore><path>{template}</path>"
+            "<format type='qcow2'/></backingStore></volume>",
+            0,
+        )
+        unused = livetest.create_volume(self.conn, P + "vol-unused")
+        top = self.disk_sources(dom)["vda"]
+        url = reverse("storage", args=[self.compute.id, livetest.POOL])
+
+        for path in (disk, template, top):
+            with self.subTest(path):
+                response = self.client.post(url, {"del_volume": "1", "volname": os.path.basename(path)})
+                self.assertEqual(response.status_code, 302)
+                self.assertTrue(livetest.volume_exists(self.conn, path), "a volume a VM needs was deleted")
+                self.assertTrue(any("is in use" in str(m) for m in get_messages(response.wsgi_request)))
+        self.client.post(url, {"del_volume": "1", "volname": os.path.basename(unused)})
+        self.assertFalse(livetest.volume_exists(self.conn, unused), "an unused volume was kept")
+
     # Delete a volume only after it is detached
 
     def _delete_attached_volume(self, pause):

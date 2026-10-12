@@ -238,7 +238,10 @@ class wvmStorage(wvmConnect):
         return vol.XMLDesc(0)
 
     def del_volume(self, name):
+        """libvirt deletes any volume; one a VM still needs is refused."""
         vol = self.pool.storageVolLookupByName(name)
+        if vol.path() in self.paths_in_use():
+            raise util.OperationError(f"Volume {name} is in use: a VM's disk, a backing file or a snapshot's file")
         vol.delete(0)
 
     def get_volume_format_type(self, name):

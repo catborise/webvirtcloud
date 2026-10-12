@@ -1,0 +1,138 @@
+"""A volume a VM still needs is never deleted from a storage pool: not a
+disk, not a backing file, not a file of a snapshot. libvirt deletes any
+volume it is asked to; the live cases are in instances/tests/test_live_dataloss.py."""
+
+import unittest
+from unittest.mock import MagicMock
+
+import libvirt
+from django.conf import settings
+from libvirt import libvirtError
+
+if not settings.configured:
+    settings.configure(MAC_OUI="52:54:10")
+
+from vrtManager import util
+from vrtManager.storage import wvmStorage
+
+
+def domain(uuid, disks=(), snapshots=()):
+    dom = MagicMock()
+    dom.UUIDString.return_value = uuid
+    devices = "".join(f"<disk type='file' device='disk'><source file='{d}'/></disk>" for d in disks)
+    dom.XMLDesc.return_value = f"<domain><devices>{devices}</devices></domain>"
+    snaps = []
+    for xml in snapshots:
+        snap = MagicMock()
+        snap.getXMLDesc.return_value = xml
+        snaps.append(snap)
+    dom.listAllSnapshots.return_value = snaps
+    return dom
+
+
+def volume(path, backing=None):
+    vol = MagicMock()
+    vol.path.return_value = path
+    parent = f"<backingStore><path>{backing}</path></backingStore>" if backing else ""
+    vol.XMLDesc.return_value = f"<volume>{parent}</volume>"
+    return vol
+
+
+def storage(domains=(), volumes=()):
+    conn = wvmStorage.__new__(wvmStorage)
+    conn.wvm = MagicMock()
+    conn.wvm.listAllDomains.return_value = list(domains)
+    pool = MagicMock(**{"isActive.return_value": True})
+    pool.listAllVolumes.return_value = list(volumes)
+    by_name = {v.path().rsplit("/", 1)[1]: v for v in volumes}
+    pool.storageVolLookupByName.side_effect = lambda name: by_name[name]
+    conn.wvm.listAllStoragePools.return_value = [pool]
+    conn.pool = pool
+    return conn, by_name
+
+
+SNAPSHOT = (
+    "<domainsnapshot><name>s</name><memory snapshot='external' file='/pool/vm.s.mem'/>"
+    "<disks><disk name='vda' snapshot='external'><source file='/pool/vm.s'/></disk></disks>"
+    "<domain><devices><disk type='file' device='disk'><source file='/pool/vm.qcow2'/></disk></devices></domain>"
+    "</domainsnapshot>"
+)
+
+
+class PathsInUseTestCase(unittest.TestCase):
+    def test_disks_backing_files_and_snapshot_files_are_in_use(self):
+        conn, _ = storage(
+            domains=[domain("u1", ["/pool/vm.now"], [SNAPSHOT])],
+            volumes=[volume("/pool/clone.qcow2", backing="/pool/template.qcow2")],
+        )
+        self.assertEqual(
+            conn.paths_in_use(),
+            {"/pool/vm.now", "/pool/vm.s", "/pool/vm.s.mem", "/pool/vm.qcow2", "/pool/template.qcow2"},
+        )
+
+    def test_one_domain_and_the_backing_files_of_own_volumes_can_be_left_out(self):
+        conn, _ = storage(
+            domains=[domain("u1", ["/pool/a.qcow2"]), domain("u2", ["/pool/b.qcow2"])],
+            volumes=[volume("/pool/a.qcow2", backing="/pool/base.qcow2")],
+        )
+        self.assertEqual(conn.paths_in_use(skip_uuid="u1", own=["/pool/a.qcow2"]), {"/pool/b.qcow2"})
+
+
+    def test_a_network_disk_is_in_use_by_its_name(self):
+        dom = domain("u1")
+        dom.XMLDesc.return_value = (
+            "<domain><devices><disk type='network' device='disk'>"
+            "<source protocol='rbd' name='rbdpool/disk'/></disk></devices></domain>"
+        )
+        conn, _ = storage(domains=[dom])
+        self.assertIn("rbdpool/disk", conn.paths_in_use())
+
+    def test_a_pool_volume_disk_is_in_use_by_its_path(self):
+        for xml in (
+            "<domain><devices>{}</devices></domain>",
+            "<domain/>",  # in a snapshot's saved definition
+        ):
+            with self.subTest(xml):
+                disk = "<disk type='volume' device='disk'><source pool='default' volume='disk.qcow2'/></disk>"
+                dom = domain("u1")
+                if "{}" in xml:
+                    dom.XMLDesc.return_value = xml.format(disk)
+                else:
+                    snap = MagicMock()
+                    snap.getXMLDesc.return_value = f"<domainsnapshot><domain><devices>{disk}</devices></domain></domainsnapshot>"
+                    dom.listAllSnapshots.return_value = [snap]
+                conn, _ = storage(domains=[dom], volumes=[volume("/pool/disk.qcow2")])
+                conn.wvm.storagePoolLookupByName.return_value = conn.pool
+                self.assertIn("/pool/disk.qcow2", conn.paths_in_use())
+
+    def test_a_volume_that_cannot_be_read_is_not_taken_as_unused(self):
+        removed, unreadable = volume("/pool/gone.qcow2"), volume("/pool/top.qcow2")
+        error = libvirtError("removed")
+        error.err = (libvirt.VIR_ERR_NO_STORAGE_VOL,)
+        removed.XMLDesc.side_effect = error
+        conn, _ = storage(volumes=[removed])
+        self.assertEqual(conn.paths_in_use(), set())
+        unreadable.XMLDesc.side_effect = libvirtError("permission denied")
+        conn, _ = storage(volumes=[unreadable])
+        with self.assertRaises(libvirtError):
+            conn.paths_in_use()
+
+
+class DeleteVolumeTestCase(unittest.TestCase):
+    def test_a_volume_in_use_is_refused(self):
+        for case, domains, volumes in (
+            ("disk", [domain("u1", ["/pool/disk.qcow2"])], [volume("/pool/disk.qcow2")]),
+            ("backing file", [], [volume("/pool/disk.qcow2"), volume("/pool/top.qcow2", backing="/pool/disk.qcow2")]),
+            ("snapshot point", [domain("u1", ["/pool/vm.s"], [SNAPSHOT.replace("vm.qcow2", "disk.qcow2")])],
+             [volume("/pool/disk.qcow2")]),
+        ):
+            with self.subTest(case):
+                conn, vols = storage(domains, volumes)
+                with self.assertRaisesRegex(util.OperationError, "disk.qcow2 is in use"):
+                    conn.del_volume("disk.qcow2")
+                vols["disk.qcow2"].delete.assert_not_called()
+
+    def test_an_unused_volume_is_deleted(self):
+        conn, vols = storage([domain("u1", ["/pool/other.qcow2"])], [volume("/pool/disk.qcow2")])
+        conn.del_volume("disk.qcow2")
+        vols["disk.qcow2"].delete.assert_called_once_with(0)

@@ -3,10 +3,12 @@ from unittest.mock import patch
 
 from computes.models import Compute
 from django.contrib.auth import get_user_model
+from django.contrib.messages import get_messages
 from django.test import TestCase
 from django.urls import reverse
 from instances.models import Instance
 from libvirt import VIR_DOMAIN_UNDEFINE_KEEP_NVRAM, VIR_DOMAIN_UNDEFINE_NVRAM, libvirtError
+from vrtManager.util import OperationError
 
 
 class DestroyOrderTestCase(TestCase):
@@ -65,6 +67,20 @@ class DestroyOrderTestCase(TestCase):
                 self.client.post(reverse("instances:delete_vol", args=[self.instance.id]), {"dev": "vda"})
             self.destroy()
         self.assertEqual(calls, [False, False])
+
+    def test_a_volume_the_vms_snapshots_need_is_kept_after_the_detach(self):
+        disk = {"dev": "vdb", "path": "/pool/data.qcow2", "storage": "default", "image": "data.qcow2"}
+        with patch("instances.models.wvmInstance") as wvm, patch("instances.views.wvmStorage") as storage:
+            proxy = wvm.return_value
+            proxy.get_disk_devices.return_value = [disk]
+            proxy.paths_used_by_other_domains.return_value = set()
+            proxy.wait_disk_detached.return_value = True
+            storage.return_value.del_volume.side_effect = OperationError("Volume data.qcow2 is in use")
+            response = self.client.post(reverse("instances:delete_vol", args=[self.instance.id]), {"dev": "vdb"})
+        self.assertEqual(response.status_code, 302)
+        proxy.detach_disk.assert_called_once_with("vdb")
+        messages = [str(m) for m in get_messages(response.wsgi_request)]
+        self.assertTrue(any("data.qcow2 is in use" in m and "detached" in m for m in messages), messages)
 
     def test_confirmation_page_takes_no_lock(self):
         calls = []
