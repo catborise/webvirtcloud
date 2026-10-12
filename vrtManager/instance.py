@@ -1574,7 +1574,7 @@ class wvmInstance(wvmConnect):
         if not memory:
             flags |= VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY
         self._snapshotCreateXML(xml, flags)
-        self.refresh_instance_pools()
+        self._refresh_pools_after_snapshot()
 
     def _snapshot_memory_xml(self, name, tree):
         """The <memory> element of a snapshot that saves memory: a file in the
@@ -1664,14 +1664,28 @@ class wvmInstance(wvmConnect):
                 points.update(self._disk_sources(saved).values())
         return disks, own, points | own
 
+    def _refresh_pools_after_snapshot(self):
+        """Refresh the pools once libvirt has changed the snapshot files. The
+        snapshot operation is done by then, so an error is only logged;
+        returns whether the pools are current."""
+        try:
+            self.refresh_instance_pools()
+        except libvirtError as err:
+            logger.warning("Storage pools of %s were not refreshed after a snapshot change: %s", self.instance.name(), err)
+            return False
+        return True
+
     def _left_behind(self, before):
         """Files libvirt merged or discarded but could not remove: it only
         logs a warning then (on NFS it removes them as the qemu user, who
         needs write access to their directory). Only a snapshot's own file or
         an overlay on a snapshot point counts; a disk a revert detached is
-        kept on purpose. A file outside every storage pool is not checked."""
+        kept on purpose. A file outside every storage pool is not checked,
+        nor is anything when the pools could not be refreshed: a stale pool
+        still lists the removed files."""
         disks, own, points = before
-        self.refresh_instance_pools()
+        if not self._refresh_pools_after_snapshot():
+            return []
         now_disks, now_own, _ = self._snapshot_files()
         # only disks still attached: one a revert detached keeps its files,
         # whatever they sit on
@@ -1680,10 +1694,11 @@ class wvmInstance(wvmConnect):
         for path in sorted((attached | own) - set().union(now_own, *now_disks.values())):
             try:
                 vol = self.get_volume_by_path(path)
-            except libvirtError:
+                if path not in own and util.get_xml_path(vol.XMLDesc(0), "/volume/backingStore/path") not in points:
+                    continue
+            except libvirtError:  # not in a pool, or removed meanwhile
                 continue
-            if path in own or util.get_xml_path(vol.XMLDesc(0), "/volume/backingStore/path") in points:
-                left.append(path)
+            left.append(path)
         return left
 
     @staticmethod
@@ -1703,15 +1718,23 @@ class wvmInstance(wvmConnect):
 
     def get_snapshot(self, flag):
         """Snapshots of one kind (VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL or
-        _EXTERNAL; both flags for all), with whether each saved memory, is the
-        current one, and which disks of the persistent definition a revert to
-        it detaches."""
-        current_disks = self._disk_sources(self._XMLDesc(PERSISTENT_XML))
+        _EXTERNAL), with whether each saved memory, is the current one, and
+        which disks a revert to it detaches: from the persistent definition,
+        and on a running VM from the live one too (a disk hot-plugged only)."""
+        persistent_disks = self._disk_sources(self._XMLDesc(PERSISTENT_XML))
+        live_disks = self._disk_sources(self._XMLDesc(0)) if self.instance.isActive() else {}
         snapshots = []
         for snap in self.instance.listAllSnapshots(flag):
             tree = etree.fromstring(snap.getXMLDesc(0))
             definition = self._saved_definition(tree)
             saved_disks = self._disk_sources(definition) if definition is not None else {}
+            # a revert of a running VM restores what ran when the snapshot was taken
+            ran = tree.find("domain")
+            saved_live_disks = self._disk_sources(ran) if ran is not None else saved_disks
+            detaches = {dev: path for dev, path in persistent_disks.items() if dev not in saved_disks}
+            for dev, path in live_disks.items():
+                if dev not in saved_live_disks:
+                    detaches.setdefault(dev, path)
             snapshots.append(
                 {
                     "date": datetime.fromtimestamp(int(tree.findtext("creationTime"))),
@@ -1719,9 +1742,7 @@ class wvmInstance(wvmConnect):
                     "description": tree.findtext("description") or "",
                     "memory": tree.find("memory[@snapshot='external']") is not None,
                     "current": bool(snap.isCurrent(0)),
-                    "detaches": [
-                        {"dev": dev, "path": path} for dev, path in current_disks.items() if dev not in saved_disks
-                    ],
+                    "detaches": [{"dev": dev, "path": path} for dev, path in detaches.items()],
                 }
             )
         return snapshots

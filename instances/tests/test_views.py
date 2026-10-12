@@ -520,7 +520,8 @@ class InstancesTestCase(TestCase):
         )
         self.assertEqual(response.status_code, 302)
 
-        del self.instance.snapshots
+        for cached in ("snapshots", "internal_snapshots", "external_snapshots"):
+            self.instance.__dict__.pop(cached, None)
         self.assertEqual(len(self.instance.snapshots), 1)
 
         response = self.client.post(
@@ -541,7 +542,8 @@ class InstancesTestCase(TestCase):
         )
         self.assertEqual(response.status_code, 302)
 
-        del self.instance.snapshots
+        for cached in ("snapshots", "internal_snapshots", "external_snapshots"):
+            self.instance.__dict__.pop(cached, None)
         self.assertEqual(len(self.instance.snapshots), 0)
 
     def test_autostart(self):

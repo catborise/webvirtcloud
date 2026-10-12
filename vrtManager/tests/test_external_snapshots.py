@@ -98,13 +98,38 @@ class SnapshotListTestCase(unittest.TestCase):
         [entry] = p.get_snapshot(EXTERNAL)
         self.assertEqual(entry["detaches"], [{"dev": "vdb", "path": "/pool/later.qcow2"}])
 
-    def test_detaches_comes_from_the_persistent_definition(self):
+    def test_detaches_covers_the_persistent_and_the_live_definition(self):
         # vdc was hot-plugged into the running VM only; vdb waits for the next start
         live = DOMAIN.replace("/pool/later.qcow2", "/pool/live-only.qcow2").replace("dev='vdb'", "dev='vdc'")
         p = proxy(external=[fake_snap("one")])
         p._XMLDesc = lambda flags: DOMAIN if flags == PERSISTENT_XML else live
         [entry] = p.get_snapshot(EXTERNAL)
-        self.assertEqual(entry["detaches"], [{"dev": "vdb", "path": "/pool/later.qcow2"}])
+        self.assertEqual(
+            entry["detaches"],
+            [{"dev": "vdb", "path": "/pool/later.qcow2"}, {"dev": "vdc", "path": "/pool/live-only.qcow2"}],
+        )
+
+    def test_the_live_definition_is_compared_with_the_snapshots_live_one(self):
+        # taken while vdc was hot-plugged: <domain> is what ran, <inactiveDomain> what was defined
+        snap = fake_snap("one")
+        snap.getXMLDesc.return_value = snapshot_xml("one", disks=("vda", "vdc")).replace(
+            "</domainsnapshot>",
+            "<inactiveDomain><devices><disk type='file' device='disk'><source file='/pool/vda.qcow2'/>"
+            "<target dev='vda'/></disk></devices></inactiveDomain></domainsnapshot>",
+        )
+        persistent = DOMAIN.replace("<disk type='file' device='disk'><source file='/pool/later.qcow2'/><target dev='vdb' bus='virtio'/></disk>", "")
+        live = DOMAIN.replace("/pool/later.qcow2", "/pool/live-only.qcow2").replace("dev='vdb'", "dev='vdc'")
+        p = proxy(external=[snap])
+        p._XMLDesc = lambda flags: persistent if flags == PERSISTENT_XML else live
+        [entry] = p.get_snapshot(EXTERNAL)
+        self.assertEqual(entry["detaches"], [])
+
+    def test_a_shut_off_vm_is_compared_with_the_persistent_definition_only(self):
+        p = proxy(status=5, external=[fake_snap("one", disks=("vda", "vdb"))])
+        p._XMLDesc = MagicMock(return_value=DOMAIN)
+        [entry] = p.get_snapshot(EXTERNAL)
+        self.assertEqual(entry["detaches"], [])
+        p._XMLDesc.assert_called_once_with(PERSISTENT_XML)
 
     def test_lists_are_by_kind(self):
         p = proxy(internal=[fake_snap("i")], external=[fake_snap("e")])
@@ -429,6 +454,8 @@ class LeftBehindTestCase(unittest.TestCase):
         def volume(path):
             if path not in backing:
                 raise libvirtError("no volume")
+            if isinstance(backing[path], Exception):  # removed between the lookup and the read
+                return MagicMock(**{"XMLDesc.side_effect": backing[path]})
             parent = f"<backingStore><path>{backing[path]}</path></backingStore>" if backing[path] else ""
             return MagicMock(**{"XMLDesc.return_value": f"<volume><target><path>{path}</path></target>{parent}</volume>"})
 
@@ -469,6 +496,33 @@ class LeftBehindTestCase(unittest.TestCase):
         before = CHAIN.replace("</devices>", linked + "</devices>")
         left = self.revert(before, CHAIN, {"/pool/linked.qcow2": "/pool/a.one"})
         self.assertEqual(left, [])
+
+    def test_a_volume_gone_while_checking_is_not_reported(self):
+        before = CHAIN.replace("/pool/a.two", "/pool/a.after")
+        after = CHAIN.replace("/pool/a.two", "/pool/a.1700000001")
+        left = self.revert(before, after, {"/pool/a.after": libvirtError("no volume")})
+        self.assertEqual(left, [])
+
+
+class PoolRefreshTestCase(unittest.TestCase):
+    """The pools are refreshed after libvirt made, reverted or deleted the
+    snapshot; a refresh error does not turn that into a failure."""
+
+    def test_create_succeeds_when_the_refresh_fails(self):
+        p = proxy()
+        p.refresh_instance_pools.side_effect = libvirtError("pool busy")
+        p.create_external_snapshot("one")
+        p._snapshotCreateXML.assert_called_once()
+
+    def test_delete_and_revert_succeed_and_report_nothing_when_the_refresh_fails(self):
+        for action in ("delete_external_snapshot", "revert_external_snapshot"):
+            with self.subTest(action):
+                snap = fake_snap("one", current=True)
+                p = proxy(external=[snap])
+                p.refresh_instance_pools.side_effect = libvirtError("pool busy")
+                # a stale pool still lists every file
+                p.get_volume_by_path = MagicMock()
+                self.assertEqual(getattr(p, action)("one"), [])
 
 class KindTestCase(unittest.TestCase):
     def test_internal_endpoints_refuse_external_names(self):

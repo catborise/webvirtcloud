@@ -94,8 +94,11 @@ class SnapshotTabTestCase(TestCase):
             proxy.get_snapshot.side_effect = lambda flag: {
                 libvirt.VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL: list(internal),
                 libvirt.VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL: list(external),
-            }.get(flag, [*internal, *external])
-            proxy.get_snapshot_jobs.return_value = list(jobs)
+            }[flag]
+            if isinstance(jobs, Exception):
+                proxy.get_snapshot_jobs.side_effect = jobs
+            else:
+                proxy.get_snapshot_jobs.return_value = list(jobs)
             proxy.get_status.return_value = status
             proxy.get_nvram.return_value = nvram
             proxy.get_memory.return_value = proxy.get_cur_memory.return_value = 1024
@@ -106,6 +109,7 @@ class SnapshotTabTestCase(TestCase):
             proxy.get_console_type.return_value = "vnc"
             response = self.client.get(reverse("instances:instance", args=[self.instance.id]))
         self.assertEqual(response.status_code, 200)
+        self.proxy = proxy
         return lxml_html.fromstring(response.content)
 
     def snap(self, name, **kw):
@@ -119,6 +123,19 @@ class SnapshotTabTestCase(TestCase):
         text = button.get("data-confirm")
         self.assertIn("vdb (/pool/later.qcow2)", text)
         self.assertIn("NVRAM", text)
+
+    def test_each_kind_is_listed_once_per_page(self):
+        doc = self.page(internal=[self.snap("i")], external=[self.snap("e")])
+        flags = sorted(c.args[0] for c in self.proxy.get_snapshot.call_args_list)
+        self.assertEqual(
+            flags, sorted([libvirt.VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL, libvirt.VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL])
+        )
+        self.assertEqual(doc.xpath("//i[contains(@title, 'snapshot(s)')]/@title"), ["There are 2 snapshot(s)"])
+
+    def test_a_failed_job_query_still_renders_the_tab(self):
+        # the actions themselves check for jobs again and refuse if that fails
+        doc = self.page(external=[self.snap("e")], jobs=libvirt.libvirtError("no job info"))
+        self.assertEqual(len(doc.xpath("//button[@name='revert_external_snapshot']")), 1)
 
     def test_memory_checkbox_only_for_a_running_vm(self):
         self.assertFalse(self.page(status=1).xpath("//input[@name='memory']")[0].get("disabled"))
