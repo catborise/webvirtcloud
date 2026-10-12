@@ -93,6 +93,10 @@ def appsettings(request):
                 )
                 with open("static/css/" + main_css, "w") as css:
                     css.write(css_compressed)
+                # nginx serves the collected copy; collectstatic later takes it from static/
+                served = Path(settings.STATIC_ROOT or "", "css")
+                if settings.STATIC_ROOT and served.is_dir():
+                    (served / main_css).write_text(css_compressed)
 
                 bootstrap_theme.value = theme
                 bootstrap_theme.save()
