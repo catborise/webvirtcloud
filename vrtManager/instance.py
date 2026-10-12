@@ -1598,7 +1598,8 @@ class wvmInstance(wvmConnect):
     def revert_external_snapshot(self, name):
         """libvirt returns the disks and the definition to the snapshot's. A
         disk-only snapshot keeps the VM running, paused or shut off as it is;
-        a snapshot with memory resumes the VM as it was saved."""
+        a snapshot with memory resumes the VM as it was saved. Returns the
+        files libvirt left behind (see _left_behind)."""
         snap = self._snapshot(name, external=True)
         self._check_snapshot_state()
         tree = etree.fromstring(snap.getXMLDesc(0))
@@ -1618,6 +1619,7 @@ class wvmInstance(wvmConnect):
             flags = {1: VIR_DOMAIN_SNAPSHOT_REVERT_RUNNING, 3: VIR_DOMAIN_SNAPSHOT_REVERT_PAUSED}.get(
                 self.get_status(), 0
             )
+        before = self._snapshot_files()
         # libvirt names the new overlays after the second, so a revert within
         # the second of the previous one finds them taken, after it has
         # already stopped a running VM; one retry a second later finishes it.
@@ -1634,14 +1636,55 @@ class wvmInstance(wvmConnect):
                 raise util.OperationError(
                     f"The revert failed twice; try again in a moment ({retry_err}). The VM is {state}."
                 ) from None
-        self.refresh_instance_pools()
+        return self._left_behind(before)
 
     def delete_external_snapshot(self, name):
-        """libvirt merges the snapshot's overlays and removes its files."""
+        """libvirt merges the snapshot's overlays and removes its files.
+        Returns the files it left behind (see _left_behind)."""
         snap = self._snapshot(name, external=True)
         self._check_snapshot_state()
+        before = self._snapshot_files()
         snap.delete(0)
+        return self._left_behind(before)
+
+    def _snapshot_files(self):
+        """(disks, snapshot files, snapshot points): the files each disk uses
+        by target, the external snapshots' own files (overlays, memory), and
+        the files snapshots were taken on, which libvirt's overlays sit on."""
+        disks = {
+            disk.xpath("string(target/@dev)"): set(disk.xpath(".//source/@file"))
+            for disk in etree.fromstring(self.instance.XMLDesc(0)).xpath("devices/disk[@device='disk']")
+        }
+        own, points = set(), set()
+        for snap in self.instance.listAllSnapshots(VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL):
+            tree = etree.fromstring(snap.getXMLDesc(0))
+            own.update(tree.xpath("disks/disk/source/@file|memory/@file"))
+            saved = self._saved_definition(tree)
+            if saved is not None:
+                points.update(self._disk_sources(saved).values())
+        return disks, own, points | own
+
+    def _left_behind(self, before):
+        """Files libvirt merged or discarded but could not remove: it only
+        logs a warning then (on NFS it removes them as the qemu user, who
+        needs write access to their directory). Only a snapshot's own file or
+        an overlay on a snapshot point counts; a disk a revert detached is
+        kept on purpose. A file outside every storage pool is not checked."""
+        disks, own, points = before
         self.refresh_instance_pools()
+        now_disks, now_own, _ = self._snapshot_files()
+        # only disks still attached: one a revert detached keeps its files,
+        # whatever they sit on
+        attached = set().union(*(files for dev, files in disks.items() if dev in now_disks))
+        left = []
+        for path in sorted((attached | own) - set().union(now_own, *now_disks.values())):
+            try:
+                vol = self.get_volume_by_path(path)
+            except libvirtError:
+                continue
+            if path in own or util.get_xml_path(vol.XMLDesc(0), "/volume/backingStore/path") in points:
+                left.append(path)
+        return left
 
     @staticmethod
     def _disk_sources(xml):
