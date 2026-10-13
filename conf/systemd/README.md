@@ -13,3 +13,4 @@ Should the executable be located in another location please adjust the path
 The error you should be seeing is "ssh executable not found"
 
 
+Use one of the two service managers: the installer sets up supervisor (`conf/supervisor/webvirtcloud.conf` runs the worker); these units are for manual installs without supervisor. Enabling both starts two workers; the second waits for the lease and does nothing.

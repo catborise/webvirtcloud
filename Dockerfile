@@ -31,7 +31,9 @@ EXPOSE 80
 # script writes this into settings.py); set it to the published port if not 80.
 ENV WS_PUBLIC_PORT=80
 
-# Use baseimage-docker's init system.
+# Use baseimage-docker's init system. my_init force-stops services after
+# KILL_PROCESS_TIMEOUT seconds (default 30); the worker drains jobs for 60 s.
+ENV KILL_PROCESS_TIMEOUT=80
 CMD ["/sbin/my_init"]
 
 RUN echo 'APT::Get::Clean=always;' >> /etc/apt/apt.conf.d/99AutomaticClean
@@ -69,17 +71,20 @@ RUN mkdir -p /etc/my_init.d \
 	/etc/service/nginx \
 	/etc/service/nginx-log-forwarder \
 	/etc/service/webvirtcloud \
+	/etc/service/webvirtcloud-worker \
 	/etc/service/novnc
 COPY conf/runit/10_webvirtcloud_init.sh	/etc/my_init.d/10_webvirtcloud_init.sh
 COPY conf/runit/nginx				/etc/service/nginx/run
 COPY conf/runit/nginx-log-forwarder	/etc/service/nginx-log-forwarder/run
 COPY conf/runit/novncd.sh			/etc/service/novnc/run
 COPY conf/runit/webvirtcloud.sh		/etc/service/webvirtcloud/run
+COPY conf/runit/webvirtcloud-worker.sh	/etc/service/webvirtcloud-worker/run
 RUN chmod +x /etc/my_init.d/10_webvirtcloud_init.sh \
 	/etc/service/nginx/run \
 	/etc/service/nginx-log-forwarder/run \
 	/etc/service/novnc/run \
-	/etc/service/webvirtcloud/run
+	/etc/service/webvirtcloud/run \
+	/etc/service/webvirtcloud-worker/run
 
 # X-Forwarded-Proto: https keeps the probe from being redirected when the
 # HTTPS profile is on (nginx passes the header on; see conf/nginx).

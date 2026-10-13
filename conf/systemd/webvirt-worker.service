@@ -1,0 +1,19 @@
+[Unit]
+Description=WebVirtCloud job worker
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=10
+User=www-data
+Group=www-data
+EnvironmentFile=/etc/default/webvirt
+ExecStart=/bin/bash -c "cd ${WEBVIRT_PATH}; WEBVIRTCLOUD_LOG_FILE=${WEBVIRT_PATH}/data/webvirtcloud-worker.log ${WEBVIRT_PATH}/venv/bin/python3 manage.py run_worker"
+TimeoutStopSec=90
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
