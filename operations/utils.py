@@ -1,12 +1,16 @@
 """Secrets never reach a job record, a response or a log line. What a refused
 request says about the job holding the resource: details for its owner and
-superusers, a minimal summary for everyone else."""
+superusers, a minimal summary for everyone else. Worker settings from the
+Settings page. The worker reads them itself (the settings middleware only runs
+in gunicorn)."""
 
 import re
 
 from django.utils import timezone
 from django.utils.timesince import timesince
 from django.utils.translation import gettext as _
+
+from appsettings.models import AppSettings
 
 from . import jobs
 
@@ -20,6 +24,8 @@ _PATTERNS = [
     (re.compile(r"(<(secret|passphrase)\b[^>]*>).*?(</\2>)", re.I | re.S), r"\1***\3"),
 ]
 _SECRET_KEY = re.compile(r"pass|secret|token|private|key$", re.I)
+
+BOUNDS = {"WORKER_CONCURRENCY": (1, 16, 4), "JOB_RETENTION_DAYS": (1, 3650, 30)}
 
 
 def safe_text(text):
@@ -60,3 +66,20 @@ def busy_message(busy, user):
         return _("%(label)s is %(state)s on this resource (started by %(user)s, %(since)s ago); "
                  "see the Jobs page.") % {**values, "user": op.username}
     return _("%(label)s is %(state)s on this resource (since %(since)s).") % values
+
+
+def _value(key):
+    low, high, default = BOUNDS[key]
+    try:
+        value = int(AppSettings.objects.get(key=key).value)
+    except (AppSettings.DoesNotExist, ValueError):
+        return default
+    return value if low <= value <= high else default
+
+
+def concurrency():
+    return _value("WORKER_CONCURRENCY")
+
+
+def retention_days():
+    return _value("JOB_RETENTION_DAYS")
