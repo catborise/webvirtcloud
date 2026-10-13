@@ -25,9 +25,7 @@
     <div class="tab-content">
         {% if busy %}
             <div class="alert alert-warning mt-3" role="status">
-                {% trans "A snapshot job is running:" %}
-                {% for job in busy %}{{ job.dev }} {% widthratio job.cur job.end 100 %}%{% if not forloop.last %}, {% endif %}{% endfor %}.
-                {% trans "Reload the page to see its progress." %}
+                {% trans "A disk job is running on this VM; snapshot actions are unavailable until it ends." %}
             </div>
         {% endif %}
         <div role="tabpanel" class="tab-pane tab-pane-bordered active" id="takesnapshot">

@@ -191,9 +191,13 @@ class SnapshotTabTestCase(TestCase):
         self.assertFalse(self.page(status=1).xpath("//input[@name='memory']")[0].get("disabled"))
         self.assertIsNotNone(self.page(status=5).xpath("//input[@name='memory']")[0].get("disabled"))
 
-    def test_a_running_job_shows_progress_and_disables_actions(self):
+    def test_a_running_job_disables_actions(self):
+        # its progress shows in the job panel, not in the tab; the tab says why the actions are off
+        line = "A disk job is running on this VM; snapshot actions are unavailable until it ends."
         doc = self.page(external=[self.snap("e")], jobs=[{"dev": "vda", "cur": 1, "end": 4}])
-        self.assertIn("vda 25%", doc.text_content())
+        self.assertIn(line, doc.text_content())
+        self.assertNotIn("vda 25%", doc.text_content())
+        self.assertNotIn(line, self.page(external=[self.snap("e")]).text_content())
         self.assertTrue(all(b.get("disabled") is not None
                             for b in doc.xpath("//div[@id='snapshots']//button[@type='submit']")))
 

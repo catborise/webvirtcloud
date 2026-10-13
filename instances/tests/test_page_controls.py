@@ -130,6 +130,21 @@ class PageControlsTestCase(PageControls, TestCase):
             | {"clone", "snapshots", "console settings", "destroy", "host links"},
         )
 
+    def test_the_job_panel_gets_the_jobs_just_submitted_once(self):
+        superuser = get_user_model().objects.create_superuser("ctl_jobs", "ctl_jobs@example.com", "x")
+        self.client.force_login(superuser)
+        session = self.client.session
+        other = {"resource": "instance:aaaaaaaa-bbbb-cccc-0000-111111111111", "id": "4343"}
+        session["operations_shown"] = [{"resource": f"instance:{self.instance.uuid}", "id": "4242"}, other]
+        session.save()
+        self.controls(superuser)
+        self.assertIn('["4242"]', self.last_page)
+        self.assertNotIn('"4343"', self.last_page)
+        # a job remembered for another VM waits for that VM's page
+        self.assertEqual(self.client.session["operations_shown"], [other])
+        self.controls(superuser)
+        self.assertNotIn('"4242"', self.last_page)
+
     def test_global_viewers_see_nothing_to_act_on(self):
         perms = ("view_instances", "clone_instances", "snapshot_instances")
         for user in (self.user("ctl_viewer", perms=perms), self.user("ctl_staff", staff=True, perms=perms)):

@@ -1,0 +1,224 @@
+// operations/tests/js/job_panel.test.js
+// node job_panel.test.js static/js/poll.js operations/static/operations/job_panel.js
+const fs = require("fs");
+const assert = require("assert");
+
+let now = 0, timers = [], nextId = 1;
+global.setTimeout = (fn, ms) => { const id = nextId++; timers.push({ id, at: now + (ms || 0), fn }); return id; };
+global.clearTimeout = (id) => { timers = timers.filter((t) => t.id !== id); };
+function advance(ms) {
+    const end = now + ms;
+    for (;;) {
+        timers.sort((a, b) => a.at - b.at);
+        const t = timers[0];
+        if (!t || t.at > end) break;
+        timers.shift(); now = t.at; t.fn();
+    }
+    now = end;
+}
+const realNow = Date.now;
+Date.now = () => 1700000000000 + now;
+global.document = { hidden: false, addEventListener() {} };
+global.window = { backgroundJobRunning: false, location: { reload() { window.reloaded = true; } } };
+
+// requests settle only when the test says so; callbacks run in registration order
+let open = [];
+function req(url) {
+    const cbs = [];
+    const r = { url, settled: false,
+        always(f) { cbs.push(["always", f]); return r; },
+        done(f) { cbs.push(["done", f]); return r; },
+        fail(f) { cbs.push(["fail", f]); return r; },
+        settle(ok, value) {
+            r.settled = true;
+            cbs.forEach(([t, f]) => { if (t === "always" || t === (ok ? "done" : "fail")) f(value); });
+        } };
+    open.push(r);
+    return r;
+}
+// a failed request passes a jqXHR-like {status: N}
+function answer(url, value, ok = true) {
+    const r = open.find((x) => x.url === url && !x.settled);
+    assert.ok(r, "no open request to " + url);
+    r.settle(ok, value);
+}
+global.$ = { getJSON: req, ajax: (o) => req(o.url) };
+let listeners = {};
+const el = { innerHTML: "", addEventListener(ev, f) { listeners[ev] = f; } };
+eval(fs.readFileSync(process.argv[2], "utf8"));
+eval(fs.readFileSync(process.argv[3], "utf8"));
+
+const urls = { resource: "/r", job: (id) => "/j/" + id, cancel: (id) => "/c/" + id };
+const seen = new Date(1700000000000).toISOString();
+const running = { id: "a", label: "Delete snapshot", state: "running", phase: "Merging", progress_done: 1,
+                  progress_total: 4, cancellable: false, result: {}, error: "" };
+const empty = { jobs: [], others: [], short_operation: false, worker_last_seen: seen };
+
+jobPanel(el, urls, "tok");
+advance(0);
+answer("/r", { ...empty, jobs: [running] });
+assert.ok(el.innerHTML.includes("Delete snapshot") && el.innerHTML.includes("25%"), "shows the job and real progress");
+
+// one colour per state (operations/tests/test_views.py checks the same map in the template filter)
+assert.deepStrictEqual(JOB_STATE_COLORS, { queued: "secondary", running: "primary", cancelling: "info",
+    succeeded: "success", failed: "danger", cancelled: "secondary", uncertain: "warning" });
+assert.ok(el.innerHTML.includes('class="alert alert-primary') && el.innerHTML.includes('<span class="badge bg-primary">running</span>')
+    && el.innerHTML.includes('<span class="small text-body-secondary">Merging</span>'), "state badge and muted phase");
+assert.strictEqual(window.backgroundJobRunning, true);
+
+assert.ok(!el.innerHTML.includes("Finishing"), "a number below 99 %");
+
+// from 99 % the bar is full, striped, animated and says Finishing
+advance(3000);
+answer("/r", { ...empty, jobs: [{ ...running, progress_done: 99, progress_total: 100 }] });
+assert.ok(el.innerHTML.includes("progress-bar-striped progress-bar-animated"), "striped and animated");
+assert.ok(el.innerHTML.includes("Finishing\u2026") && el.innerHTML.includes('aria-valuenow="100"')
+    && el.innerHTML.includes("width:100%") && !el.innerHTML.includes("99%"), "full width, no number");
+advance(3000);
+answer("/r", { ...empty, jobs: [{ ...running, state: "cancelling", progress_done: 99, progress_total: 100 }] });
+assert.ok(!el.innerHTML.includes("Finishing") && el.innerHTML.includes("99%"), "only a running job is finishing");
+advance(3000);
+answer("/r", { ...empty, jobs: [running] });
+assert.ok(!el.innerHTML.includes("Finishing"), "back to a number");
+
+// the next poll goes out 3 s after the answer
+advance(3000);
+answer("/r", { ...empty, jobs: [running] });
+
+// the job finishes between polls: the panel asks for it by id, keeps the flag meanwhile
+advance(3000);
+answer("/r", empty);
+assert.strictEqual(window.backgroundJobRunning, true, "still true while the outcome is fetched");
+answer("/j/a", { status: 0 }, false); // a network error: asked again on the next poll
+advance(3000);
+answer("/r", empty);
+answer("/j/a", { ...running, state: "succeeded", result: { left_behind: ["/pool/a.one"] } });
+assert.ok(el.innerHTML.includes('<li class="text-break"><code>/pool/a.one</code></li>'), "shows the warning from the result");
+assert.ok(el.innerHTML.includes('class="alert alert-success') && el.innerHTML.includes('<span class="badge bg-success">succeeded</span>')
+    && el.innerHTML.includes('<div class="ms-auto d-flex gap-2"><button type="button" class="btn btn-sm btn-primary" data-refresh'),
+    "the outcome has the state colour and its buttons on the right");
+assert.strictEqual(window.backgroundJobRunning, true, "keeps backgroundJobRunning until dismissed");
+
+listeners.click({ target: { dataset: { dismiss: "a" } } });
+assert.strictEqual(window.backgroundJobRunning, false);
+assert.ok(!window.reloaded);
+
+// a job that ended before the first poll: shown from the submitted ids
+open = []; timers = [];
+const el2 = { innerHTML: "", addEventListener() {} };
+jobPanel(el2, urls, "tok", ["b"]);
+advance(0);
+answer("/r", empty);
+answer("/j/b", { ...running, id: "b", state: "failed", error: "refused" });
+assert.ok(el2.innerHTML.includes("refused") && el2.innerHTML.includes('class="alert alert-danger'),
+    "shows a job that finished before the first poll");
+
+// a late answer for a dismissed job does not bring it back
+const el3 = { innerHTML: "", addEventListener(ev, f) { listeners3 = f; } };
+let listeners3;
+jobPanel(el3, urls, "tok", ["c"]);
+advance(0);
+answer("/r", empty);
+listeners3({ target: { dataset: { dismiss: "c" } } });
+answer("/j/c", { ...running, id: "c", state: "succeeded" });
+assert.ok(!el3.innerHTML.includes("Delete snapshot"), "a dismissed outcome stays dismissed");
+
+// an uncertain job stays in the list (it keeps its claims): its error shows
+open = []; timers = [];
+let writes = 0, html4 = "";
+const el4 = { addEventListener() {},
+              get innerHTML() { return html4; }, set innerHTML(v) { writes++; html4 = v; } };
+jobPanel(el4, urls, "tok");
+advance(0);
+answer("/r", { ...empty, jobs: [{ ...running, state: "uncertain", error: "check the disks" }] });
+assert.ok(el4.innerHTML.includes('<span class="badge bg-warning text-dark">uncertain</span>'), "dark text on the yellow badge");
+assert.ok(el4.innerHTML.includes("check the disks") && el4.innerHTML.includes('class="alert alert-warning'),
+    "an uncertain job in the list shows its error");
+// an unchanged answer does not rebuild the panel (a focused button keeps its focus)
+advance(3000);
+answer("/r", { ...empty, jobs: [{ ...running, state: "uncertain", error: "check the disks" }] });
+assert.strictEqual(writes, 1, "an unchanged answer leaves the panel alone");
+
+// the panel showing nothing leaves a flag the please-wait dialog set alone
+open = []; timers = [];
+jobPanel({ innerHTML: "", addEventListener() {} }, urls, "tok");
+window.backgroundJobRunning = true;
+advance(0);
+answer("/r", empty);
+assert.strictEqual(window.backgroundJobRunning, true, "a foreground operation keeps its guard");
+
+// a job the user may not see or that is gone (403/404) is not asked for again
+open = []; timers = [];
+const el6 = { innerHTML: "", addEventListener() {} };
+window.backgroundJobRunning = false;
+jobPanel(el6, urls, "tok");
+advance(0);
+answer("/r", { ...empty, jobs: [{ ...running, id: "d" }] });
+assert.strictEqual(window.backgroundJobRunning, true);
+advance(3000);
+answer("/r", empty);
+answer("/j/d", { status: 404 }, false);
+assert.strictEqual(el6.innerHTML, "", "a missing job leaves nothing behind");
+assert.strictEqual(window.backgroundJobRunning, false, "the guard goes back once the panel holds nothing");
+advance(3000);
+answer("/r", empty);
+assert.ok(!open.some((r) => r.url === "/j/d" && !r.settled), "a missing job is not asked for again");
+// remembered ids hold the page's own reload at once, before the first poll answers
+open = []; timers = [];
+window.backgroundJobRunning = false;
+const el7 = { innerHTML: "", addEventListener() {} };
+jobPanel(el7, urls, "tok", ["e"]);
+assert.strictEqual(window.backgroundJobRunning, true, "set at init, not after the first poll");
+advance(0);
+answer("/r", empty, false); // a failed first poll keeps it
+assert.strictEqual(window.backgroundJobRunning, true, "kept after a failed first poll");
+advance(3000);
+answer("/r", empty);
+answer("/j/e", { status: 404 }, false);
+assert.strictEqual(window.backgroundJobRunning, false, "released once the remembered job is settled");
+
+// a running (not only a queued) job with a stale lease shows the worker warning
+open = []; timers = [];
+const el8 = { innerHTML: "", addEventListener() {} };
+const stale = new Date(Date.now() - 120000).toISOString();
+jobPanel(el8, urls, "tok");
+advance(0);
+answer("/r", { ...empty, worker_last_seen: stale, jobs: [running] });
+assert.ok(el8.innerHTML.includes("Worker unavailable"), "a running job with a stale lease warns");
+advance(3000);
+answer("/r", { ...empty, worker_last_seen: stale, jobs: [{ ...running, state: "cancelling" }] });
+assert.ok(el8.innerHTML.includes("Worker unavailable"), "a cancelling job with a stale lease warns");
+advance(3000);
+answer("/r", { ...empty, worker_last_seen: new Date(Date.now()).toISOString(), jobs: [running] });
+assert.ok(!el8.innerHTML.includes("Worker unavailable"), "a fresh lease does not warn");
+advance(3000);
+answer("/r", { ...empty, worker_last_seen: stale, jobs: [{ ...running, state: "uncertain" }] });
+assert.ok(!el8.innerHTML.includes("Worker unavailable"), "an uncertain job waits for an administrator, not the worker");
+
+// cancel: the button is disabled while the request runs; a refusal or a network error shows; the list is asked again
+open = []; timers = [];
+let click9;
+const el9 = { innerHTML: "", addEventListener(ev, f) { click9 = f; } };
+const queued = { ...running, id: "q", state: "queued", cancellable: true, progress_total: null };
+jobPanel(el9, urls, "tok");
+advance(0);
+answer("/r", { ...empty, jobs: [queued] });
+assert.ok(el9.innerHTML.includes('data-cancel="q">Cancel</button>'), "an enabled cancel button");
+click9({ target: { dataset: { cancel: "q" } } });
+assert.ok(el9.innerHTML.includes('data-cancel="q" disabled>'), "disabled while the request runs");
+answer("/c/q", { status: 400, responseJSON: { detail: "This job cannot be cancelled once it has started" } }, false);
+assert.ok(el9.innerHTML.includes("This job cannot be cancelled once it has started")
+    && el9.innerHTML.includes('class="alert alert-danger'), "the server's reason shows");
+assert.ok(open.some((r) => r.url === "/r" && !r.settled), "the list is asked again at once");
+answer("/r", { ...empty, jobs: [{ ...queued, state: "running", cancellable: false }] });
+assert.ok(el9.innerHTML.includes("cannot be cancelled") && !el9.innerHTML.includes("data-cancel"),
+    "the reason stays after the refresh");
+click9({ target: { dataset: { dismissError: "1" } } });
+assert.ok(!el9.innerHTML.includes("cannot be cancelled"), "the reason can be dismissed");
+advance(3000);
+answer("/r", { ...empty, jobs: [queued] });
+click9({ target: { dataset: { cancel: "q" } } });
+answer("/c/q", { status: 0 }, false);
+assert.ok(el9.innerHTML.includes("could not be reached"), "a network error shows");
+Date.now = realNow;
+console.log("ok");
