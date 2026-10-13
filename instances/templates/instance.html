@@ -64,6 +64,7 @@
         <hr>
     </div>
 
+    <div id="job-panel" aria-live="polite"></div>
     <div id="mainTabMenu">
         <!-- Nav tabs -->
         <ul class="nav nav-pills nav-fill" id="navbtn" role="tablist" aria-label="Instance actions">
@@ -680,6 +681,14 @@
         status_poll.stop();
         return true;
     });
+</script>
+<script src="{% static 'operations/job_panel.js' %}"></script>
+<script>
+    jobPanel(document.getElementById("job-panel"), {
+        resource: "{% url 'operation-resource' %}?key=instance%3A{{ instance.uuid|urlencode }}",
+        job: function (id) { return "{% url 'operation-list' %}" + id + "/"; },
+        cancel: function (id) { return "{% url 'operation-list' %}" + id + "/cancel/"; },
+    }, "{{ csrf_token }}", {{ remembered_jobs|safe }});
 </script>
 <script src="{% static 'js/instance_tabs.js' %}"></script>
 <script>

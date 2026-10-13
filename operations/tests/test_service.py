@@ -198,7 +198,15 @@ class RememberJobTestCase(SimpleTestCase):
     def test_the_last_twenty_jobs_are_remembered_until_taken(self):
         request = SimpleNamespace(session={})
         for n in range(25):
-            jobs.remember_job(request, SimpleNamespace(pk=n))
-        self.assertEqual(request.session["operations_shown"], [str(n) for n in range(5, 25)])
-        self.assertEqual(jobs.take_remembered(request), [str(n) for n in range(5, 25)])
-        self.assertEqual(jobs.take_remembered(request), [])
+            jobs.remember_job(request, SimpleNamespace(pk=n, resource="instance:a"))
+        self.assertEqual(len(request.session["operations_shown"]), 20)
+        self.assertEqual(jobs.take_remembered(request, "instance:a"), [str(n) for n in range(5, 25)])
+        self.assertEqual(jobs.take_remembered(request, "instance:a"), [])
+
+    def test_a_resource_takes_only_its_own_jobs(self):
+        request = SimpleNamespace(session={})
+        jobs.remember_job(request, SimpleNamespace(pk=1, resource="instance:a"))
+        jobs.remember_job(request, SimpleNamespace(pk=2, resource="instance:b"))
+        self.assertEqual(jobs.take_remembered(request, "instance:a"), ["1"])
+        self.assertEqual(request.session["operations_shown"], [{"resource": "instance:b", "id": "2"}])
+        self.assertEqual(jobs.take_remembered(request, "instance:b"), ["2"])

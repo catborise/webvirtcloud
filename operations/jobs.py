@@ -252,9 +252,14 @@ def resolve(op_id, user, outcome_state, note):
 
 def remember_job(request, op):
     """The resource page's panel shows this job even if it ends before the first poll."""
-    ids = request.session.get("operations_shown", [])
-    request.session["operations_shown"] = [*ids, str(op.pk)][-20:]
+    entries = request.session.get("operations_shown", [])
+    request.session["operations_shown"] = [*entries, {"resource": op.resource, "id": str(op.pk)}][-20:]
 
 
-def take_remembered(request):
-    return request.session.pop("operations_shown", [])
+def take_remembered(request, resource):
+    """The ids remembered for resource; the other resources' entries stay."""
+    entries = request.session.get("operations_shown", [])
+    taken = [e["id"] for e in entries if e["resource"] == resource]
+    if taken:  # untouched otherwise: no session write on every page view
+        request.session["operations_shown"] = [e for e in entries if e["resource"] != resource]
+    return taken
