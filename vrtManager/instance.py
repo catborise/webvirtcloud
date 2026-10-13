@@ -117,6 +117,10 @@ class wvmInstances(wvmConnect):
                     mode.append(label)
 
         dom = conn.instance
+        # libvirt keeps snapshot metadata on the source host: shared disks do
+        # not carry it to the destination.
+        if dom.snapshotNum(0):
+            raise util.OperationError("A VM with snapshots cannot be migrated")
         if state == 5:
             self.refuse_local_state(dom.XMLDesc(0))
         definitions = {dom.XMLDesc(0)}
@@ -283,8 +287,6 @@ class wvmInstances(wvmConnect):
         first (RHEL-145770) and tracks the fix as RHEL-156800; RHEL/Rocky 9.8
         with libvirt 11.10.0-12.el9_8 is affected. When supported hosts all
         have the fix, offline migration can go back to dom.migrate."""
-        if dom.snapshotNum(0):
-            raise util.OperationError("A VM with snapshots cannot be migrated")
         if dom.hasManagedSaveImage(0):
             raise util.OperationError("A VM with a saved state cannot be migrated")
         for lookup, key in ((self.wvm.lookupByUUIDString, dom.UUIDString()), (self.wvm.lookupByName, dom.name())):

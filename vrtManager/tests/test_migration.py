@@ -237,7 +237,6 @@ class ShutOffMigrationTestCase(unittest.TestCase):
 
     def test_refused_before_anything_changes(self):
         cases = {
-            "snapshots": (FakeHost(), {"snapshots": 2}),
             "saved state": (FakeHost(), {"saved": True}),
             "same uuid on the destination": (FakeHost(existing={"u-1"}), {}),
             "same name on the destination": (FakeHost(existing={"vm"}), {}),
@@ -299,6 +298,18 @@ class MigrationModeTestCase(unittest.TestCase):
                 with self.assertRaises(util.OperationError):
                     destination().moveto(source, "vm", unsafe=False, **{"live": False, "offline": False, **request})
                 self.assertEqual(source.instance.calls, [])
+
+    def test_a_vm_with_snapshots_is_refused_in_every_state(self):
+        """libvirt keeps snapshot metadata on the source host; a migration
+        does not carry it, even with shared disks."""
+        for state, request in ((1, {"live": True}), (1, {}), (3, {}), (5, {})):
+            with self.subTest(state=state, request=request):
+                host = FakeHost()
+                source = FakeSource(state, snapshots=1)
+                with self.assertRaisesRegex(util.OperationError, "A VM with snapshots cannot be migrated"):
+                    destination(host).moveto(source, "vm", unsafe=False, **{"live": False, "offline": False, **request})
+                self.assertEqual(source.instance.calls, [])
+                self.assertEqual(host.defined, [])
 
     def test_modes(self):
         live, unsafe = libvirt.VIR_MIGRATE_LIVE, libvirt.VIR_MIGRATE_UNSAFE
