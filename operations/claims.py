@@ -5,6 +5,7 @@ claim conflicts; otherwise it is refused at once (Busy)."""
 import os
 import socket
 import threading
+from contextlib import contextmanager
 from datetime import timedelta
 
 from django.db import connection, transaction
@@ -29,6 +30,10 @@ class Busy(Exception):
 
 def compute_key(compute_id):
     return f"compute:{compute_id}"
+
+
+def reconcile_key(compute_id):
+    return f"reconcile:{compute_id}"
 
 
 def instance_key(uuid):
@@ -90,3 +95,51 @@ def admit_job(op, wanted, existing, extra_locks=()):
         op.save()
         Claim.objects.bulk_create([Claim(operation=op, resource=k, mode=m) for k, m in sorted(wanted.items())])
         return op
+
+
+_local = threading.local()
+
+
+def _held():
+    if not hasattr(_local, "held"):
+        _local.held = {}
+    return _local.held
+
+
+@contextmanager
+def hold(wanted):
+    """Transient claims for the block. Keys this thread holds are reused;
+    exclusive covers shared; shared cannot become exclusive inside its block."""
+    held = _held()
+    new = {}
+    for key, mode in wanted.items():
+        if key in held:
+            if held[key] == Claim.SHARED and mode == Claim.EXCLUSIVE:
+                raise RuntimeError(f"Cannot upgrade a shared claim on {key}")
+            continue
+        new[key] = mode
+    if not new:
+        yield
+        return
+    ids = admit(new, holder=holder_id())
+    held.update(new)
+    try:
+        yield
+    finally:
+        for key in new:
+            held.pop(key, None)
+        Claim.objects.filter(pk__in=ids).delete()
+
+
+@contextmanager
+def adopted(op):
+    """The job thread holds its job's claims, so code it calls that takes a
+    lock helper does not refuse its own job."""
+    held = _held()
+    own = dict(Claim.objects.filter(operation=op).values_list("resource", "mode"))
+    held.update(own)
+    try:
+        yield
+    finally:
+        for key in own:
+            held.pop(key, None)

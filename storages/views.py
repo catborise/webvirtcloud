@@ -11,6 +11,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from libvirt import libvirtError
+from operations import claims
+from operations.utils import busy_message
 
 from vrtManager.connection import CONN_TCP, CONN_TLS
 from vrtManager.util import OperationError
@@ -240,8 +242,8 @@ def storage(request, compute_id, pool):
                     conn.del_volume(volname)
             except OperationError as err:
                 messages.error(request, str(err))
-            except TimeoutError:
-                messages.error(request, _("A VM operation on this host is running. Please retry."))
+            except claims.Busy as busy:
+                messages.error(request, busy_message(busy, request.user))
             else:
                 messages.success(
                     request, _("Volume: %(vol)s is deleted.") % {"vol": volname}

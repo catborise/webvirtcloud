@@ -5,6 +5,7 @@ from computes.models import Compute
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from instances.models import Flavor, Instance
+from operations import claims
 from rest_framework.test import APIClient
 
 User = get_user_model()
@@ -178,12 +179,13 @@ class APISecurityTestCase(TestCase):
 
     def test_busy_instance_api_does_not_report_success(self):
         self.client.force_login(self.regular_user)
-        with patch("instances.views.libvirt_instance_lock", side_effect=TimeoutError("busy")), patch(
+        with patch("instances.views.libvirt_instance_lock", side_effect=claims.Busy("instance:wvc-test")), patch(
             "instances.models.wvmInstance"
         ) as proxy:
             response = self.client.post(
                 f"/api/v1/computes/{self.compute.pk}/instances/{self.instance1.pk}/poweron/", {}
             )
         self.assertEqual(response.status_code, 409)
-        self.assertIn("busy", response.json()["detail"])
+        self.assertIn("short operation", response.json()["detail"])
+        self.assertIsNone(response.json()["operation"])
         proxy.assert_not_called()

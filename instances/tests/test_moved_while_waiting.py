@@ -1,9 +1,8 @@
 """
-A VM operation waits for the VM's compute lock while a migration holds it.
-When the migration moves the VM to another compute meanwhile, the waiting
-operation holds the old compute's lock, not the new one's: it must not run
-on the new host but answer "busy, retry", and the retry locks the right
-compute.
+A migration may move a VM between a request reading it and taking its
+compute's claim: the request then holds the old compute's claim, not the
+new one's. It must not run on the new host but answer "moved, try again",
+and the retry claims the right compute.
 """
 from contextlib import contextmanager
 from unittest.mock import PropertyMock, patch
@@ -35,7 +34,7 @@ class MovedWhileWaitingTestCase(TestCase):
 
     def test_a_vm_moved_while_the_request_waited_is_not_touched(self):
         @contextmanager
-        def lock_after_a_migration(instance, timeout=15.0):
+        def lock_after_a_migration(instance):
             # the migration that held the lock moved the VM before releasing it
             Instance.objects.filter(pk=instance.pk).update(compute=self.target)
             yield
@@ -44,11 +43,11 @@ class MovedWhileWaitingTestCase(TestCase):
         self.assertFalse(touched)
         self.assertEqual(response.status_code, 302)
         messages = [str(m) for m in response.wsgi_request._messages]
-        self.assertIn("Instance operation is busy. Please retry.", messages)
+        self.assertIn("The VM was moved meanwhile; try again.", messages)
 
     def test_a_vm_that_stayed_is_changed(self):
         @contextmanager
-        def plain_lock(instance, timeout=15.0):
+        def plain_lock(instance):
             yield
 
         response, touched = self.poweroff(plain_lock)
@@ -58,7 +57,7 @@ class MovedWhileWaitingTestCase(TestCase):
         # destroy holds the whole compute; the migration moved the VM before
         # releasing it
         @contextmanager
-        def compute_lock_after_a_migration(compute, timeout=15.0, *, shared=False):
+        def compute_lock_after_a_migration(compute, *, shared=False):
             Instance.objects.filter(pk=self.vm.pk).update(compute=self.target)
             yield
 
@@ -69,11 +68,11 @@ class MovedWhileWaitingTestCase(TestCase):
         self.assertFalse(wvm.return_value.delete.called)
         self.assertTrue(Instance.objects.filter(pk=self.vm.pk).exists())
         messages = [str(m) for m in response.wsgi_request._messages]
-        self.assertIn("Instance operation is busy. Please retry.", messages)
+        self.assertIn("The VM was moved meanwhile; try again.", messages)
 
     def clone(self, user, change):
         @contextmanager
-        def compute_lock_meanwhile(compute, timeout=15.0, *, shared=False):
+        def compute_lock_meanwhile(compute, *, shared=False):
             change()
             yield
 
@@ -101,7 +100,7 @@ class MovedWhileWaitingTestCase(TestCase):
             owner, lambda: Instance.objects.filter(pk=self.vm.pk).update(compute=self.target)
         )
         self.assertFalse(cloned)
-        self.assertIn("Instance operation is busy. Please retry.", [str(m) for m in response.wsgi_request._messages])
+        self.assertIn("The VM was moved meanwhile; try again.", [str(m) for m in response.wsgi_request._messages])
 
     def test_a_template_unmarked_while_the_request_waited_is_not_cloned_by_a_viewer(self):
         from django.contrib.auth.models import Permission
@@ -128,7 +127,7 @@ class MovedWhileWaitingTestCase(TestCase):
             wvm.return_value.get_memory.return_value = 512
 
             @contextmanager
-            def compute_lock_after_a_resize(compute, timeout=15.0, *, shared=False):
+            def compute_lock_after_a_resize(compute, *, shared=False):
                 wvm.return_value.get_vcpu.return_value = 8  # resized meanwhile
                 yield
 

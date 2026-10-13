@@ -311,8 +311,9 @@ class CreateInstanceViewSet(viewsets.ViewSet):
                     raise
                 return Response({"status": str(err)}, status=status.HTTP_400_BAD_REQUEST)
             # After the definition: the VM uses the volume, so no rollback here.
-            with utils.libvirt_compute_lock(compute):
-                utils.refresh_instance_database(compute)
+            # The refresh claims the compute itself and skips it when busy; the
+            # VM exists either way, so a busy compute must not refuse the request.
+            utils.refresh_instance_database(compute)
             msg = f"Instance {serializer.validated_data['name']} is created"
             return Response({"status": msg})
         else:

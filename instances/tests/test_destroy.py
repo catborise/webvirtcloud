@@ -58,7 +58,7 @@ class DestroyOrderTestCase(TestCase):
         calls = []
 
         @contextmanager
-        def record(compute, timeout=15.0, *, shared=False):
+        def record(compute, *, shared=False):
             calls.append(shared)
             yield
 
@@ -86,7 +86,7 @@ class DestroyOrderTestCase(TestCase):
         calls = []
 
         @contextmanager
-        def record(compute, timeout=15.0, *, shared=False):
+        def record(compute, *, shared=False):
             calls.append(shared)
             yield
 

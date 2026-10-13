@@ -1,9 +1,11 @@
 from django.contrib import messages
 from django.http import JsonResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.utils.translation import gettext_lazy as _
 import libvirt
 from libvirt import libvirtError
+from operations import claims
+from operations.utils import busy_message, summary
 from vrtManager.util import ConnectionFailed
 
 API_PREFIX = "/api/"
@@ -55,9 +57,17 @@ class ExceptionMiddleware:
         if request.path_info.startswith(API_PREFIX):
             if isinstance(exception, libvirtError):
                 return JsonResponse({"detail": error_text(request, exception)}, status=400)
+            if isinstance(exception, claims.Busy):
+                return JsonResponse({"detail": busy_message(exception, request.user),
+                                     "operation": summary(exception.blocker, request.user) if exception.blocker else None},
+                                    status=409)
             if isinstance(exception, TimeoutError):
                 return JsonResponse({"detail": "Operation is busy. Please retry."}, status=409)
             return None
+        if isinstance(exception, claims.Busy) and request.method not in ("GET", "HEAD"):
+            # back to the form with the reason; a GET is never redirected to itself
+            messages.error(request, busy_message(exception, request.user))
+            return redirect(request.get_full_path())
         if isinstance(exception, libvirtError):
             messages.error(
                 request,
