@@ -2,8 +2,9 @@
 do not see the hosts get "host unreachable" instead of a connection error's
 text (which names the host). What a refused request says about the job holding
 the resource: details for its owner and superusers, a minimal summary for
-everyone else. Worker settings from the Settings page. The worker reads them
-itself (the settings middleware only runs in gunicorn)."""
+everyone else; and who may see jobs on a resource page. Worker settings from
+the Settings page. The worker reads them itself (the settings middleware only
+runs in gunicorn)."""
 
 import re
 
@@ -14,7 +15,9 @@ from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy
 from libvirt import libvirtError
 
+from accounts.models import UserInstance
 from appsettings.models import AppSettings
+from instances.models import Instance
 from vrtManager.util import ConnectionFailed
 
 from . import jobs
@@ -81,6 +84,26 @@ def check_params(params):
 
 def may_see(op, user):
     return user.is_superuser or (op.user_id is not None and op.user_id == user.pk)
+
+
+def shown_label(op, user):
+    """The job's "<compute>/<vm>" label, without the compute for users the app hides hosts from.
+    A compute name may contain "/", a VM name may not (libvirt refuses it)."""
+    if user.is_superuser or user.has_perm("instances.view_instances"):
+        return op.resource_label
+    return op.resource_label.rsplit("/", 1)[-1]
+
+
+def visible(user, key):
+    if user.is_superuser:
+        return True
+    kind, _sep, rest = key.partition(":")
+    if kind != "instance":
+        return False  # compute, storage and network pages are superuser-only
+    instances = Instance.objects.filter(uuid=rest)
+    if user.has_perm("instances.view_instances"):
+        return instances.exists()
+    return UserInstance.objects.filter(user=user, instance__in=instances).exists()
 
 
 def summary(op, user):
