@@ -6,6 +6,8 @@ services:
     image: webvirtcloud:latest
     container_name: webvirtcloud
     restart: unless-stopped
+    # above my_init's 80 s, which is above the worker's 60 s drain
+    stop_grace_period: 95s
     ports:
       - "80:80"
     environment:

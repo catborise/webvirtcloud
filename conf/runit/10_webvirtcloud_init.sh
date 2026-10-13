@@ -50,3 +50,6 @@ chmod 700 "/var/www/.ssh" 2>/dev/null || true
 # secret key and settings private to the app user (as the installer does)
 chmod 700 "$DATA_DIR"
 chmod 600 "$DATA_DIR/db.sqlite3" "$APP_DIR/webvirtcloud/settings.py"
+for f in "$DATA_DIR/db.sqlite3-wal" "$DATA_DIR/db.sqlite3-shm"; do
+    if [ -e "$f" ]; then chown www-data:www-data "$f"; chmod 600 "$f"; fi
+done
