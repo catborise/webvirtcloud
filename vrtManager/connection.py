@@ -98,7 +98,6 @@ NVRAM_DIR = "/var/lib/libvirt/qemu/nvram"
 class wvmConnection(object):
     """
     class representing a single connection stored in the Connection Manager
-    # to-do: may also need some locking to ensure to not connect simultaniously in 2 threads
     """
 
     def __init__(self, host, login, passwd, conn):
@@ -185,13 +184,19 @@ class wvmConnection(object):
             return self.__connect_socket()
         raise ValueError(f'"{self.type}" is not a valid connection type')
 
-    @property
-    def connected(self):
+    def alive_connection(self):
+        """The libvirt connection if it is alive, else None. self.connection
+        is read once: the close callback can clear it at any moment."""
+        connection = self.connection
         try:
-            return self.connection is not None and self.connection.isAlive()
+            return connection if connection is not None and connection.isAlive() else None
         except libvirtError:
             # isAlive failed for some reason
-            return False
+            return None
+
+    @property
+    def connected(self):
+        return self.alive_connection() is not None
 
     def __libvirt_auth_credentials_callback(self, credentials, user_data):
         for credential in credentials:
@@ -341,16 +346,14 @@ class wvmConnectionManager(object):
             finally:
                 self._connections_lock.release()
 
-        if not connection.connected:
+        live = connection.alive_connection()
+        if live is None:
             # (re-)connect within CONNECT_TIMEOUT; one open per connection at a time
             connection.connect()
-
-        if connection.connected:
-            # return libvirt connection object
-            return connection.connection
-        else:
-            # raise libvirt error
+            live = connection.alive_connection()
+        if live is None:
             raise util.ConnectionFailed(connection.last_error)
+        return live
 
     def host_is_up(self, conn_type, hostname, timeout=1):
         """True if the libvirt endpoint of hostname accepts a TCP (or Unix

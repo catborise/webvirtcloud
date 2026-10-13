@@ -1,16 +1,21 @@
-"""Secrets never reach a job record, a response or a log line. What a refused
-request says about the job holding the resource: details for its owner and
-superusers, a minimal summary for everyone else. Worker settings from the
-Settings page. The worker reads them itself (the settings middleware only runs
-in gunicorn)."""
+"""Secrets never reach a job record, a response or a log line, and users who
+do not see the hosts get "host unreachable" instead of a connection error's
+text (which names the host). What a refused request says about the job holding
+the resource: details for its owner and superusers, a minimal summary for
+everyone else. Worker settings from the Settings page. The worker reads them
+itself (the settings middleware only runs in gunicorn)."""
 
 import re
 
+import libvirt
 from django.utils import timezone
 from django.utils.timesince import timesince
 from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy
+from libvirt import libvirtError
 
 from appsettings.models import AppSettings
+from vrtManager.util import ConnectionFailed
 
 from . import jobs
 
@@ -25,6 +30,23 @@ _PATTERNS = [
 ]
 _SECRET_KEY = re.compile(r"pass|secret|token|private|key$", re.I)
 
+# errors of the connection to the host, not of the operation: both the
+# domain and the code must match (a daemon that lacks a procedure answers
+# VIR_FROM_RPC / VIR_ERR_NO_SUPPORT, which the user should see)
+TRANSPORT_ERROR_DOMAINS = {libvirt.VIR_FROM_RPC, libvirt.VIR_FROM_REMOTE, libvirt.VIR_FROM_SSH, libvirt.VIR_FROM_LIBSSH}
+TRANSPORT_ERROR_CODES = {
+    libvirt.VIR_ERR_INTERNAL_ERROR,  # "connection closed due to keepalive timeout"
+    libvirt.VIR_ERR_SYSTEM_ERROR,  # "Cannot recv data: ..."
+    libvirt.VIR_ERR_RPC,
+    libvirt.VIR_ERR_NO_CONNECT,
+    libvirt.VIR_ERR_AUTH_FAILED,
+    libvirt.VIR_ERR_AUTH_UNAVAILABLE,
+    libvirt.VIR_ERR_AUTH_CANCELLED,
+    libvirt.VIR_ERR_SSH,
+    libvirt.VIR_ERR_LIBSSH,
+}
+UNREACHABLE = gettext_lazy("The host of this virtual machine cannot be reached right now.")
+
 BOUNDS = {"WORKER_CONCURRENCY": (1, 16, 4), "JOB_RETENTION_DAYS": (1, 3650, 30)}
 
 
@@ -33,6 +55,17 @@ def safe_text(text):
     for pattern, replacement in _PATTERNS:
         text = pattern.sub(replacement, text)
     return text
+
+
+def public_error_text(exception):
+    """The error for users who do not see the hosts: a connection error names
+    the host and how it is reached, so they learn only that it cannot be reached."""
+    connection_error = isinstance(exception, ConnectionFailed) or (
+        isinstance(exception, libvirtError)
+        and exception.get_error_domain() in TRANSPORT_ERROR_DOMAINS
+        and exception.get_error_code() in TRANSPORT_ERROR_CODES
+    )
+    return str(UNREACHABLE) if connection_error else str(exception)
 
 
 def check_params(params):
