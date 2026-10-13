@@ -11,6 +11,7 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 
 from computes.models import Compute
+from operations import claims
 from storages.upload import (
     handle_uploaded_file,
     _acquire_upload_lock,
@@ -958,12 +959,12 @@ class VolumeDeleteTests(TestCase):
     def test_a_busy_compute_is_a_message(self, mock_wvm):
         conn = self.refused(mock_wvm)
         url = reverse("storage", args=[self.compute.id, "default"])
-        with patch("storages.views.libvirt_compute_lock", side_effect=TimeoutError):
+        with patch("storages.views.libvirt_compute_lock", side_effect=claims.Busy("compute:1")):
             response = self.client.post(url, {"del_volume": "1", "volname": "disk.qcow2"})
         self.assertRedirects(response, url, fetch_redirect_response=False)
         conn.del_volume.assert_not_called()
         messages = [str(m) for m in get_messages(response.wsgi_request)]
-        self.assertTrue(any("Please retry" in m for m in messages), messages)
+        self.assertTrue(any("short operation" in m for m in messages), messages)
 
     @patch("storages.api.viewsets.wvmStorage")
     def test_the_api_refuses_with_the_reason(self, mock_wvm):

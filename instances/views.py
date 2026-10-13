@@ -38,6 +38,8 @@ from libvirt import (VIR_DOMAIN_UNDEFINE_KEEP_NVRAM,
                      VIR_DOMAIN_UNDEFINE_NVRAM,
                      libvirtError)
 from logs.views import addlogmsg
+from operations import claims
+from operations.utils import busy_message, summary
 from webvirtcloud.middleware import error_text
 from vrtManager import util
 from vrtManager.create import wvmCreate
@@ -446,16 +448,25 @@ def get_instance(user, pk, perm_type="view"):
     return instance
 
 
-def _busy(request, pk):
+def _busy(request, pk, busy):
     if hasattr(request, "accepted_renderer"):
-        return JsonResponse({"detail": "Instance operation is busy. Please retry."}, status=409)
-    messages.error(request, _("Instance operation is busy. Please retry."))
+        blocker = busy.blocker
+        return JsonResponse({"detail": busy_message(busy, request.user),
+                             "operation": summary(blocker, request.user) if blocker else None}, status=409)
+    messages.error(request, busy_message(busy, request.user))
+    return get_safe_redirect(request, default=reverse("instances:instance", args=[pk]))
+
+
+def _moved(request, pk):
+    if hasattr(request, "accepted_renderer"):
+        return JsonResponse({"detail": "The VM was moved meanwhile; try again."}, status=409)
+    messages.error(request, _("The VM was moved meanwhile; try again."))
     return get_safe_redirect(request, default=reverse("instances:instance", args=[pk]))
 
 
 def _moved_meanwhile(pk, inst):
-    """A migration may have moved the VM while the request waited for its
-    compute's lock: the lock held is then the old compute's. The retry locks
+    """A migration may have moved the VM before the request took its
+    compute's claim: the claim held is then the old compute's. The retry locks
     the new one (or finds the record merged away)."""
     return not Instance.objects.filter(pk=pk, compute_id=inst.compute_id).exists()
 
@@ -468,10 +479,10 @@ def serialize_instance_mutation(func):
         try:
             with libvirt_instance_lock(inst):
                 if _moved_meanwhile(pk, inst):
-                    return _busy(request, pk)
+                    return _moved(request, pk)
                 return func(request, pk, *args, **kwargs)
-        except TimeoutError:
-            return _busy(request, pk)
+        except claims.Busy as busy:
+            return _busy(request, pk, busy)
 
     return wrapper
 
@@ -494,8 +505,8 @@ def serialize_user_quota(func):
         try:
             with user_quota_lock(request.user):
                 return func(request, pk, *args, **kwargs)
-        except TimeoutError:
-            return _busy(request, pk)
+        except claims.Busy as busy:
+            return _busy(request, pk, busy)
 
     return wrapper
 
@@ -510,10 +521,10 @@ def serialize_compute_mutation(func):
         try:
             with libvirt_compute_lock(inst.compute):
                 if _moved_meanwhile(pk, inst):
-                    return _busy(request, pk)
+                    return _moved(request, pk)
                 return func(request, pk, *args, **kwargs)
-        except TimeoutError:
-            return _busy(request, pk)
+        except claims.Busy as busy:
+            return _busy(request, pk, busy)
 
     return wrapper
 
@@ -728,7 +739,9 @@ def migrate(request, pk):
     try:
         # migrate_instance logs the outcome
         utils.migrate_instance(target_host, instance, request.user, live, unsafe, offline, autoconverge, compress)
-    except (libvirtError, OSError) as err:  # OSError includes a lock timeout
+    except claims.Busy as busy:
+        return _busy(request, instance.id, busy)
+    except (libvirtError, OSError) as err:
         messages.error(request, err)
 
     return get_safe_redirect(
@@ -1945,11 +1958,11 @@ def clone(request, pk):
         # The whole compute: the destination name and disk names must not be
         # taken by a concurrent clone of another VM while volumes are copied.
         with libvirt_compute_lock(instance.compute):
-            # While this request waited, a migration may have moved the
+            # Before this request took the claim, a migration may have moved the
             # source, or its template mark, size or the user's rights changed:
             # the clone is checked against the source as it is now.
             if _moved_meanwhile(pk, instance):
-                return _busy(request, pk)
+                return _moved(request, pk)
             instance = _clone_source(request.user, pk)
             clone_data, refusal = _clone_plan(request, instance)
             if refusal:
@@ -1978,7 +1991,9 @@ def clone(request, pk):
         )
 
         return redirect(reverse("instances:instance", args=[new_instance.id]))
-    except (libvirtError, ValueError, OSError) as e:  # OSError includes a lock timeout
+    except claims.Busy as busy:
+        return _busy(request, pk, busy)
+    except (libvirtError, ValueError, OSError) as e:
         messages.error(request, error_text(request, e))
 
     return get_safe_redirect(request, default=reverse("instances:instance", args=[pk]))

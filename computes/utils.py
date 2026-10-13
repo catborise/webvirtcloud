@@ -1,11 +1,5 @@
 from contextlib import contextmanager
-import fcntl
 import logging
-import os
-import stat
-import tempfile
-import threading
-import time
 from datetime import timedelta
 
 from accounts.models import UserInstance
@@ -15,142 +9,40 @@ from django.db import transaction
 from django.utils import timezone
 from computes.models import Compute
 from instances.models import Instance, InstanceTombstone
+from operations import claims
+from operations.models import Claim
 
 logger = logging.getLogger(__name__)
 
-_COMPUTE_THREAD_LOCKS = {}
-_COMPUTE_THREAD_LOCKS_GUARD = threading.Lock()
-
-
-def _get_compute_thread_lock(compute_pk):
-    with _COMPUTE_THREAD_LOCKS_GUARD:
-        if compute_pk not in _COMPUTE_THREAD_LOCKS:
-            _COMPUTE_THREAD_LOCKS[compute_pk] = threading.Lock()
-        return _COMPUTE_THREAD_LOCKS[compute_pk]
-
-
-def _get_lock_directory():
-    candidates = [
-        "/srv/webvirtcloud/data/locks",
-        os.path.join(tempfile.gettempdir(), f"webvirtcloud_locks_{os.geteuid()}"),
-    ]
-    for candidate in candidates:
-        try:
-            if os.path.islink(candidate):
-                continue
-            if not os.path.exists(candidate):
-                os.makedirs(candidate, mode=0o700, exist_ok=True)
-            if not os.path.isdir(candidate) or os.path.islink(candidate):
-                continue
-
-            stat_info = os.stat(candidate)
-            # Ensure candidate directory is owned by the current process user
-            if stat_info.st_uid != os.geteuid():
-                continue
-            # Ensure candidate directory has private permissions (mode 0700)
-            if (stat.S_IMODE(stat_info.st_mode) & 0o077) != 0:
-                try:
-                    os.chmod(candidate, 0o700)
-                except OSError:
-                    continue
-                stat_info = os.stat(candidate)
-                if (stat.S_IMODE(stat_info.st_mode) & 0o077) != 0:
-                    continue
-
-            test_file = os.path.join(candidate, f".test_write_{os.getpid()}_{threading.get_ident()}")
-            with open(test_file, "w") as tf:
-                tf.write("1")
-            os.unlink(test_file)
-            return candidate
-        except (OSError, PermissionError):
-            continue
-    return None
-
-
-_thread_local = threading.local()
-
-
-def _get_thread_held_locks():
-    if not hasattr(_thread_local, "compute_locks"):
-        _thread_local.compute_locks = {}
-    return _thread_local.compute_locks
-
 
 @contextmanager
-def _libvirt_lock(key, filename, timeout=15.0, shared=False):
-    """Use flock for both threads and processes; exclusive locks also use a mutex."""
-    held_locks = _get_thread_held_locks()
-    if key in held_locks:
-        if held_locks[key] and not shared:
-            raise RuntimeError("Cannot upgrade a shared compute lock inside a VM operation")
-        yield
-        return
-
-    thread_lock = None if shared else _get_compute_thread_lock(key)
-    start_time = time.monotonic()
-    if thread_lock is not None and not thread_lock.acquire(timeout=timeout):
-        raise TimeoutError(f"Timeout waiting for lock on {key}")
-    try:
-        lock_dir = _get_lock_directory()
-        if not lock_dir:
-            raise OSError(f"Could not acquire secure lock directory for {key}")
-        path = os.path.join(lock_dir, filename)
-        if os.path.islink(path):
-            raise PermissionError(f"Lock file {path} is a symlink")
-        fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-        acquired = False
-        try:
-            mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
-            while True:
-                try:
-                    fcntl.flock(fd, mode | fcntl.LOCK_NB)
-                    acquired = True
-                    break
-                except BlockingIOError:
-                    if time.monotonic() - start_time >= timeout:
-                        raise TimeoutError(f"Timeout waiting for lock on {key}")
-                    time.sleep(0.05)
-            held_locks[key] = shared
-            try:
-                yield
-            finally:
-                held_locks.pop(key, None)
-        finally:
-            try:
-                if acquired:
-                    fcntl.flock(fd, fcntl.LOCK_UN)
-            finally:
-                os.close(fd)
-    finally:
-        if thread_lock is not None:
-            thread_lock.release()
-
-
-@contextmanager
-def libvirt_compute_lock(compute, timeout=15.0, *, shared=False):
-    """Exclude reconciliation/migration while allowing independent VM operations."""
+def libvirt_compute_lock(compute, *, shared=False):
+    """The compute for the block: exclusive keeps out every VM operation and
+    reconcile on it; shared lets sibling VMs and reconciles go on. Busy if it is taken."""
     compute_pk = getattr(compute, "pk", getattr(compute, "id", None))
     if not compute_pk:
         yield
         return
-    with _libvirt_lock(compute_pk, f"sync_compute_{compute_pk}.lock", timeout, shared):
+    with claims.hold({claims.compute_key(compute_pk): Claim.SHARED if shared else Claim.EXCLUSIVE}):
         yield
 
 
 @contextmanager
-def user_quota_lock(user, timeout=15.0):
-    """One user's quota check and the change it allows run one at a time, on every compute.
-    Take it before any compute or VM lock."""
-    with _libvirt_lock(("quota", user.pk), f"quota_user_{user.pk}.lock", timeout):
+def user_quota_lock(user):
+    """One user's quota check and the change it allows run one at a time."""
+    with claims.hold({claims.quota_key(user.pk): Claim.EXCLUSIVE}):
         yield
 
 
 @contextmanager
-def libvirt_instance_lock(instance, timeout=15.0):
-    """Serialize one VM and share the compute barrier with other VM operations."""
-    with libvirt_compute_lock(instance.compute, timeout, shared=True):
-        with _libvirt_lock(("instance", instance.pk), f"instance_{instance.pk}.lock", timeout):
-            yield
+def libvirt_instance_lock(instance):
+    """One VM for the block, sharing its compute with sibling VMs."""
+    compute = instance.compute
+    with claims.hold({
+        claims.compute_key(getattr(compute, "pk", getattr(compute, "id", None))): Claim.SHARED,
+        claims.instance_key(instance.uuid): Claim.EXCLUSIVE,
+    }):
+        yield
 
 
 def _move_ownership(source, target):
@@ -219,11 +111,16 @@ def refresh_instance_database(compute):
         return
 
     try:
-        with libvirt_compute_lock(compute, timeout=15.0):
+        # The compute shared: VM operations and jobs on it go on; changes of
+        # its VM set (create, clone, delete, migration, define) hold it
+        # exclusive and stay out until the end. One reconcile of a compute at
+        # a time: two would read libvirt at different times and could commit
+        # in reverse order, an older listing undoing a newer one.
+        with claims.hold({claims.compute_key(compute_pk): Claim.SHARED,
+                          claims.reconcile_key(compute_pk): Claim.EXCLUSIVE}):
             # libvirt is asked before the transaction: a silent host can keep a
             # call waiting for 30 s, and on SQLite an open transaction makes every
-            # other write of the app fail meanwhile. The compute lock still keeps
-            # create/delete/migration of this compute out until the end.
+            # other write of the app fail meanwhile.
             if hasattr(compute, "status") and compute.status is False:
                 return
 
@@ -294,6 +191,6 @@ def refresh_instance_database(compute):
                         )
                         if created and not Instance.objects.filter(uuid=uuid).exclude(compute=compute).exists():
                             _restore(inst)
-    except (OSError, PermissionError, TimeoutError) as e:
-        logger.error("Could not synchronize instances for compute %s: %s; failing closed", compute_pk, e)
+    except claims.Busy:
+        logger.debug("Compute %s is busy; not synchronized now", compute_pk)
         return
