@@ -102,7 +102,7 @@ def instance(request, pk):
             }
         else:
             msg = _("The host of '%(name)s' cannot be reached right now.") % {"name": instance.name}
-        messages.error(request, msg)
+        messages.error(request, msg + _(" Jobs on it can be followed under Jobs in the menu."))
         return redirect(reverse("instances:index"))
     # The page only reads the VM, and its getters read the same XML some 30
     # times: libvirt is asked once per kind of XML.
