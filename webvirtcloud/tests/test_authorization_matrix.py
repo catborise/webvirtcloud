@@ -48,6 +48,7 @@ ALLOWED_FOR_ANY_USER = {
     "instance-flavor-detail": "API: flavor catalogue",
     "operation-list": "API: filtered to the user's own jobs",
     "operation-resource": "API: checks per resource who may see it",
+    "operations:jobs": "lists only the user's own jobs",
     "schema": "API docs: any authenticated user (SERVE_PERMISSIONS)",
     "schema-json": "API docs: any authenticated user (SERVE_PERMISSIONS)",
     "schema-redoc": "API docs: any authenticated user (SERVE_PERMISSIONS)",
@@ -167,6 +168,8 @@ class AuthorizationMatrixTestCase(TestCase):
         for name, converter in params.items():
             if name in ("compute_id", "compute_pk"):
                 kwargs[name] = self.compute.pk
+            elif converter is not None and type(converter).__name__ == "UUIDConverter":
+                kwargs[name] = "00000000-0000-0000-0000-000000000000"
             elif name in ("pk", "instance_id"):
                 kwargs[name] = self.instance.pk if converter else str(self.instance.pk)
             elif name == "vname":

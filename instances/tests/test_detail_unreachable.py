@@ -36,6 +36,7 @@ class DetailOfUnreachableHostTests(TestCase):
         self.assertIn("far-vm", messages[0])
         self.assertNotIn("far-host", messages[0])
         self.assertNotIn("10.0.0.9", messages[0])
+        self.assertIn("Jobs", messages[0])
 
     def test_superuser_sees_the_host_and_its_error(self):
         admin = get_user_model().objects.create_superuser("far-admin", password="pw", email="far@example.com")
