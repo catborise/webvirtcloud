@@ -1,10 +1,18 @@
-"""Long-running operations: the queue, the history and the resources jobs
-hold (spec 2026-10-13, sections 1-2)."""
+"""Long-running operations: the queue, the history and the resources jobs hold
+(spec 2026-10-13, sections 1-2). One worker per installation, and fencing for
+every write a worker makes. Same host (the same data directory, which holds
+the worker's flock): the flock proves the previous holder is gone, so the
+lease is taken over at once. Another host: only after a stale heartbeat."""
 
 import uuid
+from contextlib import contextmanager
+from datetime import timedelta
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
+from django.utils import timezone
+
+TAKEOVER_AFTER = timedelta(minutes=2)
 
 
 class Operation(models.Model):
@@ -74,3 +82,40 @@ class WorkerLease(models.Model):
     holder = models.CharField(max_length=128)
     host = models.CharField(max_length=255)
     heartbeat_at = models.DateTimeField()
+
+
+class LeaseLost(Exception):
+    """This worker no longer holds the lease or owns the job."""
+
+
+def acquire(holder, host):
+    now = timezone.now()
+    with transaction.atomic():
+        lease, created = WorkerLease.objects.select_for_update().get_or_create(
+            name="worker", defaults={"holder": holder, "host": host, "heartbeat_at": now}
+        )
+        if created or lease.holder == holder:
+            return True
+        if lease.host == host or lease.heartbeat_at < now - TAKEOVER_AFTER:
+            WorkerLease.objects.filter(name="worker").update(holder=holder, host=host, heartbeat_at=now)
+            return True
+    return False
+
+
+def renew(holder):
+    return bool(WorkerLease.objects.filter(name="worker", holder=holder).update(heartbeat_at=timezone.now()))
+
+
+def last_seen():
+    lease = WorkerLease.objects.filter(name="worker").first()
+    return lease.heartbeat_at if lease else None
+
+
+@contextmanager
+def fenced(holder):
+    """A transaction in which holder still holds the lease; a takeover locks
+    the same row, so it waits for this transaction or makes it fail."""
+    with transaction.atomic():
+        if not WorkerLease.objects.select_for_update().filter(name="worker", holder=holder).exists():
+            raise LeaseLost(holder)
+        yield
