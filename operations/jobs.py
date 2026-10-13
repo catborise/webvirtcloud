@@ -248,3 +248,13 @@ def resolve(op_id, user, outcome_state, note):
         _log(user.username, host, instance, f"Job {op.pk} resolved as {outcome_state}: {note}")
     op.refresh_from_db()
     return op
+
+
+def remember_job(request, op):
+    """The resource page's panel shows this job even if it ends before the first poll."""
+    ids = request.session.get("operations_shown", [])
+    request.session["operations_shown"] = [*ids, str(op.pk)][-20:]
+
+
+def take_remembered(request):
+    return request.session.pop("operations_shown", [])

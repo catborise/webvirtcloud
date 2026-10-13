@@ -8,6 +8,8 @@ from libvirt import (
     VIR_DOMAIN_XML_SECURE,
     libvirtError,
 )
+from operations import claims
+from operations.models import Claim
 from vrtManager.instance import wvmInstance
 from webvirtcloud.settings import QEMU_CONSOLE_LISTENER_ADDRESSES
 
@@ -280,6 +282,11 @@ class Instance(models.Model):
             return self.proxy.get_snapshot_jobs()
         except libvirtError:
             return []
+
+    @cached_property
+    def held_by_job(self) -> bool:
+        # a queued job has no libvirt block job yet; a job's claim still holds the VM
+        return Claim.objects.filter(resource=claims.instance_key(self.uuid), operation__isnull=False).exists()
 
     @cached_property
     def inst_xml(self):

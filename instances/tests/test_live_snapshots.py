@@ -101,6 +101,11 @@ class LiveExternalSnapshotTestCase(SimpleTestCase):
         self.assertEqual(etree.tostring(etree.fromstring(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)).find("os")), os_before)
         self.assertEqual(dom.snapshotNum(0), 0)
 
+    def test_a_shut_off_vm_without_a_merge_has_no_job(self):
+        # libvirt reports a shut-off VM's merge as an offline block job; none runs here
+        _, vm = self.vm("snap-nojob")
+        self.assertEqual(vm.get_snapshot_jobs(), [])
+
     def test_back_to_back_reverts_keep_a_running_vm_running(self):
         # Without the retry, the second revert within one second stopped the VM.
         dom, vm = self.vm("snap-collide", "running")

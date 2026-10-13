@@ -1,5 +1,6 @@
-"""The snapshot views call the backend once and show its refusals as
-messages; they no longer start, pause or stop the VM themselves."""
+"""The snapshot views call the backend once (an external snapshot delete
+queues a job instead) and show its refusals as messages; they no longer
+start, pause or stop the VM themselves."""
 
 from datetime import datetime
 from unittest.mock import PropertyMock, patch
@@ -15,6 +16,7 @@ from vrtManager import util
 from appsettings.models import AppSettings
 from computes.models import Compute
 from instances.models import Instance
+from operations.models import Claim, Operation
 
 
 class SnapshotViewsTestCase(TestCase):
@@ -32,7 +34,6 @@ class SnapshotViewsTestCase(TestCase):
             method = {
                 "create_external_snapshot": proxy.create_external_snapshot,
                 "revert_external_snapshot": proxy.revert_external_snapshot,
-                "delete_external_snapshot": proxy.delete_external_snapshot,
                 "revert_snapshot": proxy.snapshot_revert,
                 "delete_snapshot": proxy.snapshot_delete,
                 "snapshot": proxy.create_snapshot,
@@ -66,26 +67,48 @@ class SnapshotViewsTestCase(TestCase):
                 _, method, _ = self.post("create_external_snapshot", {"name": "a"})
                 method.assert_called_once_with("a", "", False, False, **expected)
 
-    def test_revert_and_delete_call_the_backend_once_and_leave_power_alone(self):
-        for view in ("revert_external_snapshot", "delete_external_snapshot"):
-            with self.subTest(view):
-                proxy, method, _ = self.post(view, {"name": "a"})
-                method.assert_called_once_with("a")
-                for power in ("start", "force_shutdown", "shutdown"):
-                    getattr(proxy, power).assert_not_called()
+    def test_revert_calls_the_backend_once_and_leaves_power_alone(self):
+        proxy, method, _ = self.post("revert_external_snapshot", {"name": "a"})
+        method.assert_called_once_with("a")
+        for power in ("start", "force_shutdown", "shutdown"):
+            getattr(proxy, power).assert_not_called()
 
     def test_files_left_behind_are_named_in_a_warning(self):
-        for view in ("revert_external_snapshot", "delete_external_snapshot"):
-            with self.subTest(view):
-                _, _, messages = self.post(view, {"name": "a"}, left=["/pool/a.one", "/pool/vm.one.mem"])
-                warning = [m for m in messages if "/pool/a.one, /pool/vm.one.mem" in m]
-                self.assertEqual(len(warning), 1, messages)
-                self.assertIn("qemu user", warning[0])
-                _, _, messages = self.post(view, {"name": "a"})
-                self.assertFalse([m for m in messages if "not removed" in m], messages)
+        _, _, messages = self.post("revert_external_snapshot", {"name": "a"}, left=["/pool/a.one", "/pool/vm.one.mem"])
+        warning = [m for m in messages if "/pool/a.one, /pool/vm.one.mem" in m]
+        self.assertEqual(len(warning), 1, messages)
+        self.assertIn("qemu user", warning[0])
+        _, _, messages = self.post("revert_external_snapshot", {"name": "a"})
+        self.assertFalse([m for m in messages if "not removed" in m], messages)
+
+    def delete(self, listed):
+        with patch("instances.jobs.wvmInstance") as mock_wvm:
+            proxy = mock_wvm.return_value
+            proxy.instance.snapshotListNames.return_value = list(listed)
+            self.client.cookies.pop("messages", None)
+            response = self.client.post(
+                reverse("instances:delete_external_snapshot", args=[self.instance.id]),
+                {"name": "a", "submission_key": "key-00000001"},
+                HTTP_REFERER=reverse("instances:instance", args=[self.instance.id]),
+            )
+        self.assertEqual(response.status_code, 302)
+        return proxy, [str(m) for m in get_messages(response.wsgi_request)]
+
+    def test_delete_queues_a_job_and_leaves_libvirt_to_the_worker(self):
+        proxy, messages = self.delete(listed=["a"])
+        op = Operation.objects.get()
+        self.assertEqual((op.kind, op.state, op.params),
+                         ("snapshot.delete", Operation.QUEUED, {"instance": self.instance.id, "name": "a"}))
+        self.assertTrue(any("being deleted" in m for m in messages), messages)
+        proxy.delete_external_snapshot.assert_not_called()
+
+    def test_a_refused_delete_becomes_a_message_and_queues_nothing(self):
+        _, messages = self.delete(listed=[])
+        self.assertTrue(any("has no external snapshot named a" in m for m in messages), messages)
+        self.assertFalse(Operation.objects.exists())
 
     def test_refusals_become_messages(self):
-        for view in ("create_external_snapshot", "revert_external_snapshot", "delete_external_snapshot",
+        for view in ("create_external_snapshot", "revert_external_snapshot",
                      "revert_snapshot", "delete_snapshot", "snapshot"):
             with self.subTest(view):
                 _, _, messages = self.post(view, {"name": "a"}, error="refused for a reason")
@@ -173,6 +196,40 @@ class SnapshotTabTestCase(TestCase):
         self.assertIn("vda 25%", doc.text_content())
         self.assertTrue(all(b.get("disabled") is not None
                             for b in doc.xpath("//div[@id='snapshots']//button[@type='submit']")))
+
+    def hold(self, state):
+        key = f"instance:{self.instance.uuid}"
+        op = Operation.objects.create(kind="snapshot.delete", username="snap_admin", submission_key="k" * 12,
+                                      resource=key, resource_label="snap-vm", state=state)
+        return Claim.objects.create(operation=op, resource=key, mode=Claim.EXCLUSIVE)
+
+    def test_an_active_job_disables_actions_before_libvirt_has_a_block_job(self):
+        # the button each case leaves enabled, so only the job can disable it
+        cases = (("none", {}, ("takesnapshot", "takeextsnapshot")),
+                 ("internal only", {"internal": [self.snap("i")]}, ("takesnapshot", "managesnapshot")),
+                 ("external only", {"external": [self.snap("e")]}, ("takeextsnapshot", "managesnapshot")))
+        buttons = "//div[@id='snapshots']//button[@type='submit']"
+
+        def enabled(doc, panes):
+            return [bool(doc.xpath(f"//div[@id='{pane}']//button[@type='submit' and not(@disabled)]"))
+                    for pane in panes]
+
+        for name, lists, panes in cases:
+            with self.subTest(name):
+                doc = self.page(**lists, status=5)
+                self.assertTrue(all(enabled(doc, panes)), "enabled without a job")
+                claim = self.hold(Operation.QUEUED)
+                doc = self.page(**lists, status=5)
+                self.assertFalse(doc.xpath(buttons + "[not(@disabled)]"), "disabled while the job holds the VM")
+                self.assertNotIn("A disk job is running", doc.text_content())
+                claim.operation.delete()
+                self.assertTrue(all(enabled(self.page(**lists, status=5), panes)), "enabled after the job ends")
+
+    def test_an_uncertain_job_keeps_the_buttons_disabled(self):
+        self.hold(Operation.UNCERTAIN)
+        doc = self.page(internal=[self.snap("i")], status=5)
+        self.assertTrue(doc.xpath("//button[@name='revert_snapshot']"))
+        self.assertFalse(doc.xpath("//div[@id='snapshots']//button[@type='submit'][not(@disabled)]"))
 
     def test_lists_are_separate(self):
         doc = self.page(internal=[self.snap("i")], external=[self.snap("e")])

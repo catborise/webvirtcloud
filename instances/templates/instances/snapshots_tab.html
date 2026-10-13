@@ -1,7 +1,8 @@
 {% load i18n %}
 {% load bootstrap_icons %}
+{% load operations %}
 <div class="tab-pane" id="snapshots" role="tabpanel">
-    {% with busy=instance.snapshot_jobs %}
+    {% with busy=instance.snapshot_jobs held=instance.held_by_job %}
     <!-- Nav tabs -->
     <ul class="nav nav-tabs" role="tablist" aria-label="Instance snapshot menu">
         <li class="nav-item" role="presentation">
@@ -42,7 +43,7 @@
                         <input type="text" class="form-control form-control-lg" name="name" placeholder="{% trans "Snapshot Name" %}" maxlength="14">
                         <span class="input-group-text">|</span>
                         <input type="text" class="form-control form-control-lg" name="description" placeholder="{% trans "Snapshot Description" %}" maxlength="45">
-                        {% if instance.external_snapshots or busy %}
+                        {% if instance.external_snapshots or busy or held %}
                             <button type="submit" class="btn btn-lg btn-success float-end" name="snapshot" disabled>{% trans "Take Snapshot" %}</button>
                         {% else %}
                             <button type="submit" class="btn btn-lg btn-success float-end" name="snapshot" onclick="showPleaseWaitDialog();">{% trans "Take Snapshot" %}</button>
@@ -59,7 +60,7 @@
                     <input type="text" class="form-control form-control-lg" name="name" placeholder="{% trans "Snapshot Name" %}" maxlength="64" pattern="[A-Za-z0-9_\-][A-Za-z0-9._\-]{0,63}" title="{% trans "Letters, digits, '.', '_' or '-'; not starting with '.'" %}" required>
                     <span class="input-group-text">|</span>
                     <input type="text" class="form-control form-control-lg" name="description" placeholder="{% trans "Snapshot Description" %}" maxlength="45">
-                    {% if instance.internal_snapshots or busy %}
+                    {% if instance.internal_snapshots or busy or held %}
                         <button type="submit" class="btn btn-lg btn-success float-end" name="snapshot" disabled>{% trans "Take Snapshot" %}</button>
                     {% else %}
                         <button type="submit" class="btn btn-lg btn-success float-end" name="snapshot" onclick="if (this.form.checkValidity()) showPleaseWaitDialog();">{% trans "Take Snapshot" %}</button>
@@ -106,7 +107,7 @@
                                             {% csrf_token %}
                                             <input type="hidden" name="name" value="{{ snap.name }}">
                                             {% if instance.status == 5 %}
-                                                <button type="submit" class="btn btn-sm btn-primary" name="revert_snapshot" title="{% trans 'Revert to this Snapshot' %}" onclick="return confirm('{% trans "Are you sure?" %}')" {% if busy %}disabled{% endif %}>
+                                                <button type="submit" class="btn btn-sm btn-primary" name="revert_snapshot" title="{% trans 'Revert to this Snapshot' %}" onclick="return confirm('{% trans "Are you sure?" %}')" {% if busy or held %}disabled{% endif %}>
                                                         <span>{% bs_icon 'download' %} </span>
                                                 </button>
                                             {% else %}
@@ -120,7 +121,7 @@
                                     <td style="width:30px;">
                                         <form action="{% url 'instances:delete_snapshot' instance.id %}" method="post" role="form" aria-label="Delete snapshot form">{% csrf_token %}
                                             <input type="hidden" name="name" value="{{ snap.name }}">
-                                            <button type="submit" class="btn btn-sm btn-danger" title="{% trans 'Delete Snapshot' %}" onclick="return confirm('{% trans "Are you sure?" %}')" {% if busy %}disabled{% endif %}>
+                                            <button type="submit" class="btn btn-sm btn-danger" title="{% trans 'Delete Snapshot' %}" onclick="return confirm('{% trans "Are you sure?" %}')" {% if busy or held %}disabled{% endif %}>
                                                 {% bs_icon 'trash' %}
                                             </button>
                                         </form>
@@ -157,17 +158,17 @@
                                             <input type="hidden" name="name" value="{{ ext_snap.name }}">
                                             <button type="submit" class="btn btn-sm btn-primary" name="revert_external_snapshot" title="{% trans 'Revert to this Snapshot' %}"
                                                     data-confirm="{% trans 'Revert to this snapshot? Changes made since it are lost.' %}{% if not ext_snap.memory %}{% if instance.status == 1 or instance.status == 3 %} {% trans "The VM is powered off and starts again from the snapshot's disks, as after a power cut." %}{% endif %}{% endif %}{% if ext_snap.detaches %} {% trans 'These disks are detached; their writes since the current snapshot are discarded and their files are kept:' %} {% for d in ext_snap.detaches %}{{ d.dev }} ({{ d.path }}){% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}{% if instance.nvram %} {% trans 'Firmware variables (NVRAM) are not restored.' %}{% endif %}"
-                                                    onclick="return confirm(this.dataset.confirm)" {% if busy %}disabled{% endif %}>
+                                                    onclick="return confirm(this.dataset.confirm)" {% if busy or held %}disabled{% endif %}>
                                                 <span>{% bs_icon 'download' %} </span>
                                             </button>
                                         </form>
                                     </td>
                                     <td style="width:30px;">
-                                        <form action="{% url 'instances:delete_external_snapshot' instance.id %}" method="post" role="form" aria-label="Delete external snapshot form">{% csrf_token %}
+                                        <form action="{% url 'instances:delete_external_snapshot' instance.id %}" method="post" role="form" aria-label="Delete external snapshot form">{% csrf_token %}{% submission_key %}
                                             <input type="hidden" name="name" value="{{ ext_snap.name }}">
                                             <button type="submit" class="btn btn-sm btn-danger" name="delete_external_snapshot" title="{% trans 'Delete Snapshot' %}"
                                                     data-confirm="{% trans 'Delete this snapshot? Its changes are merged into the next one; nothing is lost.' %}"
-                                                    onclick="return confirm(this.dataset.confirm)" {% if busy %}disabled{% endif %}>
+                                                    onclick="return confirm(this.dataset.confirm)" {% if busy or held %}disabled{% endif %}>
                                                 {% bs_icon 'trash' %}
                                             </button>
                                         </form>

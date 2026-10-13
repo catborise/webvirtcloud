@@ -38,7 +38,7 @@ from libvirt import (VIR_DOMAIN_UNDEFINE_KEEP_NVRAM,
                      VIR_DOMAIN_UNDEFINE_NVRAM,
                      libvirtError)
 from logs.views import addlogmsg
-from operations import claims
+from operations import claims, jobs
 from operations.utils import busy_message, summary
 from webvirtcloud.middleware import error_text
 from vrtManager import util
@@ -1459,20 +1459,23 @@ def revert_external_snapshot(request, pk):
 
 
 @require_POST
-@serialize_instance_mutation
 def delete_external_snapshot(request, pk):
-    instance = get_instance(request.user, pk, perm_type="change")
+    get_instance(request.user, pk, perm_type="change")
     if not request.user.has_perm("instances.snapshot_instances"):
         raise PermissionDenied
-    name = request.POST.get("name", "")
     try:
-        left = instance.proxy.delete_external_snapshot(name)
+        op = jobs.submit("snapshot.delete", request.user,
+                            {"instance": pk, "name": request.POST.get("name", "")},
+                            request.POST.get("submission_key", ""))
+    except claims.Busy as busy:
+        messages.error(request, busy_message(busy, request.user))
+    except jobs.SubmissionConflict as err:
+        messages.error(request, str(err))
     except libvirtError as err:
         messages.error(request, _("Snapshot was not deleted: %(err)s") % {"err": error_text(request, err)})
     else:
-        _warn_left_behind(request, left)
-        msg = _("Delete external snapshot: %(snap)s") % {"snap": name}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
+        messages.info(request, _("The snapshot is being deleted; follow it in the job panel."))
+        jobs.remember_job(request, op)
     return _back(request, pk, "managesnapshot")
 
 

@@ -2,6 +2,7 @@
 checks preconditions and picks the flags. libvirt is mocked here; the live
 cases are in instances/tests/test_live_snapshots.py."""
 
+import json
 import unittest
 from datetime import datetime
 from unittest.mock import MagicMock, patch
@@ -167,10 +168,42 @@ class SnapshotJobsTestCase(unittest.TestCase):
         p = proxy(jobs={"vda": {"cur": 5, "end": 10, "type": 3, "bandwidth": 0}})
         self.assertEqual(p.get_snapshot_jobs(), [{"dev": "vda", "cur": 5, "end": 10}])
 
-    def test_a_stopped_vm_has_no_jobs(self):
+    def test_a_stopped_vm_without_a_job_has_none(self):
+        self.assertEqual(proxy(status=5).get_snapshot_jobs(), [])
+
+    def test_an_offline_merge_of_a_stopped_vm_is_reported(self):
+        # libvirt deletes an external snapshot of a shut-off VM as an offline block job
+        p = proxy(status=5, jobs={"vdb": {"cur": 3, "end": 8, "type": 4, "bandwidth": 0}})
+        p._XMLDesc = lambda flags: DOMAIN if flags == PERSISTENT_XML else "<domain><devices/></domain>"
+        self.assertEqual(p.get_snapshot_jobs(), [{"dev": "vdb", "cur": 3, "end": 8}])
+
+    def test_a_libvirt_without_offline_jobs_reports_none(self):
+        err = libvirtError("domain is not running")
+        err.err = (libvirt.VIR_ERR_OPERATION_INVALID,)
         p = proxy(status=5)
+        p.instance.blockJobInfo.side_effect = err
         self.assertEqual(p.get_snapshot_jobs(), [])
-        p.instance.blockJobInfo.assert_not_called()
+
+    def test_another_error_of_a_stopped_vm_propagates(self):
+        err = libvirtError("cannot reach the host")
+        err.err = (libvirt.VIR_ERR_SYSTEM_ERROR,)
+        p = proxy(status=5)
+        p.instance.blockJobInfo.side_effect = err
+        with self.assertRaises(libvirtError):
+            p.get_snapshot_jobs()
+
+    def test_a_running_vm_does_not_swallow_operation_invalid(self):
+        err = libvirtError("operation invalid")
+        err.err = (libvirt.VIR_ERR_OPERATION_INVALID,)
+        p = proxy()
+        p.instance.blockJobInfo.side_effect = err
+        with self.assertRaises(libvirtError):
+            p.get_snapshot_jobs()
+
+    def test_a_running_vm_reads_the_live_disks(self):
+        p = proxy(jobs={"vdb": {"cur": 1, "end": 2}})
+        p._XMLDesc = lambda flags: DOMAIN if flags == 0 else "<domain><devices/></domain>"
+        self.assertEqual(p.get_snapshot_jobs(), [{"dev": "vdb", "cur": 1, "end": 2}])
 
 
 class SnapshotLookupTestCase(unittest.TestCase):
@@ -191,6 +224,10 @@ class SnapshotStateTestCase(unittest.TestCase):
     def test_running_job_is_refused(self):
         with self.assertRaisesRegex(util.OperationError, "still running"):
             proxy(jobs={"vda": {"cur": 1, "end": 2}})._check_snapshot_state()
+
+    def test_an_offline_merge_of_a_stopped_vm_is_refused(self):
+        with self.assertRaisesRegex(util.OperationError, "still running"):
+            proxy(status=5, jobs={"vda": {"cur": 1, "end": 2}})._check_snapshot_state()
 
     def test_a_mixed_vm_passes_so_it_can_be_cleaned_up(self):
         proxy(internal=[fake_snap("i")], external=[fake_snap("e")])._check_snapshot_state()
@@ -499,7 +536,7 @@ class LeftBehindTestCase(unittest.TestCase):
     discarded file (on NFS it removes them as the qemu user), so the delete
     and revert report the files nothing uses any more that still exist."""
 
-    def run_delete(self, still_there):
+    def delete_fixture(self, still_there):
         one = chain_snap("one", "/pool/a.one", memory="/pool/vm.one.mem")
         two = chain_snap("two", "/pool/a.two")
         p = proxy(external=[one, two])
@@ -515,7 +552,20 @@ class LeftBehindTestCase(unittest.TestCase):
             return MagicMock()
 
         p.get_volume_by_path = volume
-        return p.delete_external_snapshot("one")
+        return p
+
+    def run_delete(self, still_there):
+        return self.delete_fixture(still_there).delete_external_snapshot("one")
+
+    def test_a_recorded_state_gives_the_same_files(self):
+        # the delete job records the state before the merge and compares later
+        still_there = {"/pool/a.one", "/pool/vm.one.mem", "/pool/a.two", "/pool/a.qcow2"}
+        p = self.delete_fixture(still_there)
+        direct = p._left_behind(p._snapshot_files())
+        p = self.delete_fixture(still_there)
+        state = json.loads(json.dumps(p.snapshot_files_state()))  # as stored in the job
+        self.assertEqual(p.left_behind_since(state), direct)
+        self.assertEqual(direct, ["/pool/a.one", "/pool/vm.one.mem"])
 
     def test_files_libvirt_could_not_remove_are_reported(self):
         self.assertEqual(
