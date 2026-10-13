@@ -1,8 +1,8 @@
 """The job worker (spec section 3). The manager loop never calls libvirt: job
 threads run kinds; control threads run cancel hooks and recovery; progress
-threads read progress. Every write is fenced by the lease. Recovery of jobs
-the worker cannot finish itself. Minimal: a job that raised after its effects
-started goes straight to inspection (uncertain)."""
+threads read progress. Every write is fenced by the lease. Recovery of
+interrupted jobs (spec section 4): inspection decides from intent and libvirt;
+nothing is re-run; uncertain keeps its claims."""
 
 import fcntl
 import logging
@@ -19,6 +19,7 @@ from pathlib import Path
 from django.conf import settings
 from django.db import close_old_connections
 from django.utils import timezone
+from django.utils.translation import gettext_noop
 
 from . import claims, jobs, utils
 from .models import Claim, LeaseLost, Operation, acquire, fenced, renew
@@ -28,6 +29,16 @@ logger = logging.getLogger(__name__)
 MAX_SLOTS = 16
 PROGRESS_THREADS = 2
 HOUSEKEEPING_EVERY = 3600.0
+
+BACKOFF = (30, 60, 120, 300, 600)
+WATCH_EVERY = 15
+STALL_LIMIT = 600  # a block job left at cur == end after a libvirtd restart never ends
+STALLED = ("libvirt's merge finished copying but never completed (for example after a libvirtd restart); "
+           "check the VM before resolving")
+ABANDONED = ("The worker that ran this job stopped responding; an administrator must make sure it is no longer "
+             "running, then resolve this job")
+WAITING = gettext_noop("Waiting for recovery")
+ACTIVE = (Operation.RUNNING, Operation.CANCELLING)
 
 
 def data_dir():
@@ -298,13 +309,107 @@ def housekeeping():
 class Scheduler:
     def __init__(self, worker):
         self.worker = worker
+        self.next_try = {}
+        self.attempts = {}
+        self.errors = {}
+        self.stalled_since = {}
+        self.inflight = set()
 
     def schedule_orphans(self):
-        pass
-
-    def due(self):
-        pass
+        for op_id in (Operation.objects.filter(state__in=ACTIVE).exclude(worker=self.worker.identity)
+                      .values_list("pk", flat=True)):
+            self.next_try.setdefault(op_id, 0)
 
     def inspect_now(self, op_id, error=""):
-        op = Operation.objects.get(pk=op_id)
-        jobs.finish(op, jobs.Outcome(Operation.UNCERTAIN, error=error), worker=self.worker)
+        self.errors[op_id] = error
+        self.next_try[op_id] = 0
+
+    def due(self):
+        now = time.monotonic()
+        for op_id, at in list(self.next_try.items()):
+            if at <= now and op_id not in self.inflight:
+                self.inflight.add(op_id)
+                self.worker.control.submit(self._inspect, op_id)
+
+    def _done(self, op_id):
+        for table in (self.next_try, self.attempts, self.errors, self.stalled_since):
+            table.pop(op_id, None)
+
+    def _take_over(self, op):
+        """True if op is now this worker's. Another host's job ends uncertain
+        in the same transaction, so a failed finish leaves its owner as it was."""
+        previous = op.worker
+        previous_host = previous.split(":", 1)[0]
+        with fenced(self.worker.identity):
+            if not (Operation.objects.filter(pk=op.pk, worker=previous, state__in=ACTIVE)
+                    .update(worker=self.worker.identity)):
+                self._done(op.pk)
+                return False
+            op.refresh_from_db()
+            if previous_host != self.worker.host:
+                # the error is shown to the job's owner: the host goes to the worker log only
+                self._finish(op, jobs.Outcome(Operation.UNCERTAIN, error=ABANDONED))
+                logger.warning("job %s ended uncertain: its worker %s stopped responding", op.pk, previous)
+                return False
+        return True
+
+    def _finish(self, op, outcome):
+        jobs.finish(op, outcome, worker=self.worker)
+        self._done(op.pk)
+
+    def _error(self, op_id, finding):
+        """What an unproven end stores: the error the job raised, then what libvirt shows."""
+        raised = self.errors.get(op_id, "")
+        return f"{raised.rstrip('.')}. {finding}" if raised and finding else finding or raised
+
+    def _phase(self, op_id, text, progress=None):
+        fields = {"phase": utils.safe_text(text)[:255]} if text else {}
+        if progress is not None:
+            fields.update(progress_done=progress[0], progress_total=progress[1])
+        if not fields:
+            return
+        with fenced(self.worker.identity):
+            Operation.objects.filter(pk=op_id, worker=self.worker.identity, state__in=ACTIVE).update(**fields)
+
+    def _inspect(self, op_id):
+        try:
+            op = Operation.objects.get(pk=op_id)
+            if op.state not in ACTIVE:
+                self._done(op_id)
+                return
+            if op.worker != self.worker.identity and not self._take_over(op):
+                return
+            if not op.effects_started:
+                self._finish(op, jobs.Outcome(Operation.FAILED, error=self.errors.get(op_id)
+                                         or "The worker stopped before the job changed anything"))
+                return
+            try:
+                outcome = jobs.get_kind(op.kind).reconcile(op)
+            except Exception as err:
+                n = self.attempts.get(op_id, 0)
+                self.attempts[op_id] = n + 1
+                self.next_try[op_id] = time.monotonic() + BACKOFF[min(n, len(BACKOFF) - 1)]
+                self._phase(op_id, WAITING)
+                logger.warning("recovery of job %s waits: %s", op_id, utils.safe_text(err))
+                return
+            if outcome.state == Operation.RUNNING:
+                now = time.monotonic()
+                if not outcome.stalled:
+                    self.stalled_since.pop(op_id, None)
+                elif now - self.stalled_since.setdefault(op_id, now) >= STALL_LIMIT:
+                    self._finish(op, jobs.Outcome(Operation.UNCERTAIN, error=self._error(op_id, STALLED)))
+                    return
+                self.next_try[op_id] = now + WATCH_EVERY
+                self._phase(op_id, outcome.phase, outcome.progress)
+                return
+            # the error the job raised does not describe a proven success
+            error = outcome.error if outcome.state == Operation.SUCCEEDED else self._error(op_id, outcome.error)
+            self._finish(op, jobs.Outcome(outcome.state, outcome.result, error, outcome.phase))
+        except LeaseLost:
+            self._done(op_id)
+        except Exception as err:
+            logger.error("recovery of job %s failed: %s", op_id, utils.safe_text(err))
+            self.next_try[op_id] = time.monotonic() + BACKOFF[-1]
+        finally:
+            self.inflight.discard(op_id)
+            close_old_connections()
