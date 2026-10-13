@@ -212,6 +212,24 @@ class CreateTestCase(unittest.TestCase):
             "<memory snapshot='external' file='/pool/11111111-2222-3333-4444-555555555555.m.mem'/>", xml
         )
 
+    def test_a_quiesced_snapshot_freezes_the_guest_file_systems(self):
+        p = proxy()
+        p.is_agent_ready = lambda: True
+        p.create_external_snapshot("q", quiesce=True)
+        _, flags = created(p)
+        self.assertEqual(flags, DISK_ONLY_ATOMIC | libvirt.VIR_DOMAIN_SNAPSHOT_CREATE_QUIESCE)
+
+    def test_quiesce_needs_a_running_vm_with_its_agent_and_no_memory(self):
+        # libvirt accepts quiesce only for disk-only snapshots, through the agent
+        for status, ready, memory, pattern in (
+            (5, True, False, "running VM"), (3, True, False, "running VM"),
+            (1, False, False, "guest agent is not connected"), (1, True, True, "memory"),
+        ):
+            with self.subTest(status=status, ready=ready, memory=memory):
+                p = proxy(status=status)
+                p.is_agent_ready = lambda ready=ready: ready
+                self.refused(p, pattern, quiesce=True, memory=memory)
+
     def refused(self, p, pattern, **kwargs):
         with self.assertRaisesRegex(util.OperationError, pattern):
             p.create_external_snapshot(kwargs.pop("name", "s"), **kwargs)

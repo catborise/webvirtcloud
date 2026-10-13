@@ -1400,8 +1400,9 @@ def create_external_snapshot(request, pk):
     name = request.POST.get("name", "")
     desc = request.POST.get("description", "")
     memory = request.POST.get("memory") == "on"
+    quiesce = request.POST.get("quiesce") == "on"
     try:
-        instance.proxy.create_external_snapshot(name, desc, memory)
+        instance.proxy.create_external_snapshot(name, desc, memory, quiesce)
     except libvirtError as err:
         messages.error(request, _("Snapshot was not created: %(err)s") % {"err": error_text(request, err)})
     else:
