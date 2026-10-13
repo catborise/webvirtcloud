@@ -1715,9 +1715,10 @@ class wvmInstance(wvmConnect):
         logs a warning then (on NFS it removes them as the qemu user, who
         needs write access to their directory). Only a snapshot's own file or
         an overlay on a snapshot point counts; a disk a revert detached is
-        kept on purpose. A file outside every storage pool is not checked,
-        nor is anything when the pools could not be refreshed: a stale pool
-        still lists the removed files."""
+        kept on purpose, and a file another VM on this host uses (or one
+        below it) is not reported. A file outside every storage pool is not
+        checked, nor is anything when the pools could not be refreshed: a
+        stale pool still lists the removed files."""
         disks, own, points = before
         if not self._refresh_pools_after_snapshot():
             return []
@@ -1734,6 +1735,14 @@ class wvmInstance(wvmConnect):
             except libvirtError:  # not in a pool, or removed meanwhile
                 continue
             left.append(path)
+        if left:
+            # another VM on this host may use one; their own backing files
+            # do not keep each other, but a file in use keeps the files below it
+            in_use = self.paths_in_use(own=left)
+            for path in [path for path in left if path in in_use]:
+                while (path := self._backing_path(path)) and path not in in_use:
+                    in_use.add(path)
+            left = [path for path in left if path not in in_use]
         return left
 
     @staticmethod
