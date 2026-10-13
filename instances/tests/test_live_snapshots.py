@@ -176,3 +176,15 @@ class LiveExternalSnapshotTestCase(SimpleTestCase):
                 with self.assertRaisesRegex(util.OperationError, "guest agent is not connected"):
                     vm.create_external_snapshot("q", quiesce=True)
                 self.assertEqual(dom.snapshotNum(0), 0)
+
+    def test_a_pool_without_room_for_the_overlays_is_refused(self):
+        # a sparse disk ten times the pool: a tenth of it is more than the pool has free
+        pool = self.conn.storagePoolLookupByName(livetest.POOL)
+        big = livetest.create_volume(self.conn, P + "snap-big", size_mib=pool.info()[1] * 10 // 1024**2)
+        dom = livetest.define_vm(self.conn, P + "snap-big", [big])
+        vm = wvmInstance(*self.args, None, uuid=dom.UUIDString())
+        with self.assertRaisesRegex(util.OperationError, f"Storage pool {livetest.POOL} has .* GiB free; the snapshot needs"):
+            vm.create_external_snapshot("x")
+        self.assertEqual(dom.snapshotNum(0), 0)
+        vm.create_external_snapshot("x", free_percent=0, free_min_gib=0)
+        vm.delete_external_snapshot("x")

@@ -12,6 +12,7 @@ from django.urls import reverse
 from lxml import html as lxml_html
 from vrtManager import util
 
+from appsettings.models import AppSettings
 from computes.models import Compute
 from instances.models import Instance
 
@@ -48,11 +49,22 @@ class SnapshotViewsTestCase(TestCase):
         self.assertEqual(response.status_code, 302)
         return proxy, method, [str(m) for m in get_messages(response.wsgi_request)]
 
-    def test_create_passes_name_description_memory_and_quiesce(self):
+    def test_create_passes_name_description_memory_quiesce_and_free_space(self):
+        free = {"free_percent": 10.0, "free_min_gib": 1.0}  # the Settings page defaults
         _, method, _ = self.post("create_external_snapshot", {"name": "a", "description": "d", "memory": "on"})
-        method.assert_called_once_with("a", "d", True, False)
+        method.assert_called_once_with("a", "d", True, False, **free)
         _, method, _ = self.post("create_external_snapshot", {"name": "a", "description": "", "quiesce": "on"})
-        method.assert_called_once_with("a", "", False, True)
+        method.assert_called_once_with("a", "", False, True, **free)
+
+    def test_the_free_space_comes_from_the_settings_page(self):
+        for percent, minimum, expected in (("20", "0.5", {"free_percent": 20.0, "free_min_gib": 0.5}),
+                                           ("0", "0", {"free_percent": 0.0, "free_min_gib": 0.0}),
+                                           ("-1", "x", {}), ("nan", "inf", {})):  # invalid: the backend default
+            with self.subTest(percent=percent, minimum=minimum):
+                AppSettings.objects.filter(key="SNAPSHOT_FREE_SPACE_PERCENT").update(value=percent)
+                AppSettings.objects.filter(key="SNAPSHOT_FREE_SPACE_MIN_GIB").update(value=minimum)
+                _, method, _ = self.post("create_external_snapshot", {"name": "a"})
+                method.assert_called_once_with("a", "", False, False, **expected)
 
     def test_revert_and_delete_call_the_backend_once_and_leave_power_alone(self):
         for view in ("revert_external_snapshot", "delete_external_snapshot"):

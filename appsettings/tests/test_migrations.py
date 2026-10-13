@@ -40,3 +40,14 @@ class NicTypeTestCase(TestCase):
         nic_type.fix_rtl8139(apps, SimpleNamespace(connection=connection))
         setting.refresh_from_db()
         self.assertEqual((setting.value, setting.choices), ("rtl8139", "default,e1000,e1000e,rtl8139,virtio"))
+
+
+class SnapshotFreeSpaceSettingsTestCase(TestCase):
+    def test_the_rows_fit_their_columns(self):
+        # PostgreSQL refuses a value longer than the column, sqlite does not
+        for key in ("SNAPSHOT_FREE_SPACE_PERCENT", "SNAPSHOT_FREE_SPACE_MIN_GIB"):
+            setting = AppSettings.objects.get(key=key)
+            for field in ("name", "key", "value", "description"):
+                limit = AppSettings._meta.get_field(field).max_length
+                if limit:
+                    self.assertLessEqual(len(getattr(setting, field)), limit, f"{key} {field}")

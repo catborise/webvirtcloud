@@ -1576,12 +1576,14 @@ class wvmInstance(wvmConnect):
                   </domainsnapshot>"""
         self._snapshotCreateXML(xml, 0)
 
-    def create_external_snapshot(self, name, desc="", memory=False, quiesce=False):
+    def create_external_snapshot(self, name, desc="", memory=False, quiesce=False, free_percent=10, free_min_gib=1):
         """A disk-only snapshot, or with memory too (running VMs only). Every
         disk gets a libvirt-named overlay next to it; the memory file goes
         next to the first disk. quiesce: the guest agent freezes the guest's
         file systems for a disk-only snapshot of a running VM (libvirt
-        accepts it only without memory, which keeps the whole state anyway)."""
+        accepts it only without memory, which keeps the whole state anyway).
+        free_percent, free_min_gib: the free space each pool keeps (see
+        _check_snapshot_space)."""
         if not SNAPSHOT_NAME.fullmatch(name):
             raise util.OperationError(
                 "Snapshot names are 1-64 letters, digits, '.', '_' or '-' and do not start with '.'"
@@ -1612,7 +1614,17 @@ class wvmInstance(wvmConnect):
                     raise util.OperationError(f"Eject the media from {dev} first")
             elif disk.get("type") != "file":
                 raise util.OperationError(f"Disk {dev} is not a file; external snapshots need file disks")
-        memory_xml = self._snapshot_memory_xml(name, tree) if memory else ""
+        disks = list(self._disk_sources(tree).values())
+        # free space, and the top overlays, are known to the pools only after
+        # a refresh; nothing has changed yet when it fails
+        try:
+            self.refresh_instance_pools()
+        except libvirtError as err:
+            raise util.OperationError(
+                f"The storage pools could not be refreshed, so their free space is unknown: {err}"
+            ) from None
+        memory_xml, memory_pool = self._snapshot_memory(name, disks) if memory else ("", None)
+        self._check_snapshot_space(disks, memory_pool, free_percent, free_min_gib)
         xml = (
             f"<domainsnapshot><name>{name}</name>"
             f"<description>{util.xml_escape(desc)}</description>{memory_xml}</domainsnapshot>"
@@ -1625,24 +1637,50 @@ class wvmInstance(wvmConnect):
         self._snapshotCreateXML(xml, flags)
         self._refresh_pools_after_snapshot()
 
-    def _snapshot_memory_xml(self, name, tree):
-        """The <memory> element of a snapshot that saves memory: a file in the
-        storage pool of the first disk, which must have room for it."""
+    def _snapshot_memory(self, name, disks):
+        """The <memory> element of a snapshot that saves memory, and the
+        storage pool its file goes into: the pool of the first disk."""
         if self.get_status() != 1:
             raise util.OperationError("Memory is saved only from a running VM")
-        disks = list(self._disk_sources(tree).values())
         if not disks:
             raise util.OperationError("The VM has no disk to keep its memory next to")
-        # the top overlay is known to its pool only after a refresh
-        self.refresh_instance_pools()
         try:
             pool = self.get_volume_by_path(disks[0]).storagePoolLookupByVolume()
         except libvirtError:
             raise util.OperationError(f"{disks[0]} is not in a storage pool; memory is saved only into one") from None
-        if pool.info()[3] < self.get_cur_memory() * 1024 * 1024:
-            raise util.OperationError(f"Storage pool {pool.name()} has less free space than the VM's memory")
         path = os.path.join(os.path.dirname(disks[0]), f"{self.get_uuid()}.{name}.mem")
-        return f"<memory snapshot='external' file='{util.xml_escape(path)}'/>"
+        return f"<memory snapshot='external' file='{util.xml_escape(path)}'/>", pool.name()
+
+    def _check_snapshot_space(self, disks, memory_pool, free_percent, free_min_gib):
+        """Each storage pool with a disk of the VM keeps free_percent of the
+        virtual size of those disks free, at least free_min_gib GiB, and the
+        pool of the memory file the VM's memory on top. The
+        overlays grow as the guest writes, and a delete merges them down.
+        This is checked before the snapshot only; nothing is reserved. A
+        disk in no pool is not checked."""
+        needed, pools = {}, {}
+        for path in disks:
+            try:
+                vol = self.get_volume_by_path(path)
+            except libvirtError as err:
+                if err.get_error_code() != VIR_ERR_NO_STORAGE_VOL:
+                    raise
+                continue
+            pool = vol.storagePoolLookupByVolume()
+            pools[pool.name()] = pool
+            needed[pool.name()] = needed.get(pool.name(), 0) + vol.info()[1] * free_percent / 100
+        for name in needed:
+            needed[name] = max(needed[name], free_min_gib * 1024**3)
+        if memory_pool:
+            needed[memory_pool] += self.get_cur_memory() * 1024 * 1024
+        for name, size in needed.items():
+            free = pools[name].info()[3]
+            if free < size:
+                raise util.OperationError(
+                    f"Storage pool {name} has {free / 1024**3:.1f} GiB free; the snapshot needs {size / 1024**3:.1f} GiB "
+                    f"({free_percent:g}% of the VM's disks in it, at least {free_min_gib:g} GiB, "
+                    "and the memory if it is saved)"
+                )
 
     def revert_external_snapshot(self, name):
         """libvirt returns the disks and the definition to the snapshot's. A

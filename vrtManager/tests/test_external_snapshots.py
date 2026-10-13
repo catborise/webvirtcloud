@@ -49,6 +49,29 @@ def fake_snap(name, memory=False, disks=("vda",), current=False, children=0):
     return snap
 
 
+GiB = 1024**3
+
+
+def pools(p, disks, free):
+    """disks: path -> (pool name, virtual size); free: pool name -> free
+    bytes. A path not in disks is in no pool."""
+    by_name = {}
+    for name, available in free.items():
+        by_name[name] = MagicMock(**{"name.return_value": name, "info.return_value": [2, 0, 0, available]})
+
+    def lookup(path):
+        if path not in disks:
+            error = libvirtError("no volume")
+            error.err = (libvirt.VIR_ERR_NO_STORAGE_VOL,)
+            raise error
+        name, size = disks[path]
+        return MagicMock(**{"info.return_value": [0, size, 0],
+                            "storagePoolLookupByVolume.return_value": by_name[name]})
+
+    p.get_volume_by_path = MagicMock(side_effect=lookup)
+    return by_name
+
+
 def proxy(status=1, internal=(), external=(), xml=DOMAIN, jobs=None, managed_save=False):
     """A wvmInstance without a connection. internal/external are fake snapshots."""
     p = wvmInstance.__new__(wvmInstance)
@@ -80,6 +103,8 @@ def proxy(status=1, internal=(), external=(), xml=DOMAIN, jobs=None, managed_sav
     dom.blockJobInfo.side_effect = lambda dev, flags: (jobs or {}).get(dev, {})
     dom.XMLDesc.side_effect = lambda flags: xml
     p.instance = dom
+    pools(p, {"/pool/a.qcow2": ("default", 20 * GiB), "/pool/later.qcow2": ("default", 20 * GiB)},
+          {"default": 100 * GiB})
     return p
 
 
@@ -190,7 +215,8 @@ class CreateTestCase(unittest.TestCase):
         self.assertEqual(flags, DISK_ONLY_ATOMIC)
         self.assertIn("<name>snap-1</name>", xml)
         self.assertNotIn("<memory", xml)
-        p.refresh_instance_pools.assert_called_once()
+        # before, for the free space; after, for the new overlays
+        self.assertEqual(p.refresh_instance_pools.call_count, 2)
 
     def test_description_is_escaped(self):
         p = proxy()
@@ -201,12 +227,8 @@ class CreateTestCase(unittest.TestCase):
 
     def test_memory_snapshot_goes_into_the_first_disks_pool(self):
         p = proxy()
-        p.get_volume_by_path = MagicMock()
-        pool = p.get_volume_by_path.return_value.storagePoolLookupByVolume.return_value
-        pool.info.return_value = [2, 0, 0, 2 * 1024**3]
         p.create_external_snapshot("m", memory=True)
         xml, flags = created(p)
-        p.get_volume_by_path.assert_called_once_with("/pool/a.qcow2")
         self.assertEqual(flags, libvirt.VIR_DOMAIN_SNAPSHOT_CREATE_ATOMIC)
         self.assertIn(
             "<memory snapshot='external' file='/pool/11111111-2222-3333-4444-555555555555.m.mem'/>", xml
@@ -280,12 +302,55 @@ class CreateTestCase(unittest.TestCase):
         p.get_volume_by_path = MagicMock(side_effect=libvirtError("no volume"))
         self.refused(p, "not in a storage pool", memory=True)
 
-    def test_memory_needs_room_in_the_pool(self):
+    def space(self, disks, free, memory=False):
+        """Creates a snapshot of a VM with these disks (path -> (pool, size)) and free space per pool."""
+        xml = "<domain><devices>%s</devices></domain>" % "".join(
+            f"<disk type='file' device='disk'><source file='{path}'/><target dev='vd{chr(97 + i)}'/></disk>"
+            for i, path in enumerate(disks)
+        )
+        p = proxy(xml=xml)
+        pools(p, {path: disk for path, disk in disks.items() if disk}, free)
+        p.create_external_snapshot("s", memory=memory)
+        return p
+
+    def test_each_pool_keeps_a_tenth_of_its_disks_free(self):
+        # a disk-only overlay grows as the guest writes, and a delete merges it down
+        disks = {"/fast/a.qcow2": ("fast", 20 * GiB), "/slow/b.qcow2": ("slow", 50 * GiB)}
+        self.space(disks, {"fast": 2 * GiB, "slow": 5 * GiB})
+        with self.assertRaisesRegex(util.OperationError, r"Storage pool slow has 4\.9 GiB free; the snapshot needs 5\.0 GiB"):
+            self.space(disks, {"fast": 2 * GiB, "slow": int(4.9 * GiB)})
+
+    def test_at_least_one_gib_is_kept_free(self):
+        self.space({"/pool/small.qcow2": ("default", 2 * GiB)}, {"default": GiB})
+        with self.assertRaisesRegex(util.OperationError, "needs 1.0 GiB"):
+            self.space({"/pool/small.qcow2": ("default", 2 * GiB)}, {"default": GiB - 1})
+
+    def test_the_memory_pool_also_needs_room_for_the_memory(self):
+        # get_cur_memory: 1024 MiB
+        disks = {"/pool/a.qcow2": ("default", 20 * GiB)}
+        self.space(disks, {"default": 3 * GiB}, memory=True)
+        with self.assertRaisesRegex(util.OperationError, "needs 3.0 GiB"):
+            self.space(disks, {"default": 3 * GiB - 1}, memory=True)
+
+    def test_the_share_and_the_minimum_can_be_changed(self):
+        disks = {"/pool/a.qcow2": ("default", 20 * GiB)}
         p = proxy()
-        p.get_volume_by_path = MagicMock()
-        pool = p.get_volume_by_path.return_value.storagePoolLookupByVolume.return_value
-        pool.info.return_value = [2, 0, 0, 512 * 1024**2]
-        self.refused(p, "less free space", memory=True)
+        pools(p, disks, {"default": 4 * GiB - 1})
+        with self.assertRaisesRegex(util.OperationError, r"needs 4\.0 GiB \(20% of the VM's disks in it, at least 2 GiB"):
+            p.create_external_snapshot("s", free_percent=20, free_min_gib=2)
+        p.create_external_snapshot("s", free_percent=0, free_min_gib=0)  # no check
+        p._snapshotCreateXML.assert_called_once()
+
+    def test_a_volume_that_cannot_be_read_is_refused_not_skipped(self):
+        p = proxy()
+        p.get_volume_by_path = MagicMock(side_effect=libvirtError("permission denied"))
+        with self.assertRaises(libvirtError):
+            p.create_external_snapshot("s")
+        p._snapshotCreateXML.assert_not_called()
+
+    def test_a_disk_in_no_pool_is_not_checked(self):
+        p = self.space({"/pool/a.qcow2": ("default", 20 * GiB), "/elsewhere/b.qcow2": None}, {"default": 2 * GiB})
+        p._snapshotCreateXML.assert_called_once()
 
 
 REVERT_RUNNING = libvirt.VIR_DOMAIN_SNAPSHOT_REVERT_RUNNING
@@ -542,13 +607,22 @@ class LeftBehindTestCase(unittest.TestCase):
 
 class PoolRefreshTestCase(unittest.TestCase):
     """The pools are refreshed after libvirt made, reverted or deleted the
-    snapshot; a refresh error does not turn that into a failure."""
+    snapshot; a refresh error does not turn that into a failure. A create
+    also refreshes them before, to read their free space."""
 
-    def test_create_succeeds_when_the_refresh_fails(self):
+    def test_create_succeeds_when_the_refresh_after_it_fails(self):
         p = proxy()
-        p.refresh_instance_pools.side_effect = libvirtError("pool busy")
+        p.refresh_instance_pools.side_effect = [None, libvirtError("pool busy")]
         p.create_external_snapshot("one")
         p._snapshotCreateXML.assert_called_once()
+
+    def test_create_is_refused_when_the_refresh_before_it_fails(self):
+        # the free space is not known then
+        p = proxy()
+        p.refresh_instance_pools.side_effect = libvirtError("pool busy")
+        with self.assertRaisesRegex(util.OperationError, "free space is unknown: pool busy"):
+            p.create_external_snapshot("one")
+        p._snapshotCreateXML.assert_not_called()
 
     def test_delete_and_revert_succeed_and_report_nothing_when_the_refresh_fails(self):
         for action in ("delete_external_snapshot", "revert_external_snapshot"):

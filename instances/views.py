@@ -4,6 +4,7 @@ except ImportError:
     import crypt
 import functools
 import json
+import math
 import os
 import re
 import socket
@@ -1391,6 +1392,20 @@ def _warn_left_behind(request, files):
         )
 
 
+def _snapshot_free_space():
+    """The free space each storage pool keeps for a snapshot, from the
+    Settings page; an invalid value leaves the backend's default."""
+    values = {}
+    for key, argument in (("SNAPSHOT_FREE_SPACE_PERCENT", "free_percent"), ("SNAPSHOT_FREE_SPACE_MIN_GIB", "free_min_gib")):
+        try:
+            value = float(getattr(app_settings, key))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if math.isfinite(value) and value >= 0:
+            values[argument] = value
+    return values
+
+
 @require_POST
 @serialize_instance_mutation
 def create_external_snapshot(request, pk):
@@ -1402,7 +1417,7 @@ def create_external_snapshot(request, pk):
     memory = request.POST.get("memory") == "on"
     quiesce = request.POST.get("quiesce") == "on"
     try:
-        instance.proxy.create_external_snapshot(name, desc, memory, quiesce)
+        instance.proxy.create_external_snapshot(name, desc, memory, quiesce, **_snapshot_free_space())
     except libvirtError as err:
         messages.error(request, _("Snapshot was not created: %(err)s") % {"err": error_text(request, err)})
     else:
