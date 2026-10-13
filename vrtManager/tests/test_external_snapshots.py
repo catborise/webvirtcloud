@@ -4,7 +4,7 @@ cases are in instances/tests/test_live_snapshots.py."""
 
 import unittest
 from datetime import datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 
@@ -439,6 +439,24 @@ class LeftBehindTestCase(unittest.TestCase):
             self.run_delete({"/pool/a.one", "/pool/vm.one.mem", "/pool/a.two", "/pool/a.qcow2"}),
             ["/pool/a.one", "/pool/vm.one.mem"],
         )
+
+    def test_a_file_another_vm_uses_is_not_reported(self):
+        # on NFS libvirt could not remove it, but another VM uses it now
+        with patch.object(wvmInstance, "paths_in_use", return_value={"/pool/a.one"}) as in_use, \
+                patch.object(wvmInstance, "_backing_path", return_value=None):
+            left = self.run_delete({"/pool/a.one", "/pool/vm.one.mem", "/pool/a.two", "/pool/a.qcow2"})
+        self.assertEqual(left, ["/pool/vm.one.mem"])
+        # their own backing files do not keep each other
+        in_use.assert_called_once_with(own=["/pool/a.one", "/pool/vm.one.mem"])
+
+    def test_a_file_below_one_another_vm_uses_is_not_reported(self):
+        # the other VM is shut off: its definition does not list the backing
+        # file, and the in-use top's own backing reference does not count
+        backing = {"/pool/a.one": "/pool/vm.one.mem"}
+        with patch.object(wvmInstance, "paths_in_use", return_value={"/pool/a.one"}), \
+                patch.object(wvmInstance, "_backing_path", side_effect=backing.get):
+            left = self.run_delete({"/pool/a.one", "/pool/vm.one.mem", "/pool/a.two", "/pool/a.qcow2"})
+        self.assertEqual(left, [])
 
     def test_nothing_is_reported_when_libvirt_removed_them(self):
         # files still in use (base, the newer overlay) are never reported

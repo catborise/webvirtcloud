@@ -1383,7 +1383,7 @@ def _warn_left_behind(request, files):
         messages.warning(
             request,
             _(
-                "These snapshot files were not removed, although nothing uses them any more: %(files)s. "
+                "These snapshot files were not removed, although no VM on this host uses them any more: %(files)s. "
                 "On NFS libvirt removes them as the qemu user, who needs write access to their directory. "
                 "Remove them by hand."
             )
