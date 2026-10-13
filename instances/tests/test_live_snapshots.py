@@ -166,3 +166,13 @@ class LiveExternalSnapshotTestCase(SimpleTestCase):
         dom.snapshotCreateXML("<domainsnapshot><name>i</name></domainsnapshot>", 0)
         with self.assertRaisesRegex(util.OperationError, "internal snapshots"):
             vm.create_external_snapshot("x")
+
+    def test_quiesce_without_a_connected_agent_is_refused(self):
+        # no guest OS runs an agent here: the channel exists but is not connected
+        channel = "<channel type='unix'><target type='virtio' name='org.qemu.guest_agent.0'/></channel>"
+        for name, extra in (("snap-noagent", ""), ("snap-agentchan", channel)):
+            with self.subTest(name):
+                dom, vm = self.vm(name, "running", extra_devices=extra)
+                with self.assertRaisesRegex(util.OperationError, "guest agent is not connected"):
+                    vm.create_external_snapshot("q", quiesce=True)
+                self.assertEqual(dom.snapshotNum(0), 0)

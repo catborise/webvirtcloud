@@ -48,11 +48,11 @@ class SnapshotViewsTestCase(TestCase):
         self.assertEqual(response.status_code, 302)
         return proxy, method, [str(m) for m in get_messages(response.wsgi_request)]
 
-    def test_create_passes_name_description_and_memory(self):
+    def test_create_passes_name_description_memory_and_quiesce(self):
         _, method, _ = self.post("create_external_snapshot", {"name": "a", "description": "d", "memory": "on"})
-        method.assert_called_once_with("a", "d", True)
-        _, method, _ = self.post("create_external_snapshot", {"name": "a", "description": ""})
-        method.assert_called_once_with("a", "", False)
+        method.assert_called_once_with("a", "d", True, False)
+        _, method, _ = self.post("create_external_snapshot", {"name": "a", "description": "", "quiesce": "on"})
+        method.assert_called_once_with("a", "", False, True)
 
     def test_revert_and_delete_call_the_backend_once_and_leave_power_alone(self):
         for view in ("revert_external_snapshot", "delete_external_snapshot"):
@@ -83,7 +83,7 @@ class SnapshotViewsTestCase(TestCase):
 class SnapshotTabTestCase(TestCase):
     setUp = SnapshotViewsTestCase.setUp  # same VM and superuser, without rerunning the view tests
 
-    def page(self, external=(), internal=(), jobs=(), status=1, nvram=None):
+    def page(self, external=(), internal=(), jobs=(), status=1, nvram=None, agent=False):
         with patch("instances.models.wvmInstance") as mock_wvm, patch.object(
             Compute, "status", new_callable=PropertyMock, return_value=True
         ):
@@ -101,6 +101,7 @@ class SnapshotTabTestCase(TestCase):
                 proxy.get_snapshot_jobs.return_value = list(jobs)
             proxy.get_status.return_value = status
             proxy.get_nvram.return_value = nvram
+            proxy.is_agent_ready.return_value = agent
             proxy.get_memory.return_value = proxy.get_cur_memory.return_value = 1024
             proxy.get_max_memory.return_value = 4096
             proxy.get_vcpu.return_value = proxy.get_cur_vcpu.return_value = 1
@@ -143,6 +144,13 @@ class SnapshotTabTestCase(TestCase):
                 doc = self.page(external=[self.snap("e", memory=memory)], status=status)
                 [button] = doc.xpath("//button[@name='revert_external_snapshot']")
                 self.assertEqual("powered off" in button.get("data-confirm"), restarts)
+
+    def test_quiesce_is_checked_and_offered_with_a_running_vm_and_its_agent(self):
+        for status, agent, offered in ((1, True, True), (1, False, False), (3, True, False), (5, True, False)):
+            with self.subTest(status=status, agent=agent):
+                [box] = self.page(status=status, agent=agent).xpath("//input[@name='quiesce']")
+                self.assertIsNotNone(box.get("checked"))
+                self.assertEqual(box.get("disabled") is None, offered)
 
     def test_memory_checkbox_only_for_a_running_vm(self):
         self.assertFalse(self.page(status=1).xpath("//input[@name='memory']")[0].get("disabled"))

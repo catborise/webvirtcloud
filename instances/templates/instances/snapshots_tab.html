@@ -66,8 +66,17 @@
                     {% endif %}
                 </div>
                 <div class="form-check mb-3">
-                    <input class="form-check-input" type="checkbox" name="memory" id="snapshot-memory" {% if instance.status != 1 %}disabled{% endif %}>
+                    <input class="form-check-input" type="checkbox" name="memory" id="snapshot-memory" {% if instance.status != 1 %}disabled{% endif %}
+                           onchange="var q = document.getElementById('snapshot-quiesce'); if (q.dataset.offered) { q.disabled = this.checked; q.checked = !this.checked; }">
                     <label class="form-check-label" for="snapshot-memory">{% trans "Save memory too (running VMs only); the VM resumes as it was when reverted" %}</label>
+                </div>
+                <div class="form-check mb-3">
+                    {% if instance.status == 1 and instance.guest_agent_ready %}
+                        <input class="form-check-input" type="checkbox" name="quiesce" id="snapshot-quiesce" data-offered="1" checked>
+                    {% else %}
+                        <input class="form-check-input" type="checkbox" name="quiesce" id="snapshot-quiesce" checked disabled>
+                    {% endif %}
+                    <label class="form-check-label" for="snapshot-quiesce">{% trans "Freeze the guest's file systems while the disks are snapshotted (running VMs with a connected QEMU guest agent; not with memory)" %}</label>
                 </div>
                 <p class="small">{% trans "A VM with snapshots cannot be migrated." %}</p>
             </form>

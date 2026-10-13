@@ -34,6 +34,7 @@ try:
         VIR_MIGRATE_UNSAFE,
         VIR_DOMAIN_SNAPSHOT_CREATE_ATOMIC,
         VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY,
+        VIR_DOMAIN_SNAPSHOT_CREATE_QUIESCE,
         VIR_DOMAIN_SNAPSHOT_REVERT_PAUSED,
         VIR_DOMAIN_SNAPSHOT_REVERT_RUNNING,
         VIR_ERR_CONFIG_UNSUPPORTED,
@@ -1575,14 +1576,23 @@ class wvmInstance(wvmConnect):
                   </domainsnapshot>"""
         self._snapshotCreateXML(xml, 0)
 
-    def create_external_snapshot(self, name, desc="", memory=False):
+    def create_external_snapshot(self, name, desc="", memory=False, quiesce=False):
         """A disk-only snapshot, or with memory too (running VMs only). Every
         disk gets a libvirt-named overlay next to it; the memory file goes
-        next to the first disk."""
+        next to the first disk. quiesce: the guest agent freezes the guest's
+        file systems for a disk-only snapshot of a running VM (libvirt
+        accepts it only without memory, which keeps the whole state anyway)."""
         if not SNAPSHOT_NAME.fullmatch(name):
             raise util.OperationError(
                 "Snapshot names are 1-64 letters, digits, '.', '_' or '-' and do not start with '.'"
             )
+        if quiesce:
+            if memory:
+                raise util.OperationError("A snapshot with memory is not quiesced; it keeps the whole guest state")
+            if self.get_status() != 1:
+                raise util.OperationError("Only a running VM's file systems can be frozen")
+            if not self.is_agent_ready():
+                raise util.OperationError("The QEMU guest agent is not connected; it freezes the file systems")
         self._check_snapshot_state()
         if self.instance.snapshotListNames(VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL):
             raise util.OperationError("The VM has internal snapshots; external snapshots cannot be mixed with them")
@@ -1610,6 +1620,8 @@ class wvmInstance(wvmConnect):
         flags = VIR_DOMAIN_SNAPSHOT_CREATE_ATOMIC
         if not memory:
             flags |= VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY
+        if quiesce:
+            flags |= VIR_DOMAIN_SNAPSHOT_CREATE_QUIESCE
         self._snapshotCreateXML(xml, flags)
         self._refresh_pools_after_snapshot()
 
