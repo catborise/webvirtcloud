@@ -1,3 +1,4 @@
+from django.contrib.messages import get_messages
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
@@ -48,3 +49,8 @@ class AppSettingsTestCase(TestCase):
         # a clone stays on the host of the VM it was made from; the setting
         # that sent it to a random host is removed by migration 0015
         self.assertFalse(AppSettings.objects.filter(key="CLONE_INSTANCE_AUTO_MIGRATE").exists())
+
+    def test_worker_settings_refuse_values_out_of_bounds(self):
+        response = self.client.post(reverse("appsettings"), {"WORKER_CONCURRENCY": "0"})
+        self.assertEqual(AppSettings.objects.get(key="WORKER_CONCURRENCY").value, "4")
+        self.assertTrue(any("between 1 and 16" in str(m) for m in get_messages(response.wsgi_request)))

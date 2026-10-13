@@ -9,6 +9,7 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.utils.translation import gettext_noop as _
 from logs.views import addlogmsg
+from operations.utils import BOUNDS
 
 from appsettings.models import AppSettings
 
@@ -112,6 +113,13 @@ def appsettings(request):
 
         for setting in appsettings:
             if setting.key in request.POST:
+                if setting.key in BOUNDS:
+                    low, high, _default = BOUNDS[setting.key]
+                    raw = request.POST.get(setting.key, "")
+                    if not (raw.isascii() and raw.isdigit() and len(raw) <= 4 and low <= int(raw) <= high):
+                        messages.error(request, _("%(setting)s must be a whole number between %(low)s and %(high)s")
+                                       % {"setting": setting.name, "low": low, "high": high})
+                        return HttpResponseRedirect(request.get_full_path())
                 try:
                     setting.value = request.POST.get(setting.key, "")
                     setting.save()
