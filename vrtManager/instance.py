@@ -38,6 +38,7 @@ try:
         VIR_DOMAIN_SNAPSHOT_REVERT_PAUSED,
         VIR_DOMAIN_SNAPSHOT_REVERT_RUNNING,
         VIR_ERR_CONFIG_UNSUPPORTED,
+        VIR_ERR_OPERATION_INVALID,
         VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL,
         VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL,
         libvirtError,
@@ -1751,6 +1752,17 @@ class wvmInstance(wvmConnect):
                 points.update(self._disk_sources(saved).values())
         return disks, own, points | own
 
+    def snapshot_files_state(self):
+        """_snapshot_files as plain lists, recorded before a snapshot change."""
+        disks, own, points = self._snapshot_files()
+        return {"disks": {dev: sorted(files) for dev, files in disks.items()},
+                "own": sorted(own), "points": sorted(points)}
+
+    def left_behind_since(self, state):
+        """_left_behind from a state recorded by snapshot_files_state."""
+        before = ({dev: set(files) for dev, files in state["disks"].items()}, set(state["own"]), set(state["points"]))
+        return self._left_behind(before)
+
     def _refresh_pools_after_snapshot(self):
         """Refresh the pools once libvirt has changed the snapshot files. The
         snapshot operation is done by then, so an error is only logged;
@@ -1844,12 +1856,19 @@ class wvmInstance(wvmConnect):
         return snapshots
 
     def get_snapshot_jobs(self):
-        """Block jobs (snapshot merges) running on the VM's disks."""
-        if not self.instance.isActive():
-            return []
+        """Block jobs (snapshot merges) running on the VM's disks. libvirt
+        merges a shut-off VM's snapshot as an offline block job; a libvirt
+        without offline jobs refuses the query for an inactive VM, which
+        means no job."""
+        active = self.instance.isActive()
         jobs = []
-        for dev in self._disk_sources(self._XMLDesc(0)):
-            info = self.instance.blockJobInfo(dev, 0)
+        for dev in self._disk_sources(self._XMLDesc(0 if active else PERSISTENT_XML)):
+            try:
+                info = self.instance.blockJobInfo(dev, 0)
+            except libvirtError as err:
+                if active or err.get_error_code() != VIR_ERR_OPERATION_INVALID:
+                    raise
+                info = None
             if info:
                 jobs.append({"dev": dev, "cur": info["cur"], "end": info["end"]})
         return jobs

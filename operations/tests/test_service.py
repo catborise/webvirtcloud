@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
-from django.test import TransactionTestCase
+from django.test import SimpleTestCase, TransactionTestCase
 from django.utils import timezone
 from vrtManager.util import OperationError
 
@@ -192,3 +192,13 @@ class CancelFinishResolveTestCase(TransactionTestCase):
         self.assertFalse(Claim.objects.exists())
         entry = Logs.objects.get(message__icontains="resolved")
         self.assertEqual((entry.user, entry.host, entry.instance), (self.admin.username, "c", "vm"))
+
+
+class RememberJobTestCase(SimpleTestCase):
+    def test_the_last_twenty_jobs_are_remembered_until_taken(self):
+        request = SimpleNamespace(session={})
+        for n in range(25):
+            jobs.remember_job(request, SimpleNamespace(pk=n))
+        self.assertEqual(request.session["operations_shown"], [str(n) for n in range(5, 25)])
+        self.assertEqual(jobs.take_remembered(request), [str(n) for n in range(5, 25)])
+        self.assertEqual(jobs.take_remembered(request), [])
