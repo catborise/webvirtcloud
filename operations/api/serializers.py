@@ -1,0 +1,43 @@
+from django.utils.translation import gettext as _
+from rest_framework import serializers
+
+from operations.jobs import KINDS, label_of
+from operations.models import Operation
+from operations.utils import shown_label
+
+
+class OperationSerializer(serializers.ModelSerializer):
+    label = serializers.SerializerMethodField()
+    resource_label = serializers.SerializerMethodField()
+    cancellable = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Operation
+        fields = ["id", "kind", "label", "username", "resource", "resource_label", "state", "phase",
+                  "progress_done", "progress_total", "result", "error", "created_at", "started_at",
+                  "finished_at", "cancel_requested", "cancellable", "resolution", "resolution_note"]
+        read_only_fields = fields
+
+    def get_label(self, op) -> str:
+        return str(_(label_of(op.kind)))
+
+    def get_resource_label(self, op) -> str:
+        return shown_label(op, self.context["request"].user)
+
+    def get_cancellable(self, op) -> bool:
+        kind = KINDS.get(op.kind)
+        return op.state == Operation.QUEUED or bool(kind and kind.cancellable and op.state == Operation.RUNNING)
+
+
+class OperationSummarySerializer(serializers.Serializer):
+    kind = serializers.CharField()
+    label = serializers.CharField()
+    state = serializers.CharField()
+    since = serializers.DateTimeField()
+
+
+class ResourceJobsSerializer(serializers.Serializer):
+    jobs = OperationSerializer(many=True)
+    others = OperationSummarySerializer(many=True)
+    short_operation = serializers.BooleanField()
+    worker_last_seen = serializers.DateTimeField(allow_null=True)

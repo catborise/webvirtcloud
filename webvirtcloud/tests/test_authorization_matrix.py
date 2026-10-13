@@ -46,6 +46,8 @@ ALLOWED_FOR_ANY_USER = {
     "compute-instance-list": "API: filtered to the user's own instances",
     "instance-flavor-list": "API: flavor catalogue",
     "instance-flavor-detail": "API: flavor catalogue",
+    "operation-list": "API: filtered to the user's own jobs",
+    "operation-resource": "API: checks per resource who may see it",
     "schema": "API docs: any authenticated user (SERVE_PERMISSIONS)",
     "schema-json": "API docs: any authenticated user (SERVE_PERMISSIONS)",
     "schema-redoc": "API docs: any authenticated user (SERVE_PERMISSIONS)",
