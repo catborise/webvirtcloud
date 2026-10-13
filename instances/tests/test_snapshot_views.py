@@ -137,6 +137,13 @@ class SnapshotTabTestCase(TestCase):
         doc = self.page(external=[self.snap("e")], jobs=libvirt.libvirtError("no job info"))
         self.assertEqual(len(doc.xpath("//button[@name='revert_external_snapshot']")), 1)
 
+    def test_revert_confirm_says_a_disk_only_revert_restarts_the_guest(self):
+        for status, memory, restarts in ((1, False, True), (3, False, True), (5, False, False), (1, True, False)):
+            with self.subTest(status=status, memory=memory):
+                doc = self.page(external=[self.snap("e", memory=memory)], status=status)
+                [button] = doc.xpath("//button[@name='revert_external_snapshot']")
+                self.assertEqual("powered off" in button.get("data-confirm"), restarts)
+
     def test_memory_checkbox_only_for_a_running_vm(self):
         self.assertFalse(self.page(status=1).xpath("//input[@name='memory']")[0].get("disabled"))
         self.assertIsNotNone(self.page(status=5).xpath("//input[@name='memory']")[0].get("disabled"))
