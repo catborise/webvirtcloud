@@ -1,9 +1,14 @@
 """Kinds used by the operations tests; registered on import. test.scripted
 takes its behaviour from params and from barriers that tests install before
-submitting (keyed by submission key)."""
+submitting (keyed by submission key). start_worker and stop_worker run a
+worker's loop in a thread."""
+
+import threading
+
+from django.db import connection
 
 from operations.jobs import Cancelled, Kind, Outcome, Plan, register
-from operations.models import Claim, Operation
+from operations.models import Claim, Operation, acquire
 
 BARRIERS = {}  # submission key -> threading.Event the run waits on
 CANCELLED = []
@@ -12,6 +17,31 @@ CANCELLED = []
 def reset():
     BARRIERS.clear()
     CANCELLED.clear()
+
+
+def start_worker(worker):
+    """The loop of Worker.run in a thread, without its process parts."""
+    acquire(worker.identity, worker.host)
+    worker.recovery.schedule_orphans()
+
+    def loop():
+        try:
+            while not worker.stopping.is_set():
+                worker.tick_once()
+                worker.stopping.wait(worker.tick)
+        finally:
+            connection.close()
+
+    thread = threading.Thread(target=loop, daemon=True)
+    thread.start()
+    return thread
+
+
+def stop_worker(worker, thread):
+    worker.stopping.set()
+    thread.join(10)
+    for pool in (worker.pool, worker.control, worker.progress_pool):
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 @register

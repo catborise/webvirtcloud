@@ -1,0 +1,261 @@
+"""The worker runs queued jobs in its pool, sends errors before effects to
+failed and after effects to inspection, honours cancel, and never records or
+finishes after losing its lease."""
+
+import os
+import tempfile
+import threading
+import time
+from unittest.mock import patch
+
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.db import OperationalError, connection
+from django.test import TransactionTestCase
+
+from operations import jobs
+from operations.models import Claim, Operation, WorkerLease
+from operations.tests import fakes
+from operations.worker import Worker, data_dir, host_identity
+from vrtManager.util import ConnectionFailed
+
+
+def wait_for(predicate, seconds=15):
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if predicate():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def state(op):
+    return Operation.objects.get(pk=op.pk).state
+
+
+class WorkerTestCase(TransactionTestCase):
+    def setUp(self):
+        fakes.reset()
+        self.user = get_user_model().objects.create_user("wk_user", "w@example.com", "pw")
+        self.worker = None
+        self.thread = None
+
+    def start(self, concurrency=2):
+        self.worker = Worker(concurrency=concurrency, tick=0.05, heartbeat_every=0.1, progress_every=0.1, grace=1,
+                             exit_on_lost_lease=False)
+        self.thread = fakes.start_worker(self.worker)
+
+    def tearDown(self):
+        for barrier in fakes.BARRIERS.values():
+            barrier.set()
+        if self.thread:
+            fakes.stop_worker(self.worker, self.thread)
+        connection.close()
+
+    def submit(self, kind, params, key, barrier=False):
+        if barrier:
+            fakes.BARRIERS[key] = threading.Event()  # before the worker can see the job
+        return jobs.submit(kind, self.user, params, key)
+
+    def test_a_queued_job_runs_and_succeeds(self):
+        op = self.submit("test.noop", {}, "key-00000001")
+        self.start()
+        self.assertTrue(wait_for(lambda: state(op) == Operation.SUCCEEDED))
+        self.assertFalse(Claim.objects.exists())
+
+    def test_an_error_before_effects_fails_the_job(self):
+        op = self.submit("test.scripted", {"fail_before": True}, "key-00000001")
+        self.start()
+        self.assertTrue(wait_for(lambda: state(op) == Operation.FAILED))
+
+    def test_a_connection_error_fails_the_job_without_naming_the_host(self):
+        op = self.submit("test.noop", {}, "key-00000001")
+        failure = ConnectionFailed("Cannot connect to qemu+ssh://root@wvc-test-host.example.com/system")
+        with patch.object(fakes.NoopKind, "precheck", side_effect=failure):
+            self.start()
+            self.assertTrue(wait_for(lambda: state(op) == Operation.FAILED))
+        error = Operation.objects.get(pk=op.pk).error
+        self.assertEqual(error, "The host of this virtual machine cannot be reached right now.")
+        self.assertNotIn("example.com", error)
+
+    def test_an_error_after_effects_goes_to_inspection(self):
+        op = self.submit("test.scripted", {"fail_after": True, "outcome": "uncertain"}, "key-00000001")
+        self.start()
+        self.assertTrue(wait_for(lambda: state(op) == Operation.UNCERTAIN))
+        self.assertTrue(Claim.objects.filter(operation=op).exists())
+
+    def test_no_more_jobs_than_slots_run_at_once(self):
+        ops = [self.submit("test.scripted", {"uuid": f"u{i}"}, f"key-0000000{i}", barrier=True) for i in range(3)]
+        self.start()
+        self.assertTrue(wait_for(lambda: Operation.objects.filter(state=Operation.RUNNING).count() == 2))
+        time.sleep(0.3)
+        self.assertEqual(Operation.objects.filter(state=Operation.QUEUED).count(), 1)
+        for barrier in fakes.BARRIERS.values():
+            barrier.set()
+        self.assertTrue(wait_for(lambda: all(state(op) == Operation.SUCCEEDED for op in ops)))
+
+    def test_a_cancelled_running_job_ends_cancelled(self):
+        op = self.submit("test.scripted", {}, "key-00000001", barrier=True)
+        self.start()
+        self.assertTrue(wait_for(lambda: state(op) == Operation.RUNNING))
+        jobs.cancel(op.pk, self.user)
+        self.assertTrue(wait_for(lambda: state(op) == Operation.CANCELLED))
+        self.assertFalse(Claim.objects.exists())
+
+    def test_a_worker_that_lost_its_lease_does_not_finish_jobs(self):
+        op = self.submit("test.scripted", {}, "key-00000001", barrier=True)
+        self.start()
+        self.assertTrue(wait_for(lambda: state(op) == Operation.RUNNING))
+        WorkerLease.objects.update(holder="other-host:1:x", host="other-host")
+        self.assertTrue(wait_for(lambda: self.worker.lost_lease))
+        fakes.BARRIERS["key-00000001"].set()
+        time.sleep(0.5)
+        self.assertEqual(state(op), Operation.RUNNING)  # left for recovery
+
+    def test_no_progress_is_written_after_the_lease_is_lost(self):
+        release = threading.Event()
+
+        def slow_progress(op):
+            release.wait(5)
+            return (1, 2)
+
+        op = self.submit("test.scripted", {}, "key-00000001", barrier=True)
+        fakes.ScriptedKind.progress = staticmethod(slow_progress)
+        try:
+            self.start()
+            self.assertTrue(wait_for(lambda: state(op) == Operation.RUNNING))
+            WorkerLease.objects.update(holder="other-host:1:x", host="other-host")
+            release.set()
+            self.assertTrue(wait_for(lambda: self.worker.lost_lease))
+            time.sleep(0.3)
+            self.assertIsNone(Operation.objects.get(pk=op.pk).progress_total)
+        finally:
+            release.set()
+            del fakes.ScriptedKind.progress
+
+    def test_heartbeats_continue_while_a_job_blocks(self):
+        op = self.submit("test.scripted", {}, "key-00000001", barrier=True)
+        self.start()
+        self.assertTrue(wait_for(lambda: state(op) == Operation.RUNNING))
+        first = Operation.objects.get(pk=op.pk).heartbeat_at
+        self.assertTrue(wait_for(lambda: Operation.objects.get(pk=op.pk).heartbeat_at > first))
+
+    def test_one_progress_query_per_job_at_a_time(self):
+        calls, release = [], threading.Event()
+
+        def slow_progress(op):
+            calls.append(op.pk)
+            release.wait(5)
+            return (1, 2)
+
+        self.submit("test.scripted", {}, "key-00000001", barrier=True)
+        fakes.ScriptedKind.progress = staticmethod(slow_progress)
+        try:
+            self.start()
+            self.assertTrue(wait_for(lambda: len(calls) == 1))
+            time.sleep(0.5)  # several progress intervals while the query hangs
+            self.assertEqual(len(calls), 1)
+        finally:
+            release.set()
+            del fakes.ScriptedKind.progress
+
+    def test_progress_queries_never_wait_for_a_thread(self):
+        calls, release = [], threading.Event()
+
+        def hanging_progress(op):
+            calls.append(op.pk)
+            release.wait(5)
+            return (1, 2)
+
+        for i in range(3):
+            self.submit("test.scripted", {"uuid": f"u{i}"}, f"key-0000000{i}", barrier=True)
+        fakes.ScriptedKind.progress = staticmethod(hanging_progress)
+        try:
+            self.start(concurrency=3)
+            self.assertTrue(wait_for(lambda: len(calls) == 2))
+            time.sleep(0.5)
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(self.worker.progress_pool._work_queue.qsize(), 0)
+        finally:
+            release.set()
+            del fakes.ScriptedKind.progress
+
+    def test_progress_reaches_every_job_in_turn(self):
+        ops = [self.submit("test.scripted", {"uuid": f"u{i}"}, f"key-0000000{i}", barrier=True) for i in range(3)]
+        fakes.ScriptedKind.progress = staticmethod(lambda op: (1, 2))
+        try:
+            self.start(concurrency=3)
+            self.assertTrue(wait_for(
+                lambda: all(Operation.objects.get(pk=op.pk).progress_total == 2 for op in ops)))
+        finally:
+            del fakes.ScriptedKind.progress
+
+    def test_a_cancel_during_the_drain_is_honoured(self):
+        op = self.submit("test.scripted", {}, "key-00000001", barrier=True)
+        self.start()
+        self.assertTrue(wait_for(lambda: state(op) == Operation.RUNNING))
+        self.worker.stopping.set()  # as SIGTERM: the loop ends, the drain begins
+        self.thread.join(10)
+        jobs.cancel(op.pk, self.user)
+        self.worker._drain()
+        self.assertEqual(state(op), Operation.CANCELLED)
+
+    def test_a_job_thread_that_raised_unfinished_goes_to_inspection(self):
+        op = self.submit("test.noop", {}, "key-00000001")
+        with patch("operations.jobs.Context", side_effect=RuntimeError("no context")):
+            self.start()
+            self.assertTrue(wait_for(lambda: state(op) == Operation.UNCERTAIN))
+        self.assertIn("no context", Operation.objects.get(pk=op.pk).error)
+
+    def test_a_failing_manager_loop_ends_the_process(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.worker = Worker(data=directory.name)
+        with (
+            patch.object(self.worker, "tick_once", side_effect=OperationalError("database is down")),
+            patch("operations.worker.signal.signal"),
+            patch("operations.worker.logging.shutdown"),
+            patch("operations.worker.os._exit", side_effect=SystemExit) as exit_,
+        ):
+            with self.assertRaises(SystemExit):
+                self.worker.run()
+        exit_.assert_called_once_with(1)
+
+
+class DataDirTestCase(TransactionTestCase):
+    def test_the_data_dir_does_not_follow_the_log_file(self):
+        with self.settings(WEBVIRTCLOUD_LOG_FILE="/var/log/wvc-test/webvirtcloud.log"):
+            moved = data_dir()
+        self.assertEqual(str(moved), str(settings.BASE_DIR / "data"))
+
+
+class HostIdentityTestCase(TransactionTestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.dir = directory.name
+
+    def test_the_same_data_dir_is_the_same_host(self):
+        self.assertEqual(host_identity(self.dir), host_identity(self.dir))
+        self.assertTrue(Worker(data=self.dir).identity.startswith(f"{host_identity(self.dir)}:"))
+
+    def test_another_data_dir_is_another_host(self):
+        other = tempfile.TemporaryDirectory()
+        self.addCleanup(other.cleanup)
+        self.assertNotEqual(host_identity(self.dir), host_identity(other.name))
+
+    def test_an_id_another_worker_created_first_is_kept(self):
+        def lose_the_race(src, dst):
+            open(dst, "w").write("wvc-test-first")
+            raise FileExistsError(dst)
+
+        with patch("operations.worker.os.link", side_effect=lose_the_race):
+            self.assertEqual(host_identity(self.dir), "wvc-test-first")
+        self.assertEqual(sorted(os.listdir(self.dir)), ["node_id"])
+
+    def test_a_new_hostname_on_the_same_data_dir_is_the_same_host(self):
+        # a recreated container gets a new hostname but keeps its data volume
+        with patch("operations.worker.socket.gethostname", return_value="wvc-test-a"):
+            first = host_identity(self.dir)
+        with patch("operations.worker.socket.gethostname", return_value="wvc-test-b"):
+            self.assertEqual(host_identity(self.dir), first)
