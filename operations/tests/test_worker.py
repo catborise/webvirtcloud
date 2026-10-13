@@ -200,12 +200,13 @@ class WorkerTestCase(TransactionTestCase):
         self.worker._drain()
         self.assertEqual(state(op), Operation.CANCELLED)
 
-    def test_a_job_thread_that_raised_unfinished_goes_to_inspection(self):
+    def test_a_job_thread_that_raised_before_its_effects_fails(self):
         op = self.submit("test.noop", {}, "key-00000001")
         with patch("operations.jobs.Context", side_effect=RuntimeError("no context")):
             self.start()
-            self.assertTrue(wait_for(lambda: state(op) == Operation.UNCERTAIN))
+            self.assertTrue(wait_for(lambda: state(op) == Operation.FAILED))
         self.assertIn("no context", Operation.objects.get(pk=op.pk).error)
+        self.assertFalse(Claim.objects.filter(operation=op).exists())
 
     def test_a_failing_manager_loop_ends_the_process(self):
         directory = tempfile.TemporaryDirectory()
