@@ -11,7 +11,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from libvirt import libvirtError
-from operations import claims
+from operations import claims, jobs
 from operations.utils import busy_message
 
 from vrtManager.connection import CONN_TCP, CONN_TLS
@@ -253,34 +253,22 @@ def storage(request, compute_id, pool):
         if "cln_volume" in request.POST:
             form = CloneImage(request.POST)
             if form.is_valid():
-                data = form.cleaned_data
-                img_name = data["name"]
-                meta_prealloc = 0
-                if img_name in conn.update_volumes():
-                    msg = _("Name of volume already in use")
-                    messages.error(request, msg)
-                if data["convert"]:
-                    format = data["format"]
-                    if data["meta_prealloc"] and data["format"] == "qcow2":
-                        meta_prealloc = True
-                else:
-                    format = None
                 try:
-                    name = conn.clone_volume(
-                        data["image"], data["name"], format, meta_prealloc
-                    )
-                    messages.success(
-                        request,
-                        _("%(image)s image cloned as %(name)s successfully")
-                        % {"image": data["image"], "name": name},
-                    )
-                    return HttpResponseRedirect(request.get_full_path())
-                except libvirtError as lib_err:
-                    messages.error(request, lib_err)
+                    op = jobs.submit("volume.clone", request.user, {"compute": compute.id, "pool": pool,
+                                     **form.cleaned_data}, request.POST.get("submission_key", ""))
+                except claims.Busy as busy:
+                    messages.error(request, busy_message(busy, request.user))
+                except (jobs.SubmissionConflict, libvirtError) as err:
+                    messages.error(request, str(err))
+                else:
+                    messages.info(request, _("The volume is being cloned; follow it in the job panel."))
+                    jobs.remember_job(request, op)
             else:
                 for msg_err in form.errors.values():
                     messages.error(request, msg_err.as_text())
+            return redirect(reverse("storage", args=[compute.id, pool]))
 
+    job_resource = claims.pool_key(compute.id, pool)
     conn.close()
 
     return render(request, "storage.html", locals())

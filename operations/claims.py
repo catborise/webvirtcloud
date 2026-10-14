@@ -40,6 +40,14 @@ def instance_key(uuid):
     return f"instance:{uuid}"
 
 
+def pool_key(compute_id, pool):
+    return f"pool:{compute_id}:{pool}"
+
+
+def volume_key(compute_id, pool, name):
+    return f"volume:{compute_id}:{pool}/{name}"
+
+
 def quota_key(user_id):
     return f"quota:user:{user_id}"
 

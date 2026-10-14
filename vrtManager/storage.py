@@ -335,6 +335,14 @@ class wvmStorage(wvmConnect):
         self._createXML(xml, metadata)
         return name
 
+    def clone_name(self, target_file, vol_fmt, file_suffix="img"):
+        """The name clone_volume gives a copy: a dir pool adds the format's suffix."""
+        if self.get_type() != "dir":
+            return target_file
+        if vol_fmt in ("qcow", "qcow2"):
+            return f"{target_file}.{vol_fmt}"
+        return f"{target_file}.{file_suffix}" if file_suffix else target_file
+
     def clone_volume(
         self,
         name,
@@ -350,13 +358,7 @@ class wvmStorage(wvmConnect):
         if not vol_fmt:
             vol_fmt = self.get_volume_format_type(name)
 
-        storage_type = self.get_type()
-        if storage_type == "dir":
-            if vol_fmt in ["qcow", "qcow2"]:
-                target_file += f".{vol_fmt}"
-            else:
-                suffix = f".{file_suffix}"
-                target_file += suffix if len(suffix) > 1 else ""
+        target_file = self.clone_name(target_file, vol_fmt, file_suffix)
 
         xml = f"""
             <volume>
