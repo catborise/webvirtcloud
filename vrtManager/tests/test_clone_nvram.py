@@ -41,7 +41,7 @@ def proxy(nvram):
 class CloneNvramTestCase(unittest.TestCase):
     def test_the_copy_keeps_the_format_owner_and_mode(self):
         p = proxy("<nvram format='qcow2'>/var/lib/libvirt/qemu/nvram/vm_VARS.qcow2</nvram>")
-        p.clone_instance({"name": "copy"})
+        p.clone_instance({"name": "copy"}, "abababab-0000-1111-2222-333333333333")
         xml, original, _ = p.pool.createXMLFrom.call_args.args
         volume = etree.fromstring(xml)
         self.assertEqual(volume.findtext("name"), "copy_VARS.qcow2")
@@ -54,7 +54,7 @@ class CloneNvramTestCase(unittest.TestCase):
 
     def test_an_nvram_source_element_points_at_the_copy(self):
         p = proxy("<nvram type='file'>\n  <source file='/var/lib/libvirt/qemu/nvram/vm_VARS.qcow2'/>\n</nvram>")
-        p.clone_instance({"name": "copy"})
+        p.clone_instance({"name": "copy"}, "abababab-0000-1111-2222-333333333333")
         p.pool.storageVolLookupByName.assert_called_once_with("vm_VARS.qcow2")
         (defined,), _ = p._defineXML.call_args
         self.assertEqual(
@@ -64,5 +64,5 @@ class CloneNvramTestCase(unittest.TestCase):
     def test_an_nvram_that_is_not_a_file_is_refused_before_any_copy(self):
         p = proxy("<nvram type='network'><source protocol='iscsi' name='x'/></nvram>")
         with self.assertRaises(util.OperationError):
-            p.clone_instance({"name": "copy"})
+            p.clone_instance({"name": "copy"}, "abababab-0000-1111-2222-333333333333")
         p.pool.createXMLFrom.assert_not_called()

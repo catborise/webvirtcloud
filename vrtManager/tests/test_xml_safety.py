@@ -142,7 +142,7 @@ class TestCloneRollback(unittest.TestCase):
         inst._defineXML = MagicMock(side_effect=libvirt.libvirtError("bad definition"))
 
         with self.assertRaises(libvirt.libvirtError):
-            inst.clone_instance({"name": "copy", "disk-vda": "copy.qcow2", "disk_owner_uid": 0, "disk_owner_gid": 0})
+            inst.clone_instance({"name": "copy", "disk-vda": "copy.qcow2", "disk_owner_uid": 0, "disk_owner_gid": 0}, "abababab-0000-1111-2222-333333333333")
         copy.delete.assert_called_once_with(0)
         source_vol.delete.assert_not_called()
 
@@ -153,7 +153,7 @@ class TestCloneRollback(unittest.TestCase):
         inst.get_status = MagicMock(return_value=1)
         inst._XMLDesc = MagicMock()
         with self.assertRaisesRegex(libvirt.libvirtError, "Shut the VM down"):
-            inst.clone_instance({"name": "copy"})
+            inst.clone_instance({"name": "copy"}, "abababab-0000-1111-2222-333333333333")
         inst._XMLDesc.assert_not_called()
 
 
@@ -352,7 +352,7 @@ class TestEmptyDiskClone(unittest.TestCase):
         # clone is still defined and looked up through the real test driver.
         inst._XMLDesc = MagicMock(return_value=etree.tostring(config).decode())
         inst.get_status = MagicMock(return_value=5)  # only shut-off VMs are cloned
-        clone_uuid = inst.clone_instance({"name": "empty-disk-clone"})
+        clone_uuid = inst.clone_instance({"name": "empty-disk-clone"}, "abababab-0000-1111-2222-333333333333")
         clone = conn.lookupByUUIDString(clone_uuid)
         self.addCleanup(clone.undefine)
         clone_config = etree.fromstring(clone.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
@@ -371,5 +371,5 @@ class TestEmptyDiskClone(unittest.TestCase):
         inst._XMLDesc = MagicMock()
         inst.get_status = MagicMock(return_value=5)
         with self.assertRaisesRegex(ValueError, "already exists"):
-            inst.clone_instance({"name": "test"})
+            inst.clone_instance({"name": "test"}, "abababab-0000-1111-2222-333333333333")
         inst._XMLDesc.assert_not_called()

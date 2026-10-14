@@ -48,6 +48,10 @@ def volume_key(compute_id, pool, name):
     return f"volume:{compute_id}:{pool}/{name}"
 
 
+def name_key(compute_id, name):
+    return f"name:{compute_id}:{name}"
+
+
 def quota_key(user_id):
     return f"quota:user:{user_id}"
 

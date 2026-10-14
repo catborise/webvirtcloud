@@ -1850,7 +1850,6 @@ def del_owner(request, pk):
 # Buses for the empty CD-ROM of a new VM: fdc and virtio have no ejectable
 # media, and libvirt refuses an empty usb disk.
 CDROM_BUSES = ("ide", "sata", "scsi")
-CLONE_POST_KEY_RE = re.compile(r"^(clone-net-mac-\d+|disk-[a-z0-9]+|meta-[a-z0-9]+)$")
 
 
 def _clone_source(user, pk):
@@ -1862,145 +1861,22 @@ def _clone_source(user, pk):
     return instance
 
 
-def _clone_plan(request, instance):
-    """The clone's settings from the request and the source as it is now,
-    and why it cannot be made, or None."""
-    clone_data = dict()
-    clone_data["name"] = request.POST.get("name", "").strip()
-    clone_data["clone-title"] = request.POST.get("clone-title", "").strip()
-    clone_data["clone-description"] = request.POST.get("clone-description", "").strip()
-
-    # the clone copies the disks of the persistent definition
-    disk_sum = sum(int(disk.get("size") or 0) >> 30 for disk in instance.config_disks)
-    quota_msg = utils.check_user_quota(
-        request.user, 1, instance.vcpu, instance.memory, disk_sum
-    )
-
-    clone_data["disk_owner_uid"] = int(app_settings.INSTANCE_VOLUME_DEFAULT_OWNER_UID)
-    clone_data["disk_owner_gid"] = int(app_settings.INSTANCE_VOLUME_DEFAULT_OWNER_GID)
-
-    # Only superusers may choose disk names and MAC addresses; the form only
-    # shows those fields to them.
-    if request.user.is_superuser:
-        for key, value in request.POST.items():
-            if CLONE_POST_KEY_RE.fullmatch(key):
-                clone_data[key] = value.strip()
-
-    if app_settings.CLONE_INSTANCE_AUTO_NAME == "True" and not clone_data["name"]:
-        auto_vname = utils.get_clone_free_names()[0]
-        clone_data["name"] = auto_vname
-        clone_data["clone-net-mac-0"] = utils.get_dhcp_mac_address(auto_vname)
-        for disk in instance.config_disks:
-            disk_dev = f"disk-{disk['dev']}"
-            disk_name = utils.get_clone_disk_name(disk, instance.name, auto_vname)
-            clone_data[disk_dev] = disk_name
-
-    if not request.user.is_superuser:
-        for disk in instance.config_disks:
-            clone_data[f"disk-{disk['dev']}"] = utils.get_clone_disk_name(
-                disk, instance.name, clone_data["name"]
-            )
-        for num in range(max(1, len(instance.config_networks))):
-            key = f"clone-net-mac-{num}"
-            if not clone_data.get(key):
-                clone_data[key] = (
-                    utils.get_dhcp_mac_address(clone_data["name"]) if num == 0 else ""
-                ) or utils.get_random_mac_address()
-
-    check_instance = Instance.objects.filter(name=clone_data["name"])
-    invalid_macs = [
-        value
-        for key, value in clone_data.items()
-        if key.startswith("clone-net-mac-") and not utils.MAC_ADDRESS_RE.fullmatch(value)
-    ]
-    invalid_disks = [
-        value
-        for key, value in clone_data.items()
-        # None: a disk without a volume, which clone_instance does not copy.
-        if key.startswith("disk-")
-        and value is not None
-        and not VOLUME_NAME_RE.fullmatch(value)
-    ]
-
-    if not request.user.is_superuser and quota_msg:
-        msg = quota_refused(quota_msg, _(
-            "User '%(quota_msg)s' quota reached, cannot create '%(clone_name)s'!"
-        ) % {
-            "quota_msg": quota_msg,
-            "clone_name": clone_data["name"],
-        })
-        return clone_data, msg
-    if check_instance:
-        msg = _("Instance '%(clone_name)s' already exists!") % {
-            "clone_name": clone_data["name"]
-        }
-        return clone_data, msg
-    if not re.match(r"^[a-zA-Z0-9-]+$", clone_data["name"]):
-        msg = _("Instance name '%(clone_name)s' contains invalid characters!") % {
-            "clone_name": clone_data["name"]
-        }
-        return clone_data, msg
-    if "clone-net-mac-0" not in clone_data or invalid_macs:
-        msg = _("Instance MAC '%(clone_mac)s' invalid format!") % {
-            "clone_mac": ", ".join(invalid_macs)
-        }
-        return clone_data, msg
-    if invalid_disks:
-        msg = _("Disk name '%(disk_name)s' contains invalid characters!") % {
-            "disk_name": ", ".join(str(v) for v in invalid_disks)
-        }
-        return clone_data, msg
-    return clone_data, None
-
-
 @require_POST
 @permission_required("instances.clone_instances", raise_exception=True)
 @serialize_user_quota
 def clone(request, pk):
-    instance = _clone_source(request.user, pk)
+    _clone_source(request.user, pk)  # 403/404 first
     try:
-        # The whole compute: the destination name and disk names must not be
-        # taken by a concurrent clone of another VM while volumes are copied.
-        with libvirt_compute_lock(instance.compute):
-            # Before this request took the claim, a migration may have moved the
-            # source, or its template mark, size or the user's rights changed:
-            # the clone is checked against the source as it is now.
-            if _moved_meanwhile(pk, instance):
-                return _moved(request, pk)
-            instance = _clone_source(request.user, pk)
-            clone_data, refusal = _clone_plan(request, instance)
-            if refusal:
-                messages.error(request, refusal)
-                return get_safe_redirect(request, default=reverse("instances:instance", args=[pk]))
-            new_uuid = instance.proxy.clone_instance(clone_data)
-            new_instance = Instance.objects.get_or_create(
-                compute=instance.compute,
-                uuid=new_uuid,
-                defaults={"name": clone_data["name"]},
-            )[0]
-            if new_instance.name != clone_data["name"]:
-                new_instance.name = clone_data["name"]
-                new_instance.save(update_fields=["name"])
-            UserInstance.objects.get_or_create(
-                instance_id=new_instance.id,
-                user_id=request.user.id,
-                defaults={"is_delete": True, "is_change": True, "is_vnc": True},
-            )
-        msg = _("Create a clone of '%(instance_name)s'") % {
-            "instance_name": instance.name
-        }
-        messages.success(request, msg)
-        addlogmsg(
-            request.user.username, instance.compute.name, new_instance.name, msg
-        )
-
-        return redirect(reverse("instances:instance", args=[new_instance.id]))
+        op = jobs.submit("instance.clone", request.user, {"instance": pk, **request.POST.dict()},
+                         request.POST.get("submission_key", ""))
     except claims.Busy as busy:
         return _busy(request, pk, busy)
-    except (libvirtError, ValueError, OSError) as e:
-        messages.error(request, error_text(request, e))
-
-    return get_safe_redirect(request, default=reverse("instances:instance", args=[pk]))
+    except (jobs.SubmissionConflict, libvirtError, ValueError) as err:
+        messages.error(request, error_text(request, err))
+    else:
+        messages.info(request, _("The clone is being made; follow it in the job panel."))
+        jobs.remember_job(request, op)
+    return redirect(reverse("instances:instance", args=[pk]))
 
 
 @require_POST

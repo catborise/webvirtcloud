@@ -11,6 +11,7 @@ from accounts.models import UserInstance
 from appsettings.models import AppSettings
 from computes.models import Compute
 from instances.models import Instance
+from operations.models import Operation
 
 LIVE = [{"dev": "vda", "path": "/pool/live.qcow2", "storage": "pool", "image": "live.qcow2", "size": 1 << 30}]
 SAVED = [{"dev": "vdb", "path": "/pool/saved.qcow2", "storage": "pool", "image": "saved.qcow2", "size": 20 << 30}]
@@ -30,16 +31,16 @@ class CloneDisksTestCase(TestCase):
             wvm.return_value.get_vcpu.return_value = 1
             wvm.return_value.get_memory.return_value = 512
             wvm.return_value.get_net_devices.return_value = []
-            wvm.return_value.clone_instance.return_value = "abcdefab-0000-1111-2222-333333333333"
-            response = self.client.post(reverse("instances:clone", args=[self.vm.id]), post)
+            wvm.return_value.get_status.return_value = 5
+            response = self.client.post(reverse("instances:clone", args=[self.vm.id]), {"submission_key": "key-clone-disk1", **post})
             self.messages = [str(m) for m in response.wsgi_request._messages]
-        return quota, wvm.return_value.clone_instance
+        return quota
 
     def test_the_quota_counts_the_disks_the_clone_copies(self):
         owner = get_user_model().objects.create_user("cd_owner", password="x")
         owner.user_permissions.add(Permission.objects.get(codename="clone_instances"))
         UserInstance.objects.create(instance=self.vm, user=owner, is_change=True)
-        quota, _ = self.clone(owner, name="cd-clone")
+        quota = self.clone(owner, name="cd-clone")
         self.assertEqual(quota.call_args.args[4], 20)
 
     def test_automatic_disk_names_are_for_the_disks_the_clone_copies(self):
@@ -48,7 +49,7 @@ class CloneDisksTestCase(TestCase):
         with patch("instances.views.utils.get_clone_free_names", return_value=["auto-1"]), patch(
             "instances.views.utils.get_dhcp_mac_address", return_value="52:54:00:00:00:01"
         ):
-            _, clone_instance = self.clone(admin)
-        data = clone_instance.call_args.args[0]
+            self.clone(admin)
+        data = Operation.objects.get().intent["clone"]
         self.assertIn("disk-vdb", data)
         self.assertNotIn("disk-vda", data)

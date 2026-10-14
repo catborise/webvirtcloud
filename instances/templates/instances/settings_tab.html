@@ -1,6 +1,7 @@
 {% load i18n %}
 {% load django_bootstrap5 %}
 {% load bootstrap_icons %}
+{% load operations %}
 <div class="tab-pane" id="settings" role="tabpanel">
     <!-- Nav tabs -->
     <ul class="nav nav-tabs" role="tablist" aria-label="Instance settings">
@@ -720,7 +721,7 @@
         {% if can_clone %}
         <div role="tabpanel" class="tab-pane tab-pane-bordered" id="clone">
             <p class="fw-bold">{% trans "Create a clone" %}</p>
-            <form class="form" action="{% url 'instances:clone' instance.id %}" method="post" role="form" aria-label="Create clone form">{% csrf_token %}
+            <form class="form" action="{% url 'instances:clone' instance.id %}" method="post" role="form" aria-label="Create clone form">{% csrf_token %}{% submission_key %}
                 <div class="row">
                     <label class="col-sm-3 col-form-label fw-normal">{% trans "Clone Name" %}</label>
                     {% if request.user.is_superuser %}
@@ -805,7 +806,7 @@
                     </div>
                 </div>
                 {% if instance.status == 5 %}
-                    <button type="submit" class="btn btn-lg btn-success float-end" name="clone" onclick="showPleaseWaitDialog();">{% trans "Clone" %}</button>
+                    <button type="submit" class="btn btn-lg btn-success float-end" name="clone">{% trans "Clone" %}</button>
                 {% else %}
                     <button class="btn btn-lg btn-success float-end disabled" disabled name="clone">{% trans "Clone" %}</button>
                 {% endif %}
