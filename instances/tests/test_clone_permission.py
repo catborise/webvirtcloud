@@ -17,6 +17,7 @@ from appsettings.settings import app_settings
 from computes.models import Compute
 from instances.models import Instance
 from instances.utils import get_dhcp_mac_address
+from operations.models import Operation
 
 SRC_DISK = {
     "dev": "vda",
@@ -71,9 +72,9 @@ class ClonePermissionTestCase(TestCase):
             proxy = mock_wvm.return_value
             proxy.get_disk_devices.return_value = [SRC_DISK]
             proxy.get_net_devices.return_value = [{"mac": "52:54:00:aa:bb:cc"}]
+            proxy.get_status.return_value = 5
             proxy.get_vcpu.return_value = 1
             proxy.get_memory.return_value = 512
-            proxy.clone_instance.return_value = "abababab-cdcd-efef-0101-232323232323"
             yield proxy
 
     def _clone(self, user, data):
@@ -91,50 +92,49 @@ class ClonePermissionTestCase(TestCase):
             "disk-vda": "clone-vm.qcow2",
             "clone-title": "",
             "clone-description": "",
+            "submission_key": "key-clone-perm1",
         }
         data.update(extra)
         return data
 
     def test_viewer_cannot_clone_someone_elses_vm(self):
-        with self.mocked_libvirt() as proxy:
+        with self.mocked_libvirt():
             res = self._clone(self.viewer, self._valid_post())
         self.assertEqual(res.status_code, 403)
-        proxy.clone_instance.assert_not_called()
+        self.assertFalse(Operation.objects.exists())
 
     def test_owner_without_is_change_cannot_clone(self):
-        with self.mocked_libvirt() as proxy:
+        with self.mocked_libvirt():
             res = self._clone(self.owner_readonly, self._valid_post())
         self.assertEqual(res.status_code, 403)
-        proxy.clone_instance.assert_not_called()
+        self.assertFalse(Operation.objects.exists())
 
     def test_a_clone_stays_on_the_host_of_its_vm(self):
         # the removed "VM Clone Auto Migrate" setting sent it to a random host
         other = Compute.objects.create(name="other-host", hostname="198.51.100.20", login="", password="", type=4)
-        with self.mocked_libvirt() as proxy, \
+        with self.mocked_libvirt(), \
              patch("instances.views.utils.migrate_instance") as migrate, \
              patch.object(app_settings, "CLONE_INSTANCE_AUTO_MIGRATE", "True", create=True), \
              patch("instances.views.Compute.objects.order_by") as random_host:
             random_host.return_value.first.return_value = other
             self._clone(self.owner_change, self._valid_post())
-        proxy.clone_instance.assert_called_once()
         migrate.assert_not_called()
-        self.assertEqual(Instance.objects.get(name="clone-vm").compute, self.instance.compute)
+        self.assertEqual(Operation.objects.get().intent["compute"], self.instance.compute_id)
 
     def test_viewer_can_clone_a_template(self):
         self.instance.is_template = True
         self.instance.save(update_fields=["is_template"])
-        with self.mocked_libvirt() as proxy:
+        with self.mocked_libvirt():
             self._clone(self.viewer, self._valid_post())
-        proxy.clone_instance.assert_called_once()
+        self.assertEqual(Operation.objects.count(), 1)
 
     def test_posted_disk_owner_and_unknown_keys_are_ignored(self):
-        with self.mocked_libvirt() as proxy:
+        with self.mocked_libvirt():
             self._clone(
                 self.owner_change,
                 self._valid_post(disk_owner_uid="4242", disk_owner_gid="4242", evil="x"),
             )
-        proxy.clone_instance.assert_called_once()
-        clone_data = proxy.clone_instance.call_args[0][0]
+        clone_data = Operation.objects.get().intent["clone"]
         self.assertEqual(
             clone_data["disk_owner_uid"],
             int(app_settings.INSTANCE_VOLUME_DEFAULT_OWNER_UID),
@@ -146,53 +146,37 @@ class ClonePermissionTestCase(TestCase):
         self.assertNotIn("evil", clone_data)
 
     def test_non_superuser_disk_names_are_derived_by_the_server(self):
-        with self.mocked_libvirt() as proxy:
+        with self.mocked_libvirt():
             self._clone(
                 self.owner_change,
                 self._valid_post(**{"disk-vda": "../../../etc/passwd"}),
             )
-        proxy.clone_instance.assert_called_once()
-        clone_data = proxy.clone_instance.call_args[0][0]
+        clone_data = Operation.objects.get().intent["clone"]
         self.assertEqual(clone_data["disk-vda"], "clone-vm.qcow2")
 
     def test_superuser_unsafe_disk_name_is_rejected(self):
-        with self.mocked_libvirt() as proxy:
+        with self.mocked_libvirt():
             self._clone(
                 self.superuser,
                 self._valid_post(**{"disk-vda": "x</name><evil/>"}),
             )
-        proxy.clone_instance.assert_not_called()
+        self.assertFalse(Operation.objects.exists())
 
     def test_superuser_invalid_second_mac_is_rejected(self):
-        with self.mocked_libvirt() as proxy:
+        with self.mocked_libvirt():
             self._clone(
                 self.superuser,
                 self._valid_post(**{"clone-net-mac-1": "not-a-mac"}),
             )
-        proxy.clone_instance.assert_not_called()
-
-    def test_clone_holds_the_compute_exclusively(self):
-        # Clones of different VMs must not race for the destination name.
-        calls = []
-
-        @contextmanager
-        def record(compute, *, shared=False):
-            calls.append(shared)
-            yield
-
-        with self.mocked_libvirt() as proxy, patch("instances.views.libvirt_compute_lock", record):
-            self._clone(self.superuser, self._valid_post())
-        proxy.clone_instance.assert_called_once()
-        self.assertEqual(calls, [False])
+        self.assertFalse(Operation.objects.exists())
 
     def test_superuser_valid_clone_passes_posted_values(self):
-        with self.mocked_libvirt() as proxy:
+        with self.mocked_libvirt():
             self._clone(
                 self.superuser,
                 self._valid_post(**{"disk-vda": "custom-name.qcow2", "meta-vda": "true"}),
             )
-        proxy.clone_instance.assert_called_once()
-        clone_data = proxy.clone_instance.call_args[0][0]
+        clone_data = Operation.objects.get().intent["clone"]
         self.assertEqual(clone_data["disk-vda"], "custom-name.qcow2")
         self.assertEqual(clone_data["meta-vda"], "true")
         self.assertEqual(clone_data["clone-net-mac-0"], "52:54:00:12:34:56")
@@ -203,8 +187,7 @@ class ClonePermissionTestCase(TestCase):
         with self.mocked_libvirt() as proxy:
             proxy.get_disk_devices.return_value = [SRC_DISK, empty_disk]
             self._clone(self.owner_change, self._valid_post())
-        proxy.clone_instance.assert_called_once()
-        clone_data = proxy.clone_instance.call_args[0][0]
+        clone_data = Operation.objects.get().intent["clone"]
         self.assertEqual(clone_data["disk-vda"], "clone-vm.qcow2")
         self.assertIsNone(clone_data["disk-vdb"])
 
@@ -213,9 +196,9 @@ class ClonePermissionTestCase(TestCase):
         with self.mocked_libvirt() as proxy:
             proxy.get_disk_devices.return_value = [odd_disk]
             self._clone(self.owner_change, self._valid_post())
-        proxy.clone_instance.assert_called_once()
+        self.assertEqual(Operation.objects.count(), 1)
         self.assertEqual(
-            proxy.clone_instance.call_args[0][0]["disk-vda"], "my-disk-2-clone.qcow2"
+            Operation.objects.get().intent["clone"]["disk-vda"], "my-disk-2-clone.qcow2"
         )
 
 

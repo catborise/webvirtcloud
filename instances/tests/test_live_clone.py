@@ -68,7 +68,7 @@ class LiveCloneTestCase(SimpleTestCase):
         before = self.pool_volumes()
 
         with self.assertRaises(Exception):
-            vm.clone_instance(self.clone_data("clone-dst"))
+            vm.clone_instance(self.clone_data("clone-dst"), "abababab-0000-1111-2222-333333333333")
 
         self.assertEqual(self.pool_volumes(), before, "copies left behind or a volume deleted")
         self.assertTrue(livetest.volume_exists(self.conn, taken))
@@ -81,7 +81,7 @@ class LiveCloneTestCase(SimpleTestCase):
         before = self.pool_volumes()
 
         with self.assertRaises(Exception):
-            vm.clone_instance(self.clone_data("clone-run-copy"))
+            vm.clone_instance(self.clone_data("clone-run-copy"), "abababab-0000-1111-2222-333333333333")
 
         self.assertEqual(self.pool_volumes(), before)
 
@@ -94,7 +94,7 @@ class LiveCloneTestCase(SimpleTestCase):
         source = vm.get_nvram()
 
         uuid = vm.clone_instance(
-            {"name": P + "clone-uefi-copy", "disk-vda": P + "clone-uefi-copy-a.qcow2", "disk_owner_uid": 0, "disk_owner_gid": 0}
+            {"name": P + "clone-uefi-copy", "disk-vda": P + "clone-uefi-copy-a.qcow2", "disk_owner_uid": 0, "disk_owner_gid": 0}, "abababab-0000-1111-2222-333333333333"
         )
 
         clone = self.conn.lookupByUUIDString(uuid)
@@ -111,7 +111,7 @@ class LiveCloneTestCase(SimpleTestCase):
 
     def test_clone_of_a_stopped_vm(self):
         _, vm = self.source("clone-ok")
-        uuid = vm.clone_instance(self.clone_data("clone-ok-copy"))
+        uuid = vm.clone_instance(self.clone_data("clone-ok-copy"), "abababab-0000-1111-2222-333333333333")
         clone = self.conn.lookupByUUIDString(uuid)
         self.assertEqual(clone.name(), P + "clone-ok-copy")
         self.assertTrue({P + "clone-ok-copy-a.qcow2", P + "clone-ok-copy-b.qcow2"} <= self.pool_volumes())

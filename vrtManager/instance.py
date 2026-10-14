@@ -1923,7 +1923,7 @@ class wvmInstance(wvmConnect):
         mac_tuples = [mac[i : i + n] for i in range(0, len(mac), n)]
         return ":".join(mac_tuples)
 
-    def clone_instance(self, clone_data):
+    def clone_instance(self, clone_data, uuid):
         """Copy a shut-off VM, with its disks and UEFI variables (NVRAM).
         Inputs are checked before anything is allocated, and on failure only
         the volumes this call created are removed. Returns the clone's UUID."""
@@ -1935,10 +1935,10 @@ class wvmInstance(wvmConnect):
 
         tree = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
         tree.find("name").text = clone_data["name"]
-        uuid = tree.find("uuid")
-        if uuid is None:
-            uuid = etree.SubElement(tree, "uuid")
-        uuid.text = util.randomUUID()
+        uuid_el = tree.find("uuid")
+        if uuid_el is None:
+            uuid_el = etree.SubElement(tree, "uuid")
+        uuid_el.text = uuid
         self._set_options(
             tree,
             {
