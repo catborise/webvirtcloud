@@ -2162,164 +2162,29 @@ def create_instance(request, compute_id, arch, machine):
                     form = NewVMForm(request.POST)
                     if form.is_valid():
                         data = form.cleaned_data
-                        meta_prealloc = bool(data["meta_prealloc"])
-
-                        # Everything is checked before any storage is allocated.
-                        if data["name"] in instances:
-                            raise util.OperationError(_("A virtual machine with this name already exists"))
-                        if Instance.objects.filter(name__exact=data["name"]):
-                            raise util.OperationError(
-                                _("There is an instance with same name. Remove it and try again!")
-                            )
                         if data["hdd_size"] and not data["mac"]:
                             raise util.OperationError(_("No Virtual Machine MAC has been entered"))
-                        if not (data["hdd_size"] or data["template"] or data["images"]):
-                            raise util.OperationError(_("First you need to create or select an image"))
-                        if (
-                            not data["hdd_size"]
-                            and data["template"]
-                            and conn.get_volume_path(data["name"] + ".img", data["storage"])
-                        ):
-                            raise util.OperationError(
-                                _("Image has already exist. Please check volumes or change instance name")
-                            )
-                        if data["cache_mode"] not in conn.get_cache_modes():
-                            raise util.OperationError(_("Invalid cache mode"))
-                        if data["add_cdrom"] != "None" and data["add_cdrom"] not in cdrom_buses:
-                            raise util.OperationError(
-                                _("A CD-ROM cannot use the %(bus)s bus") % {"bus": data["add_cdrom"]}
-                            )
+                        images = data["images"].split(",") if data["images"] else []
+                        raw = {**data, "compute": compute.id, "arch": arch, "machine": machine,
+                               "devices": [[request.POST.get(f"device{i}", ""), request.POST.get(f"bus{i}", "")]
+                                           for i in range(len(images))]}
                         try:
-                            utils.nic_macs(data["mac"], data["networks"])
-                        except ValueError as err:
-                            raise util.OperationError(str(err))
-
-                        firmware = dict()
-                        if "UEFI" in data["firmware"]:
-                            if ":" not in data["firmware"]:
-                                raise util.OperationError(_("Invalid firmware"))
-                            firmware["loader"] = data["firmware"].split(":")[1].strip()
-                            firmware["secure"] = "no"
-                            firmware["readonly"] = "yes"
-                            firmware["type"] = "pflash"
-                            if "secboot" in firmware["loader"]:
-                                # A secure boot loader needs secure='yes' and SMM, on q35 only
-                                if machine != "q35":
-                                    messages.warning(
-                                        request,
-                                        "Changing machine type from '%s' to 'q35' "
-                                        "which is required for UEFI secure boot." % machine,
-                                    )
-                                    machine = "q35"
-                                firmware["secure"] = "yes"
-
-                        if data["net_model"] == "default":
-                            data["net_model"] = "virtio"
-
-                        def volume(path, device="disk", bus=default_bus):
-                            return {
-                                "path": path,
-                                "type": conn.get_volume_format_type(path),
-                                "device": device,
-                                "bus": bus,
-                                "scsi_model": default_scsi_disk_model if bus == "scsi" else None,
-                                "cache_mode": data["cache_mode"],
-                                "discard_mode": default_discard,
-                                "detect_zeroes_mode": default_zeroes,
-                                "io_mode": default_io,
-                            }
-
-                        created = []  # volumes this request allocated
-                        defined = False
-                        volume_list = []
-                        uuid = util.randomUUID()
-                        try:
-                            if data["hdd_size"]:
-                                path = conn.create_volume(
-                                    data["storage"],
-                                    data["name"],
-                                    data["hdd_size"],
-                                    default_disk_format,
-                                    meta_prealloc,
-                                    default_disk_owner_uid,
-                                    default_disk_owner_gid,
-                                )
-                                created.append(path)
-                                volume_list.append(volume(path))
-                            elif data["template"]:
-                                path = conn.clone_from_template(
-                                    data["name"],
-                                    conn.get_volume_path(data["template"]),
-                                    data["storage"],
-                                    meta_prealloc,
-                                    default_disk_owner_uid,
-                                    default_disk_owner_gid,
-                                )
-                                created.append(path)
-                                volume_list.append(volume(path))
-                            else:
-                                for idx, vol in enumerate(data["images"].split(",")):
-                                    volume_list.append(volume(
-                                        conn.get_volume_path(vol),
-                                        request.POST.get("device" + str(idx), ""),
-                                        request.POST.get("bus" + str(idx), ""),
-                                    ))
-
-                            with libvirt_compute_lock(compute):
-                                conn.create_instance(
-                                    name=data["name"],
-                                    memory=data["memory"],
-                                    vcpu=data["vcpu"],
-                                    vcpu_mode=data["vcpu_mode"],
-                                    uuid=uuid,
-                                    arch=arch,
-                                    machine=machine,
-                                    firmware=firmware,
-                                    volumes=volume_list,
-                                    networks=data["networks"],
-                                    virtio=data["virtio"],
-                                    listener_addr=data["listener_addr"],
-                                    nwfilter=data["nwfilter"],
-                                    net_model=data["net_model"],
-                                    video=data["video"],
-                                    console_pass=data["console_pass"],
-                                    mac=data["mac"],
-                                    qemu_ga=data["qemu_ga"],
-                                    add_cdrom=data["add_cdrom"],
-                                    add_input=data["add_input"],
-                                )
-                                defined = True  # from here on the VM uses the volumes
-                                create_instance = Instance.objects.get_or_create(
-                                    compute_id=compute_id, uuid=uuid, defaults={"name": data["name"]}
-                                )[0]
-                                if create_instance.name != data["name"]:
-                                    create_instance.name = data["name"]
-                                    create_instance.save(update_fields=["name"])
-                        except Exception as err:
-                            leftovers = []
-                            for path in [] if defined else created:
-                                try:
-                                    conn.delete_volume(path)
-                                except libvirtError:
-                                    leftovers.append(path)
-                            if leftovers:
-                                messages.error(
-                                    request,
-                                    _("Remove these volumes by hand: %(paths)s") % {"paths": ", ".join(leftovers)},
-                                )
-                            if not isinstance(err, libvirtError):
-                                raise  # unexpected: the volumes are gone, the error stays visible
-                            messages.error(request, err)
+                            op = jobs.submit("instance.create", request.user, raw,
+                                             request.POST.get("submission_key", ""))
+                        except claims.Busy as busy:
+                            messages.error(request, busy_message(busy, request.user))
+                        except jobs.SubmissionConflict as err:
+                            messages.error(request, str(err))
                         else:
-                            msg = _("Instance is created")
-                            messages.success(request, msg)
-                            addlogmsg(
-                                request.user.username,
-                                create_instance.compute.name,
-                                create_instance.name,
-                                msg,
-                            )
-                            return redirect(reverse("instances:instance", args=[create_instance.id]))
+                            if op.params["machine"] != machine:
+                                messages.warning(
+                                    request,
+                                    "Changing machine type from '%s' to 'q35' "
+                                    "which is required for UEFI secure boot." % machine,
+                                )
+                            messages.info(request, _("The VM is being created; follow it in the job panel."))
+                            jobs.remember_job(request, op)
+                            return redirect(reverse("instances", args=[compute.id]))
             conn.close()
     except libvirtError as lib_err:
         messages.error(request, lib_err)

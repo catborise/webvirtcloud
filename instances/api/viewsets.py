@@ -1,9 +1,9 @@
 from admin.permissions import IsSuperUser
-from appsettings.settings import app_settings
 from computes import utils
 from computes.models import Compute
 from django.http import Http404
 from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from instances.models import Flavor, Instance
 from instances.utils import migrate_instance
 from instances.views import destroy as instance_destroy
@@ -17,12 +17,11 @@ from instances.views import (
     suspend,
 )
 from drf_spectacular.utils import extend_schema
-from libvirt import libvirtError
+from operations import jobs
+from operations.api.serializers import OperationSerializer
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from vrtManager import util
-from vrtManager.create import wvmCreate
 from webvirtcloud.serializers import StatusSerializer
 
 from .serializers import (
@@ -227,94 +226,15 @@ class CreateInstanceViewSet(viewsets.ViewSet):
     serializer_class = CreateInstanceSerializer
     queryset = ""
 
-    @extend_schema(responses=StatusSerializer)
+    @extend_schema(responses={202: OperationSerializer, 400: dict})
     def create(self, request, compute_pk=None, arch=None, machine=None):
-        serializer = CreateInstanceSerializer(
-            data=request.data,
-            context={"compute_pk": compute_pk, "arch": arch, "machine": machine},
-        )
-        if serializer.is_valid():
-            volume_list = []
-            default_bus = app_settings.INSTANCE_VOLUME_DEFAULT_BUS
-            default_io = app_settings.INSTANCE_VOLUME_DEFAULT_IO
-            default_discard = app_settings.INSTANCE_VOLUME_DEFAULT_DISCARD
-            default_zeroes = app_settings.INSTANCE_VOLUME_DEFAULT_DETECT_ZEROES
-            default_scsi_disk_model = (
-                app_settings.INSTANCE_VOLUME_DEFAULT_SCSI_CONTROLLER
-            )
-            default_disk_format = app_settings.INSTANCE_VOLUME_DEFAULT_FORMAT
-            default_disk_owner_uid = int(app_settings.INSTANCE_VOLUME_DEFAULT_OWNER_UID)
-            default_disk_owner_gid = int(app_settings.INSTANCE_VOLUME_DEFAULT_OWNER_GID)
-            compute = Compute.objects.get(pk=compute_pk)
-            conn = wvmCreate(
-                compute.hostname,
-                compute.login,
-                compute.password,
-                compute.type,
-            )
-
-            path = None  # the volume this request allocated
-            try:
-                path = conn.create_volume(
-                    serializer.validated_data["storage"],
-                    serializer.validated_data["name"],
-                    serializer.validated_data["hdd_size"],
-                    default_disk_format,
-                    serializer.validated_data["meta_prealloc"],
-                    default_disk_owner_uid,
-                    default_disk_owner_gid,
-                )
-                volume = {}
-                volume["device"] = "disk"
-                volume["path"] = path
-                volume["type"] = conn.get_volume_format_type(path)
-                volume["cache_mode"] = serializer.validated_data["cache_mode"]
-                volume["bus"] = default_bus
-                if volume["bus"] == "scsi":
-                    volume["scsi_model"] = default_scsi_disk_model
-                volume["discard_mode"] = default_discard
-                volume["detect_zeroes_mode"] = default_zeroes
-                volume["io_mode"] = default_io
-
-                volume_list.append(volume)
-
-                with utils.libvirt_compute_lock(compute):
-                    conn.create_instance(
-                        name=serializer.validated_data["name"],
-                        memory=serializer.validated_data["memory"],
-                        vcpu=serializer.validated_data["vcpu"],
-                        vcpu_mode=serializer.validated_data["vcpu_mode"],
-                        uuid=util.randomUUID(),
-                        arch=arch,
-                        machine=machine,
-                        firmware={},
-                        volumes=volume_list,
-                        networks=serializer.validated_data["networks"],
-                        nwfilter=serializer.validated_data["nwfilter"],
-                        virtio=serializer.validated_data["virtio"],
-                        listener_addr=serializer.validated_data["listener_addr"],
-                        video=serializer.validated_data["video"],
-                        console_pass=serializer.validated_data["console_pass"],
-                        mac=serializer.validated_data["mac"],
-                        qemu_ga=serializer.validated_data["qemu_ga"],
-                    )
-            except Exception as err:
-                # A failed definition must not leave the new disk behind
-                if path:
-                    try:
-                        conn.delete_volume(path)
-                    except libvirtError:
-                        return Response(
-                            {"status": f"{err}; remove {path} by hand"}, status=status.HTTP_400_BAD_REQUEST
-                        )
-                if not isinstance(err, libvirtError):
-                    raise
-                return Response({"status": str(err)}, status=status.HTTP_400_BAD_REQUEST)
-            # After the definition: the VM uses the volume, so no rollback here.
-            # The refresh claims the compute itself and skips it when busy; the
-            # VM exists either way, so a busy compute must not refuse the request.
-            utils.refresh_instance_database(compute)
-            msg = f"Instance {serializer.validated_data['name']} is created"
-            return Response({"status": msg})
-        else:
+        serializer = CreateInstanceSerializer(data=request.data,
+                                              context={"compute_pk": compute_pk, "arch": arch, "machine": machine})
+        if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        data = dict(serializer.validated_data)
+        key = data.pop("submission_key")
+        op = jobs.submit("instance.create", request.user, {**data, "compute": compute_pk, "arch": arch,
+                                                           "machine": machine}, key)
+        return Response(OperationSerializer(op, context={"request": request}).data, status=status.HTTP_202_ACCEPTED,
+                        headers={"Location": reverse("operation-detail", args=[op.pk])})

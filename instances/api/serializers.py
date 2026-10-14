@@ -58,6 +58,7 @@ class CreateInstanceSerializer(serializers.ModelSerializer):
     cache_mode = serializers.CharField(initial="none")
     virtio = serializers.BooleanField(initial=True)
     qemu_ga = serializers.BooleanField(initial=True)
+    submission_key = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
         try:
@@ -82,9 +83,9 @@ class CreateInstanceSerializer(serializers.ModelSerializer):
             "meta_prealloc",
             "virtio",
             "qemu_ga",
-            "console_pass",
             "video",
             "listener_addr",
+            "submission_key",
         ]
 
 

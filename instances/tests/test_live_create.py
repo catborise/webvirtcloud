@@ -1,4 +1,5 @@
-"""Live checks that a failed VM creation leaves no volumes behind.
+"""Live checks of VM creation: the queued job defines the VM, and a failed
+one leaves no volumes behind.
 
 Runs only with TEST_LIBVIRT_HOST set (see instances/tests/livetest.py).
 """
@@ -9,17 +10,22 @@ import unittest
 import libvirt
 from computes.models import Compute
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TransactionTestCase
 from django.urls import reverse
 from lxml import etree
 from vrtManager.connection import connection_manager
 
+from operations.models import Operation
+from operations.tests import fakes
+from operations.worker import Worker
+
 from . import livetest
+from .test_live_jobs import wait_for
 
 P = livetest.PREFIX
 
 
-class LiveCreateTestCase(TestCase):
+class LiveCreateTestCase(TransactionTestCase):
     @classmethod
     def setUpClass(cls):
         if not livetest.enabled():
@@ -70,15 +76,26 @@ class LiveCreateTestCase(TestCase):
             "cache_mode": "none",
             "video": "vga",
             "listener_addr": "0.0.0.0",
-            "console_pass": "",
             "add_cdrom": "None",
             "add_input": "None",
             "create": True,
+            "submission_key": "key-" + name,
         }
         data.update(overrides)
-        return self.client.post(
+        response = self.client.post(
             reverse("instances:create_instance", args=[self.compute.id, "x86_64", "q35"]), data
         )
+        self.work()
+        return response
+
+    def work(self):
+        """Run the queued jobs with an in-thread worker."""
+        worker = Worker(concurrency=1, tick=0.1, heartbeat_every=1, progress_every=1, exit_on_lost_lease=False)
+        thread = fakes.start_worker(worker)
+        try:
+            self.assertTrue(wait_for(lambda: not Operation.objects.filter(state__in=Operation.ACTIVE).exists(), 180))
+        finally:
+            fakes.stop_worker(worker, thread)
 
     def volumes(self):
         pool = self.conn.storagePoolLookupByName(livetest.POOL)
@@ -184,15 +201,16 @@ class LiveCreateTestCase(TestCase):
                 "meta_prealloc": False,
                 "virtio": True,
                 "qemu_ga": False,
-                "console_pass": "",
                 "listener_addr": "0.0.0.0",
                 "video": "no-such-model",
                 "add_cdrom": "None",
                 "add_input": "None",
+                "submission_key": "key-cr-api",
             },
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.status_code, 202, response.content)
+        self.work()
         self.assertEqual(self.volumes(), set(), "a volume was left behind")
         self.assertFalse(self.domain_exists(P + "cr-api"))
 

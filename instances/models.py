@@ -373,7 +373,6 @@ class CreateInstance(models.Model):
     virtio = models.BooleanField(default=True)
     qemu_ga = models.BooleanField(default=False)
     mac = models.CharField(max_length=17, blank=True)
-    console_pass = models.CharField(max_length=64, blank=True)
     add_cdrom = models.CharField(max_length=16)
     add_input = models.CharField(max_length=16)
     video = models.CharField(
