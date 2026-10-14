@@ -11,6 +11,7 @@ from django.test import TransactionTestCase
 from vrtManager.connection import connection_manager
 from vrtManager.instance import wvmInstance
 
+from appsettings.settings import get_settings
 from computes.models import Compute
 from instances.jobs import DeleteExternalSnapshot
 from instances.models import Instance
@@ -60,6 +61,7 @@ class LiveJobsTestCase(TransactionTestCase):
             raise AssertionError("Live tests changed objects outside the test namespace")
 
     def setUp(self):
+        get_settings()
         host, login, password, conn_type = self.args
         self.compute = Compute.objects.create(name=P + "compute", hostname=host, login=login, password=password,
                                               type=conn_type)
@@ -90,3 +92,34 @@ class LiveJobsTestCase(TransactionTestCase):
         Operation.objects.filter(pk=op.pk).update(state=Operation.RUNNING)
         op.refresh_from_db()
         self.assertEqual(DeleteExternalSnapshot().reconcile(op).state, Operation.SUCCEEDED)
+
+    def run_job(self, op):
+        worker = Worker(concurrency=1, tick=0.1, heartbeat_every=1, progress_every=1, exit_on_lost_lease=False)
+        thread = fakes.start_worker(worker)
+        try:
+            self.assertTrue(wait_for(lambda: Operation.objects.get(pk=op.pk).state in Operation.TERMINAL, 300))
+        finally:
+            fakes.stop_worker(worker, thread)
+        op.refresh_from_db()
+        self.assertEqual(op.state, Operation.SUCCEEDED, op.error)
+        return op
+
+    def test_clone_create_and_volume_clone_run_as_jobs(self):
+        dom, _vm = self.vm("smoke-src")
+        source = Instance.objects.create(compute=self.compute, name=dom.name(), uuid=dom.UUIDString())
+        op = self.run_job(jobs.submit("instance.clone", self.admin, {
+            "instance": source.pk, "name": P + "smoke-clone", "disk-vda": P + "smoke-clone.qcow2",
+            "clone-net-mac-0": "52:54:00:00:31:01"}, "key-smoke001"))
+        self.assertEqual(self.conn.lookupByUUIDString(op.intent["uuid"]).name(), P + "smoke-clone")
+        self.run_job(jobs.submit("volume.clone", self.admin, {
+            "compute": self.compute.pk, "pool": livetest.POOL, "image": P + "smoke-src.qcow2",
+            "name": P + "smoke-copy"}, "key-smoke002"))
+        self.assertTrue(livetest.volume_exists(self.conn, f"{livetest.POOL_PATH}/{P}smoke-copy.qcow2"))
+        op = self.run_job(jobs.submit("instance.create", self.admin, {
+            "name": P + "smoke-new", "firmware": "BIOS", "vcpu": 1, "vcpu_mode": "host-model", "memory": 256,
+            "networks": "default", "storage": livetest.POOL, "template": P + "smoke-copy.qcow2", "images": "",
+            "hdd_size": 0, "cache_mode": "none", "meta_prealloc": False, "virtio": True, "qemu_ga": False,
+            "mac": "", "nwfilter": "", "net_model": "virtio", "add_cdrom": "None", "add_input": "default",
+            "video": "vga", "listener_addr": "127.0.0.1", "compute": self.compute.pk, "arch": "x86_64",
+            "machine": "q35"}, "key-smoke003"))
+        self.assertEqual(self.conn.lookupByUUIDString(op.intent["uuid"]).name(), P + "smoke-new")
