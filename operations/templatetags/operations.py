@@ -1,3 +1,4 @@
+import json
 import uuid
 
 from django import template
@@ -5,6 +6,7 @@ from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 from django.utils.translation import pgettext_lazy
 
+from operations.jobs import take_remembered
 from operations.models import Operation
 
 register = template.Library()
@@ -53,3 +55,10 @@ def state_label(state):
 def wrap_at_slash(label):
     """A "<compute>/<vm>" label that wraps after its slash only, never inside a name."""
     return format_html_join(mark_safe("/<wbr>"), '<span class="text-nowrap">{}</span>', ((part,) for part in label.split("/")))
+
+
+@register.inclusion_tag("operations/job_panel_script.html", takes_context=True)
+def job_panel_script(context, resource):
+    """The job panel's script for the page of resource."""
+    return {"resource": resource, "csrf_token": context.get("csrf_token"),
+            "remembered": json.dumps(take_remembered(context["request"], resource))}

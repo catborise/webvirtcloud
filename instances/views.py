@@ -205,7 +205,7 @@ def _instance_page(request, pk, instance, compute):
         instance.drbd = drbd_status(request, pk)
         instance.save()
 
-    remembered_jobs = json.dumps(jobs.take_remembered(request, claims.instance_key(instance.uuid)))
+    job_resource = claims.instance_key(instance.uuid)
     return render(request, "instance.html", locals(),)
 
 

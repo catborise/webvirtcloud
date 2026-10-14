@@ -2,6 +2,7 @@
 {% load static %}
 {% load vm_states %}
 {% load i18n %}
+{% load operations %}
 {% load bootstrap_icons %}
 
 {% block title %}{% trans "Instance" %} - {{ instance.name }}{% endblock %}
@@ -682,14 +683,7 @@
         return true;
     });
 </script>
-<script src="{% static 'operations/job_panel.js' %}"></script>
-<script>
-    jobPanel(document.getElementById("job-panel"), {
-        resource: "{% url 'operation-resource' %}?key=instance%3A{{ instance.uuid|urlencode }}",
-        job: function (id) { return "{% url 'operation-list' %}" + id + "/"; },
-        cancel: function (id) { return "{% url 'operation-list' %}" + id + "/cancel/"; },
-    }, "{{ csrf_token }}", {{ remembered_jobs|safe }});
-</script>
+{% job_panel_script job_resource %}
 <script src="{% static 'js/instance_tabs.js' %}"></script>
 <script>
     // Open the tab whose control targets "#<pane id>"
