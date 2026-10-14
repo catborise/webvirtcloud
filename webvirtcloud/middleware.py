@@ -3,7 +3,7 @@ from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.utils.translation import gettext_lazy as _
 from libvirt import libvirtError
-from operations import claims
+from operations import claims, jobs
 from operations.utils import busy_message, public_error_text, summary
 
 API_PREFIX = "/api/"
@@ -37,6 +37,8 @@ class ExceptionMiddleware:
                 return JsonResponse({"detail": busy_message(exception, request.user),
                                      "operation": summary(exception.blocker, request.user) if exception.blocker else None},
                                     status=409)
+            if isinstance(exception, jobs.SubmissionConflict):
+                return JsonResponse({"detail": str(exception)}, status=409)
             if isinstance(exception, TimeoutError):
                 return JsonResponse({"detail": "Operation is busy. Please retry."}, status=409)
             return None

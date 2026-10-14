@@ -9,6 +9,7 @@ from libvirt import (VIR_CONNECT_LIST_STORAGE_POOLS_ACTIVE, VIR_DOMAIN_SNAPSHOT_
                      libvirtError)
 from vrtManager import util
 from vrtManager.connection import wvmConnect
+from vrtManager.create import wvmCreate
 from vrtManager.instance import wvmInstance
 
 from accounts.models import UserInstance
@@ -281,3 +282,150 @@ class CloneInstance(Kind):
         compute, _sep, source = op.resource_label.rpartition("/")
         message = f"Create a clone of '{source}'"
         return compute, op.intent["name"], message if state == Operation.SUCCEEDED else f"{message} ({state})"
+
+
+@register
+class CreateInstance(Kind):
+    name = "instance.create"
+    label = gettext_noop("Create VM")
+    time_limit = 12 * 3600  # a copy cannot be stopped: over time is only noted
+
+    def normalize(self, raw):
+        # what the API leaves out means what create_instance did by default
+        params = {"template": "", "images": "", "firmware": "", "net_model": "virtio", "add_cdrom": "sata",
+                  "add_input": "default", "meta_prealloc": False, "hdd_size": 0}
+        params.update({k: v for k, v in raw.items() if k not in ("submission_key", "create", "csrfmiddlewaretoken")})
+        params.update(compute=int(raw["compute"]), devices=[list(d) for d in raw.get("devices", [])])
+        if "UEFI" in params["firmware"] and "secboot" in params["firmware"].partition(":")[2]:
+            params["machine"] = "q35"  # a secure boot loader needs SMM, on q35 only
+        return params
+
+    def validate(self, user, params):
+        from instances.views import CDROM_BUSES
+
+        if not user.is_superuser:
+            raise PermissionDenied
+        data = params
+        c = Compute.objects.get(pk=data["compute"])
+        conn = wvmCreate(c.hostname, c.login, c.password, c.type)
+        cdrom_buses = [bus for bus in conn.get_disk_bus_types(data["arch"], data["machine"]) if bus in CDROM_BUSES]
+        if data["name"] in conn.get_instances():
+            raise util.OperationError(_("A virtual machine with this name already exists"))
+        if Instance.objects.filter(name__exact=data["name"]):
+            raise util.OperationError(_("There is an instance with same name. Remove it and try again!"))
+        if not (data["hdd_size"] or data["template"] or data["images"]):
+            raise util.OperationError(_("First you need to create or select an image"))
+        if not data["hdd_size"] and data["template"] and conn.get_volume_path(data["name"] + ".img", data["storage"]):
+            raise util.OperationError(_("Image has already exist. Please check volumes or change instance name"))
+        if data["cache_mode"] not in conn.get_cache_modes():
+            raise util.OperationError(_("Invalid cache mode"))
+        if data["add_cdrom"] != "None" and data["add_cdrom"] not in cdrom_buses:
+            raise util.OperationError(_("A CD-ROM cannot use the %(bus)s bus") % {"bus": data["add_cdrom"]})
+        try:
+            utils.nic_macs(data["mac"], data["networks"])
+        except ValueError as err:
+            raise util.OperationError(str(err))
+        if "UEFI" in data["firmware"] and ":" not in data["firmware"]:
+            raise util.OperationError(_("Invalid firmware"))
+
+    def plan(self, user, params):
+        compute = Compute.objects.get(pk=params["compute"])
+        return Plan(claims=vm_claims(compute, params["name"]), resource=claims.compute_key(compute.pk),
+                    label=f"{compute.name}/{params['name']}",
+                    intent={"compute": compute.pk, "uuid": util.randomUUID(), "name": params["name"]})
+
+    def run(self, op, ctx):
+        data = op.params
+        c = Compute.objects.get(pk=data["compute"])
+        conn = wvmCreate(c.hostname, c.login, c.password, c.type)
+        meta_prealloc = bool(data["meta_prealloc"])
+        default_bus = app_settings.INSTANCE_VOLUME_DEFAULT_BUS
+        default_disk_format = app_settings.INSTANCE_VOLUME_DEFAULT_FORMAT
+        default_disk_owner_uid = int(app_settings.INSTANCE_VOLUME_DEFAULT_OWNER_UID)
+        default_disk_owner_gid = int(app_settings.INSTANCE_VOLUME_DEFAULT_OWNER_GID)
+
+        firmware = dict()
+        if "UEFI" in data["firmware"]:
+            firmware["loader"] = data["firmware"].split(":")[1].strip()
+            firmware["secure"] = "yes" if "secboot" in firmware["loader"] else "no"
+            firmware["readonly"] = "yes"
+            firmware["type"] = "pflash"
+
+        def volume(path, device="disk", bus=default_bus):
+            return {
+                "path": path,
+                "type": conn.get_volume_format_type(path),
+                "device": device,
+                "bus": bus,
+                "scsi_model": app_settings.INSTANCE_VOLUME_DEFAULT_SCSI_CONTROLLER if bus == "scsi" else None,
+                "cache_mode": data["cache_mode"],
+                "discard_mode": app_settings.INSTANCE_VOLUME_DEFAULT_DISCARD,
+                "detect_zeroes_mode": app_settings.INSTANCE_VOLUME_DEFAULT_DETECT_ZEROES,
+                "io_mode": app_settings.INSTANCE_VOLUME_DEFAULT_IO,
+            }
+
+        ctx.record_intent()
+        ctx.set_phase(gettext_noop("Copying disks"))
+        created = []  # volumes this job allocated
+        volume_list = []
+        try:
+            if data["hdd_size"]:
+                path = conn.create_volume(data["storage"], data["name"], data["hdd_size"], default_disk_format,
+                                          meta_prealloc, default_disk_owner_uid, default_disk_owner_gid)
+                created.append(path)
+                volume_list.append(volume(path))
+            elif data["template"]:
+                path = conn.clone_from_template(data["name"], conn.get_volume_path(data["template"]), data["storage"],
+                                                meta_prealloc, default_disk_owner_uid, default_disk_owner_gid)
+                created.append(path)
+                volume_list.append(volume(path))
+            else:
+                for vol, (device, bus) in zip(data["images"].split(","), data["devices"]):
+                    volume_list.append(volume(conn.get_volume_path(vol), device, bus))
+
+            ctx.set_phase(gettext_noop("Defining the VM"))
+            conn.create_instance(
+                name=data["name"],
+                memory=data["memory"],
+                vcpu=data["vcpu"],
+                vcpu_mode=data["vcpu_mode"],
+                uuid=op.intent["uuid"],
+                arch=data["arch"],
+                machine=data["machine"],
+                firmware=firmware,
+                volumes=volume_list,
+                networks=data["networks"],
+                virtio=data["virtio"],
+                listener_addr=data["listener_addr"],
+                nwfilter=data["nwfilter"],
+                net_model="virtio" if data["net_model"] == "default" else data["net_model"],
+                video=data["video"],
+                console_pass="",
+                mac=data["mac"],
+                qemu_ga=data["qemu_ga"],
+                add_cdrom=data["add_cdrom"],
+                add_input=data["add_input"],
+            )
+        except Exception as err:
+            # the VM is not defined: its new volumes go
+            leftovers = []
+            for path in created:
+                try:
+                    conn.delete_volume(path)
+                except libvirtError:
+                    leftovers.append(path)
+            if leftovers:
+                raise util.OperationError(f"{err}. Remove these volumes by hand: {', '.join(leftovers)}") from err
+            raise
+        record_vm(op, owner=False)
+        return {}
+
+    def reconcile(self, op):
+        data = op.params
+        names = [data["name"] + ext for ext in ("", ".img", ".qcow", ".qcow2")]
+        return vm_outcome(op, owner=False, volumes=names if data["hdd_size"] or data["template"] else [])
+
+    def log_entry(self, op, state):
+        compute, _sep, name = op.resource_label.rpartition("/")
+        message = "Instance is created"
+        return compute, name, message if state == Operation.SUCCEEDED else f"{message} ({state})"

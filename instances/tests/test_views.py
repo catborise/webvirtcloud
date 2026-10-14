@@ -13,7 +13,10 @@ from django.test import RequestFactory, TestCase
 from vrtManager.create import wvmCreate
 from vrtManager.util import randomUUID
 
+from operations.models import Operation
+
 from . import livetest
+from .test_create_instance import run
 from instances.models import Flavor, Instance
 from instances.utils import refr
 
@@ -193,15 +196,16 @@ class InstancesTestCase(TestCase):
                 "graphics": "vnc",
                 "video": "vga",
                 "listener_addr": "0.0.0.0",
-                "console_pass": "",
                 "qemu_ga": False,
                 "virtio": True,
                 "add_cdrom": "None",
                 "add_input": "None",
                 "create": True,
+                "submission_key": "key-create-destroy",
             },
         )
         self.assertEqual(response.status_code, 302)
+        run(Operation.objects.get(kind="instance.create"))
 
         instance_qs: Instance = Instance.objects.filter(name="wvc-test-new")
         self.assertEqual(len(instance_qs), 1)

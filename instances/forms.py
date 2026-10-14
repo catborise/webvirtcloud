@@ -58,7 +58,6 @@ class NewVMForm(forms.ModelForm):
     # virtio = forms.BooleanField(required=False)
     # qemu_ga = forms.BooleanField(required=False)
     # mac = forms.CharField(required=False)
-    # console_pass = forms.CharField(required=False, empty_value="", widget=forms.PasswordInput())
     # graphics = forms.CharField(error_messages={'required': _('Please select a graphics type')})
     # video = forms.CharField(error_messages={'required': _('Please select a video driver')})
     # listener_addr = forms.ChoiceField(required=True, widget=forms.RadioSelect, choices=QEMU_CONSOLE_LISTENER_ADDRESSES)

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% load i18n %}
 {% load static %}
+{% load operations %}
 {% load bootstrap_icons %}
 {% block title %}{% trans "Create new instance" %}{% endblock %}
 
@@ -97,7 +98,7 @@
                                                             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                                                         </div>
                                                         <div class="modal-body">
-                                                            <form method="post" role="form" aria-label="Create instance from flavor form">{% csrf_token %}
+                                                            <form method="post" role="form" aria-label="Create instance from flavor form">{% csrf_token %}{% submission_key %}
                                                                 <div class="row">
                                                                     <label class="col-sm-4 col-form-label">{% trans "Name" %}</label>
                                                                     <div class="col-sm-7">
@@ -241,12 +242,6 @@
                                                                         </div>
                                                                     </div>
                                                                     <div class="row">
-                                                                        <label class="col-sm-4 col-form-label">{% trans "Console Password" %}</label>
-                                                                        <div class="col-sm-7">
-                                                                            <input class="form-control" type="password" name="console_pass" placeholder="{% trans "Console Password" %}" maxlength="64">
-                                                                        </div>
-                                                                    </div>
-                                                                    <div class="row">
                                                                         <label class="col-sm-4 col-form-label">{% trans "Add CD-Rom" %}</label>
                                                                         <div class="col-sm-7">
                                                                             <select class="form-select" id="add_cdrom" name="add_cdrom">
@@ -323,7 +318,7 @@
 
             <div role="tabpanel" class="tab-pane tab-pane-bordered" id="addCustom">
                 <div>
-                    <form method="post" role="form" aria-label="Create custom instance form">{% csrf_token %}
+                    <form method="post" role="form" aria-label="Create custom instance form">{% csrf_token %}{% submission_key %}
                     <div class="row">
                         <label class="col-sm-3 col-form-label">{% trans "Name" %}</label>
                         <div class="col-sm-7">
@@ -494,12 +489,6 @@
                             </div>
                         </div>
                         <div class="row">
-                            <label class="col-sm-3 col-form-label">{% trans "Console Password" %}</label>
-                            <div class="col-sm-7">
-                                <input type="password" class="form-control" name="console_pass" placeholder="{% trans "Console Password" %}" maxlength="64">
-                            </div>
-                        </div>
-                        <div class="row">
                             <label class="col-sm-3 col-form-label">{% trans "Add CD-Rom" %}</label>
                             <div class="col-sm-7">
                                 <select class="form-select" id="add_cdrom" name="add_cdrom">
@@ -543,7 +532,7 @@
                     <div class="row">
                         <div class="d-grid col-sm-7 offset-3">
                         {% if storages %}
-                            <button type="submit" class="btn btn-primary" name="create" formnovalidate onclick="showPleaseWaitDialog()" value="1">
+                            <button type="submit" class="btn btn-primary" name="create" formnovalidate value="1">
                                 {% trans "Create" %}
                             </button>
                         {% else %}
@@ -560,7 +549,7 @@
 
             <div role="tabpanel" class="tab-pane tab-pane-bordered" id="add-from-temp">
                 <div>
-                    <form method="post" role="form" aria-label="Create instance from template form">{% csrf_token %}
+                    <form method="post" role="form" aria-label="Create instance from template form">{% csrf_token %}{% submission_key %}
                         <div class="row">
                             <label class="col-sm-3 col-form-label">{% trans "Name" %}</label>
                             <div class="col-sm-7">
@@ -734,12 +723,6 @@
                                 </div>
                             </div>
                             <div class="row">
-                                <label class="col-sm-3 col-form-label">{% trans "Console Password" %}</label>
-                                <div class="col-sm-7">
-                                    <input type="password" class="form-control" name="console_pass" placeholder="{% trans "Console Password" %}" maxlength="64">
-                                </div>
-                            </div>
-                            <div class="row">
                                 <label class="col-sm-3 col-form-label">{% trans "Add CD-Rom" %}</label>
                                 <div class="col-sm-7">
                                     <select class="form-select" id="add_cdrom" name="add_cdrom">
@@ -783,7 +766,7 @@
                         <div class="row">
                             <div class="d-grid col-sm-7 offset-3">
                             {% if storages %}
-                                <button type="submit" class="btn btn-primary" name="create" value="1" formnovalidate onclick="showPleaseWaitDialog()">
+                                <button type="submit" class="btn btn-primary" name="create" value="1" formnovalidate>
                                     {% trans "Create" %}
                                 </button>
                             {% else %}

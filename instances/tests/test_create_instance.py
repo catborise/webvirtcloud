@@ -1,39 +1,61 @@
 """Regression tests for the instance creation request."""
 
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from computes.models import Compute
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from instances.api.serializers import CreateInstanceSerializer
+from instances.jobs import CreateInstance
 from instances.models import Instance
 from instances.utils import nic_macs
+from operations.jobs import Context
+from operations.models import Operation, acquire
 
 
+wvm_create = MagicMock()  # the page and the job reach the same host
+
+
+def run(op):
+    """The queued job, run as the worker runs it."""
+    acquire("wvc-test:1:a", "wvc-test")
+    Operation.objects.filter(pk=op.pk).update(state=Operation.RUNNING, worker="wvc-test:1:a")
+    op.refresh_from_db()
+    CreateInstance().run(op, Context(op, SimpleNamespace(identity="wvc-test:1:a")))
+
+
+@patch("instances.jobs.wvmCreate", new=wvm_create)
 class CreateInstanceViewTests(TestCase):
-    @patch("instances.views.wvmCreate")
+    @patch("instances.views.wvmCreate", new=wvm_create)
     @patch("instances.views.NewVMForm")
-    def test_successful_create_redirects_after_saving_instance(self, form_class, connection_class):
-        response, conn = self.create(form_class, connection_class)
+    def test_successful_create_redirects_to_the_compute_instances_with_a_queued_job(self, form_class):
+        response, conn = self.create(form_class)
 
-        instance = Instance.objects.get(name="new-vm")
         self.assertRedirects(
-            response, reverse("instances:instance", args=[instance.id]),
+            response, reverse("instances", args=[Compute.objects.get().id]),
             fetch_redirect_response=False,
         )
+        op = Operation.objects.get()
+        self.assertEqual((op.kind, op.state), ("instance.create", Operation.QUEUED))
+        conn.create_instance.assert_not_called()
+        run(op)
         conn.create_instance.assert_called_once()
+        self.assertEqual(conn.create_instance.call_args.kwargs["volumes"][0]["bus"], "virtio")
+        self.assertTrue(Instance.objects.filter(name="new-vm").exists())
 
-    @patch("instances.views.wvmCreate")
+    @patch("instances.views.wvmCreate", new=wvm_create)
     @patch("instances.views.NewVMForm")
-    def test_secure_boot_loader_on_q35_requests_secure_boot(self, form_class, connection_class):
-        self.create(form_class, connection_class, firmware="UEFI x86_64: /usr/share/edk2/ovmf/OVMF_CODE.secboot.fd")
-        firmware = connection_class.return_value.create_instance.call_args.kwargs["firmware"]
+    def test_secure_boot_loader_on_q35_requests_secure_boot(self, form_class):
+        _, conn = self.create(form_class, firmware="UEFI x86_64: /usr/share/edk2/ovmf/OVMF_CODE.secboot.fd")
+        run(Operation.objects.get())
+        firmware = conn.create_instance.call_args.kwargs["firmware"]
         self.assertEqual(firmware["secure"], "yes")
 
-    @patch("instances.views.wvmCreate")
+    @patch("instances.views.wvmCreate", new=wvm_create)
     @patch("instances.views.NewVMForm")
-    def test_invalid_devices_are_refused_before_anything_is_created(self, form_class, connection_class):
+    def test_invalid_devices_are_refused_before_anything_is_created(self, form_class):
         for data in (
             {"add_cdrom": "virtio"},  # no ejectable media
             {"add_cdrom": "fdc"},
@@ -43,14 +65,13 @@ class CreateInstanceViewTests(TestCase):
         ):
             with self.subTest(data):
                 Instance.objects.all().delete()
-                response, conn = self.create(form_class, connection_class, **data)
+                response, conn = self.create(form_class, **data)
                 self.assertEqual(response.status_code, 200)
-                self.assertFalse(Instance.objects.exists())
+                self.assertFalse(Operation.objects.exists())
                 conn.create_volume.assert_not_called()
                 conn.create_instance.assert_not_called()
-                connection_class.reset_mock()
 
-    def create(self, form_class, connection_class, **data):
+    def create(self, form_class, **data):
         user = get_user_model().objects.filter(username="create-test-admin").first() or (
             get_user_model().objects.create_superuser(
                 username="create-test-admin", password="password", email="create@example.com"
@@ -61,7 +82,8 @@ class CreateInstanceViewTests(TestCase):
             name="create-test-compute", hostname="localhost", type=4,
             login="", password="",
         )
-        conn = connection_class.return_value
+        wvm_create.reset_mock()
+        conn = wvm_create.return_value
         conn.get_instances.return_value = []
         conn.get_video_models.return_value = ["vga"]
         conn.get_cache_modes.return_value = {"default": "Default"}
@@ -86,7 +108,7 @@ class CreateInstanceViewTests(TestCase):
             "firmware": "BIOS", "net_model": "virtio", "memory": 1024,
             "vcpu": 1, "vcpu_mode": "host-model", "networks": "default",
             "virtio": True, "listener_addr": "0.0.0.0", "nwfilter": "",
-            "graphics": "vnc", "video": "vga", "console_pass": "",
+            "graphics": "vnc", "video": "vga",
             "mac": "52:54:00:00:00:01", "qemu_ga": False,
             "add_cdrom": "sata", "add_input": "default",
             **data,
@@ -94,7 +116,7 @@ class CreateInstanceViewTests(TestCase):
 
         response = self.client.post(
             reverse("instances:create_instance", args=[compute.id, "x86_64", "q35"]),
-            {"create": "1"},
+            {"create": "1", "device0": "disk", "bus0": "virtio", "submission_key": "key-create01"},
         )
         return response, conn
 
@@ -140,7 +162,7 @@ class NicMacsTestCase(TestCase):
             "name": "api-vm", "vcpu": 1, "vcpu_mode": "host-model", "memory": 512,
             "networks": "default", "mac": "52:54:00:00:00:01,52:54:00:00:00:02", "nwfilter": "",
             "storage": "default", "hdd_size": 1, "cache_mode": "none", "meta_prealloc": False,
-            "virtio": True, "qemu_ga": True, "console_pass": "", "video": "vga", "listener_addr": "0.0.0.0",
+            "virtio": True, "qemu_ga": True, "video": "vga", "listener_addr": "0.0.0.0",
         })
         self.assertFalse(serializer.is_valid())
         self.assertIn("mac", serializer.errors)

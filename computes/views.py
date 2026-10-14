@@ -8,6 +8,7 @@ from django.urls import reverse
 from django.utils import timezone
 from instances.models import Instance
 from libvirt import libvirtError
+from operations import claims
 from vrtManager.connection import wvmConnect
 from vrtManager.hostdetails import wvmHostDetails
 
@@ -80,7 +81,8 @@ def instances(request, compute_id):
     )
 
     return render(
-        request, "computes/instances.html", {"compute": compute, "instances": instances}
+        request, "computes/instances.html",
+        {"compute": compute, "instances": instances, "job_resource": claims.compute_key(compute.id)},
     )
 
 
