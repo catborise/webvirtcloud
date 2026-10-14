@@ -601,6 +601,7 @@ When the restored version predates the worker, `supervisorctl` reports that `web
 - A storage volume a VM still needs (a disk, a backing file or a snapshot's file) is no longer deleted from the storage page or the API; the delete is refused with the reason. Only VMs on the same compute are checked.
 - Docker no longer publishes port 6080; the console goes through nginx on the panel's port (`WS_PUBLIC_PORT`, default 80).
 - Long operations run as jobs in a worker process (`manage.py run_worker`); follow them on the VM page and on the Jobs page.
+- Cloning a VM or a volume and creating a VM run as jobs: the page returns at once and the job panel follows them. The API's VM create answers 202 with the job and needs a new `submission_key` per request. The create form no longer takes a console password; set it on the VM page.
 - Manual installs that keep their own `settings.py` copy the SQLite `OPTIONS` and `TEST` entries from `settings.py.template` and add `"operations"` to `INSTALLED_APPS`.
 - The SQLite database must be on a local file system (WAL).
 - Outside compose, stop the Docker container with `docker stop -t 95` so the worker can finish running jobs.
