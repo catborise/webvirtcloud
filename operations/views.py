@@ -45,6 +45,7 @@ def jobs(request):
     return render(request, "operations/jobs.html",
                   {"page": page, "rows": rows, "worker_last_seen": seen, "worker_unavailable": unavailable,
                    "filters": request.GET, "active_states": Operation.ACTIVE,
+                   "follow": any(op.state in Operation.ACTIVE for op in page.object_list),
                    "states": Operation.ACTIVE + Operation.TERMINAL,
                    "kinds": sorted((name, _(kind.label)) for name, kind in jobs_module.KINDS.items()),
                    "page_query": urlencode({k: v for k, v in request.GET.items() if k != "page"})})
@@ -55,7 +56,8 @@ def job(request, pk):
     kind = jobs_module.KINDS.get(op.kind)
     return render(request, "operations/job.html",
                   {"job": OperationSerializer(op, context={"request": request}).data, "op": op,
-                   "progress_bytes": kind is not None and kind.progress_bytes})
+                   "progress_bytes": kind is not None and kind.progress_bytes,
+                   "follow": op.state in Operation.ACTIVE})
 
 
 @require_POST

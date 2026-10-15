@@ -92,3 +92,6 @@
     </div>
 </div>
 {% endblock %}
+{% block script %}
+    {% if follow %}{% include "operations/follow_active.html" %}{% endif %}
+{% endblock script %}
