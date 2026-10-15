@@ -21,6 +21,8 @@ from django.db import close_old_connections
 from django.utils import timezone
 from django.utils.translation import gettext_noop
 
+from appsettings.settings import get_settings
+
 from . import claims, jobs, utils
 from .models import Claim, LeaseLost, Operation, acquire, fenced, renew
 
@@ -272,6 +274,7 @@ def execute(worker, op_id):
     op = Operation.objects.get(pk=op_id)
     kind = jobs.get_kind(op.kind)
     ctx = jobs.Context(op, worker)
+    get_settings()  # the Settings page values; only requests load them otherwise (middleware)
     try:
         with claims.adopted(op):
             kind.precheck(op, ctx)
