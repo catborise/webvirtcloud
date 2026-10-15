@@ -5,7 +5,6 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from instances.models import Flavor, Instance
-from instances.utils import migrate_instance
 from instances.views import destroy as instance_destroy
 from instances.views import (
     force_off,
@@ -184,22 +183,17 @@ class MigrateViewSet(viewsets.ViewSet):
     serializer_class = MigrateSerializer
     queryset = ""
 
-    @extend_schema(responses=StatusSerializer)
+    @extend_schema(responses={202: OperationSerializer, 400: dict})
     def create(self, request):
         serializer = MigrateSerializer(data=request.data)
-        if serializer.is_valid():
-            instance = serializer.validated_data["instance"]
-            target_host = serializer.validated_data["target_compute"]
-            options = {
-                name: serializer.validated_data.get(name, False)
-                for name in ("live", "unsafe", "offline", "autoconverge", "compress")
-            }
-            # migrate_instance logs the outcome; it returns when it is done
-            mode = migrate_instance(target_host, instance, request.user, **options)
-
-            return Response({"status": f"instance is migrated ({mode})"})
-        else:
+        if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+        raw = {"instance": data["instance"].pk, "target": data["target_compute"].pk,
+               **{name: data.get(name, False) for name in ("live", "unsafe", "offline", "autoconverge", "compress")}}
+        op = jobs.submit("instance.migrate", request.user, raw, data["submission_key"])
+        return Response(OperationSerializer(op, context={"request": request}).data, status=status.HTTP_202_ACCEPTED,
+                        headers={"Location": reverse("operation-detail", args=[op.pk])})
 
 
 class FlavorViewSet(viewsets.ModelViewSet):

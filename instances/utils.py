@@ -5,13 +5,11 @@ import string
 
 from accounts.models import UserInstance, UserAttributes
 from appsettings.settings import app_settings
-from computes.utils import libvirt_compute_lock
 from django.conf import settings
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from libvirt import libvirtError
 from logs.views import addlogmsg
-from vrtManager import util
 from vrtManager.instance import wvmInstance, wvmInstances
 
 from .models import Instance
@@ -167,101 +165,89 @@ def migrate_instance(
 ):
     """Migrates instance to new_compute and logs the outcome (the mode
     used, or the error). Returns the mode."""
-    if new_compute == instance.compute:
-        raise util.OperationError(_("The instance is already on %(compute)s") % {"compute": new_compute.name})
-    if not new_compute.status:
-        raise util.OperationError(_("%(compute)s is not reachable") % {"compute": new_compute.name})
     source = instance.compute
-    c1, c2 = (source, new_compute) if source.id < new_compute.id else (new_compute, source)
-    with libvirt_compute_lock(c1):
-        with libvirt_compute_lock(c2):
-            # another request may have moved it while this one waited (its
-            # record may then be gone, merged into one on the destination)
-            current = Instance.objects.filter(id=instance.id).first()
-            if current is None or current.compute_id != source.id:
-                raise util.OperationError(_("The instance is no longer on %(compute)s") % {"compute": source.name})
-            conn_migrate = None
-            try:
-                conn_migrate = wvmInstances(
-                    new_compute.hostname,
-                    new_compute.login,
-                    new_compute.password,
-                    new_compute.type,
-                )
+    conn_migrate = None
+    try:
+        conn_migrate = wvmInstances(
+            new_compute.hostname,
+            new_compute.login,
+            new_compute.password,
+            new_compute.type,
+        )
 
-                autostart = instance.proxy.get_autostart()
-                nvram = instance.proxy.get_nvram()
-                mode = conn_migrate.moveto(
-                    instance.proxy,
-                    instance.name,
-                    live,
-                    unsafe,
-                    offline,
-                    autoconverge,
-                    compress,
-                    uri=new_compute.migration_uri,
-                    timeout=MIGRATION_TIME_LIMIT,
-                )
-            except Exception as error:
-                msg = _("Instance migration to %(target)s failed: %(error)s") % {
-                    "target": migration_target(new_compute),
-                    "error": error,
-                }
-                addlogmsg(user.username, source.hostname, instance.name, msg)
-                raise
-            finally:
-                if conn_migrate is not None:
-                    conn_migrate.close()
+        autostart = instance.proxy.get_autostart()
+        nvram = instance.proxy.get_nvram()
+        mode = conn_migrate.moveto(
+            instance.proxy,
+            instance.name,
+            live,
+            unsafe,
+            offline,
+            autoconverge,
+            compress,
+            uri=new_compute.migration_uri,
+            timeout=MIGRATION_TIME_LIMIT,
+        )
+    except Exception as error:
+        msg = _("Instance migration to %(target)s failed: %(error)s") % {
+            "target": migration_target(new_compute),
+            "error": error,
+        }
+        addlogmsg(user.username, source.hostname, instance.name, msg)
+        raise
+    finally:
+        if conn_migrate is not None:
+            conn_migrate.close()
 
-            # The VM runs on new_compute now: what follows must not stop it
-            # from being recorded there.
-            msg = _("Instance is migrated(%(mode)s) to %(target)s") % {
-                "mode": mode,
-                "target": migration_target(new_compute),
+    # The VM runs on new_compute now: what follows must not stop it
+    # from being recorded there.
+    msg = _("Instance is migrated(%(mode)s) to %(target)s") % {
+        "mode": mode,
+        "target": migration_target(new_compute),
+    }
+    if autostart:
+        conn_new = None
+        try:
+            conn_new = wvmInstance(
+                new_compute.hostname,
+                new_compute.login,
+                new_compute.password,
+                new_compute.type,
+                instance.name,
+                uuid=instance.uuid,
+            )
+            conn_new.set_autostart(1)
+        except (libvirtError, OSError) as error:
+            msg = _("%(msg)s; setting its autostart there failed: %(error)s") % {"msg": msg, "error": error}
+        finally:
+            if conn_new is not None:
+                conn_new.close()
+
+    # libvirt keeps the NVRAM file on the source; a VM created there
+    # later with the same name would start with these variables.
+    if nvram:
+        conn_new = None
+        try:
+            conn_new = wvmInstances(
+                new_compute.hostname, new_compute.login, new_compute.password, new_compute.type
+            )
+            instance.proxy.remove_nvram(nvram, conn_new)
+        except Exception as error:  # the migration stands and is recorded
+            msg = _("%(msg)s; removing its NVRAM file %(path)s on the source failed: %(error)s") % {
+                "msg": msg,
+                "path": nvram,
+                "error": error,
             }
-            if autostart:
-                conn_new = None
-                try:
-                    conn_new = wvmInstance(
-                        new_compute.hostname,
-                        new_compute.login,
-                        new_compute.password,
-                        new_compute.type,
-                        instance.name,
-                        uuid=instance.uuid,
-                    )
-                    conn_new.set_autostart(1)
-                except (libvirtError, OSError) as error:
-                    msg = _("%(msg)s; setting its autostart there failed: %(error)s") % {"msg": msg, "error": error}
-                finally:
-                    if conn_new is not None:
-                        conn_new.close()
+        finally:
+            if conn_new is not None:
+                conn_new.close()
 
-            # libvirt keeps the NVRAM file on the source; a VM created there
-            # later with the same name would start with these variables.
-            if nvram:
-                conn_new = None
-                try:
-                    conn_new = wvmInstances(
-                        new_compute.hostname, new_compute.login, new_compute.password, new_compute.type
-                    )
-                    instance.proxy.remove_nvram(nvram, conn_new)
-                except Exception as error:  # the migration stands and is recorded
-                    msg = _("%(msg)s; removing its NVRAM file %(path)s on the source failed: %(error)s") % {
-                        "msg": msg,
-                        "path": nvram,
-                        "error": error,
-                    }
-                finally:
-                    if conn_new is not None:
-                        conn_new.close()
-
-            try:
-                record_migration(instance, new_compute)
-            except Exception as error:
-                failed = _("%(msg)s, but recording it failed: %(error)s") % {"msg": msg, "error": error}
-                addlogmsg(user.username, source.hostname, instance.name, failed)
-                raise
+    try:
+        record_migration(instance, new_compute)
+    except Exception as error:
+        failed = _("%(msg)s, but recording it failed: %(error)s") % {"msg": msg, "error": error}
+        addlogmsg(user.username, source.hostname, instance.name, failed)
+        raise
 
     addlogmsg(user.username, source.hostname, instance.name, msg)
     return mode
