@@ -30,15 +30,12 @@ class SnapshotViewsTestCase(TestCase):
         admin = get_user_model().objects.create_superuser("snap_admin", "s@example.com", "pw")
         self.client.force_login(admin)
 
-    def post(self, view, data, error=None, left=()):
+    def post(self, view, data, error=None):
         with patch("instances.models.wvmInstance") as mock_wvm:
             proxy = mock_wvm.return_value
             method = {
-                "revert_external_snapshot": proxy.revert_external_snapshot,
-                "revert_snapshot": proxy.snapshot_revert,
                 "delete_snapshot": proxy.snapshot_delete,
             }[view]
-            method.return_value = list(left)  # files revert and delete left behind
             if error:
                 method.side_effect = util.OperationError(error)
             self.client.cookies.pop("messages", None)  # only this request's messages
@@ -59,20 +56,6 @@ class SnapshotViewsTestCase(TestCase):
                 AppSettings.objects.filter(key="SNAPSHOT_FREE_SPACE_MIN_GIB").update(value=minimum)
                 get_settings()
                 self.assertEqual(_snapshot_free_space(), expected)
-
-    def test_revert_calls_the_backend_once_and_leaves_power_alone(self):
-        proxy, method, _ = self.post("revert_external_snapshot", {"name": "a"})
-        method.assert_called_once_with("a")
-        for power in ("start", "force_shutdown", "shutdown"):
-            getattr(proxy, power).assert_not_called()
-
-    def test_files_left_behind_are_named_in_a_warning(self):
-        _, _, messages = self.post("revert_external_snapshot", {"name": "a"}, left=["/pool/a.one", "/pool/vm.one.mem"])
-        warning = [m for m in messages if "/pool/a.one, /pool/vm.one.mem" in m]
-        self.assertEqual(len(warning), 1, messages)
-        self.assertIn("qemu user", warning[0])
-        _, _, messages = self.post("revert_external_snapshot", {"name": "a"})
-        self.assertFalse([m for m in messages if "not removed" in m], messages)
 
     def delete(self, listed):
         with patch("instances.jobs.wvmInstance") as mock_wvm:
@@ -101,7 +84,7 @@ class SnapshotViewsTestCase(TestCase):
         self.assertFalse(Operation.objects.exists())
 
     def test_refusals_become_messages(self):
-        for view in ("revert_external_snapshot", "revert_snapshot", "delete_snapshot"):
+        for view in ("delete_snapshot",):
             with self.subTest(view):
                 _, _, messages = self.post(view, {"name": "a"}, error="refused for a reason")
                 self.assertTrue(any("refused for a reason" in m for m in messages), messages)

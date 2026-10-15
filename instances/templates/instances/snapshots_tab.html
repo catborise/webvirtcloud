@@ -102,7 +102,7 @@
                                     <td>{{ snap.description }}</td>
                                     <td style="width:30px;">
                                         <form action="{% url 'instances:revert_snapshot' instance.id %}" method="post" role="form" aria-label="Restore snapshot form">
-                                            {% csrf_token %}
+                                            {% csrf_token %}{% submission_key %}
                                             <input type="hidden" name="name" value="{{ snap.name }}">
                                             {% if instance.status == 5 %}
                                                 <button type="submit" class="btn btn-sm btn-primary" name="revert_snapshot" title="{% trans 'Revert to this Snapshot' %}" onclick="return confirm('{% trans "Are you sure?" %}')" {% if busy or held %}disabled{% endif %}>
@@ -152,7 +152,7 @@
                                     <td>{{ ext_snap.description }}</td>
                                     <td style="width:30px;">
                                         <form action="{% url 'instances:revert_external_snapshot' instance.id %}" method="post" role="form" aria-label="Restore external snapshot form">
-                                            {% csrf_token %}
+                                            {% csrf_token %}{% submission_key %}
                                             <input type="hidden" name="name" value="{{ ext_snap.name }}">
                                             <button type="submit" class="btn btn-sm btn-primary" name="revert_external_snapshot" title="{% trans 'Revert to this Snapshot' %}"
                                                     data-confirm="{% trans 'Revert to this snapshot? Changes made since it are lost.' %}{% if not ext_snap.memory %}{% if instance.status == 1 or instance.status == 3 %} {% trans "The VM is powered off and starts again from the snapshot's disks, as after a power cut." %}{% endif %}{% endif %}{% if ext_snap.detaches %} {% trans 'These disks are detached; their writes since the current snapshot are discarded and their files are kept:' %} {% for d in ext_snap.detaches %}{{ d.dev }} ({{ d.path }}){% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}{% if instance.nvram %} {% trans 'Firmware variables (NVRAM) are not restored.' %}{% endif %}"
