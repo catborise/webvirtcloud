@@ -77,9 +77,9 @@ def _recovery_proxy(op):
         raise  # unreachable: recovery waits and retries
 
 
-def _libvirt_busy(proxy):
+def _libvirt_busy(dom):
     """libvirt still runs a job on the VM that the worker no longer waits for."""
-    return proxy.instance.isActive() and proxy.instance.jobInfo()[0] != VIR_DOMAIN_JOB_NONE
+    return dom.isActive() and dom.jobInfo()[0] != VIR_DOMAIN_JOB_NONE
 
 
 def _log(op, state, message):
@@ -326,7 +326,7 @@ class CreateSnapshot(Kind):
         proxy = _recovery_proxy(op)
         if proxy is None:
             return Outcome(Operation.UNCERTAIN, error=GONE)
-        if _libvirt_busy(proxy):
+        if _libvirt_busy(proxy.instance):
             return Outcome(Operation.RUNNING, phase=gettext_noop("libvirt is still taking the snapshot"))
         if op.params["name"] in proxy.instance.snapshotListNames(0):
             return Outcome(Operation.SUCCEEDED)
@@ -378,7 +378,7 @@ class RevertSnapshot(Kind):
         proxy = _recovery_proxy(op)
         if proxy is None:
             return Outcome(Operation.UNCERTAIN, error=GONE)
-        if _libvirt_busy(proxy):
+        if _libvirt_busy(proxy.instance):
             return Outcome(Operation.RUNNING, phase=gettext_noop("libvirt is still reverting the VM"))
         if _current(proxy) == op.params["name"] != op.intent.get("was_current"):
             return Outcome(Operation.SUCCEEDED)
@@ -580,3 +580,85 @@ class CreateInstance(Kind):
         compute, _sep, name = op.resource_label.rpartition("/")
         message = "Instance is created"
         return compute, name, message if state == Operation.SUCCEEDED else f"{message} ({state})"
+
+
+MIGRATE_OPTIONS = ("live", "unsafe", "offline", "autoconverge", "compress")
+
+
+def _target(instance, target_pk):
+    """The destination; refused when the VM is already there or it cannot be reached."""
+    target = Compute.objects.get(pk=target_pk)
+    if target.pk == instance.compute_id:
+        raise util.OperationError(_("The instance is already on %(compute)s") % {"compute": target.name})
+    if not target.status:
+        raise util.OperationError(_("%(compute)s is not reachable") % {"compute": target.name})
+    return target
+
+
+def _domain(compute_pk, uuid):
+    """The VM on the compute, or None when it has none there."""
+    c = Compute.objects.get(pk=compute_pk)
+    try:
+        return wvmConnect(c.hostname, c.login, c.password, c.type).wvm.lookupByUUIDString(uuid)
+    except libvirtError as err:
+        if err.get_error_code() != VIR_ERR_NO_DOMAIN:
+            raise  # unreachable: recovery waits and retries
+        return None
+
+
+@register
+class MigrateInstance(Kind):
+    name = "instance.migrate"
+    label = gettext_noop("Migrate VM")
+
+    def normalize(self, raw):
+        return {"instance": int(raw["instance"]), "target": int(raw["target"]),
+                **{k: bool(raw.get(k)) for k in MIGRATE_OPTIONS}}
+
+    def validate(self, user, params):
+        if not user.is_superuser:
+            raise PermissionDenied
+        _target(_instance(params["instance"]), params["target"])
+
+    def plan(self, user, params):
+        instance = _instance(params["instance"])
+        keys = vm_claims(Compute.objects.get(pk=params["target"]), instance.name)
+        keys.update({claims.compute_key(instance.compute_id): Claim.SHARED,
+                     claims.reconcile_key(instance.compute_id): Claim.EXCLUSIVE,
+                     claims.instance_key(instance.uuid): Claim.EXCLUSIVE})
+        return Plan(claims=keys, resource=claims.instance_key(instance.uuid),
+                    label=f"{instance.compute.name}/{instance.name}",
+                    intent={"compute": instance.compute_id, "uuid": instance.uuid})
+
+    def precheck(self, op, ctx):
+        if op.user is None or not op.user.is_active or not op.user.is_superuser:
+            raise PermissionDenied
+        instance = _instance(op.params["instance"])
+        if instance.compute_id != op.intent["compute"]:
+            raise util.OperationError("The VM moved to another compute after the job was queued")
+        _target(instance, op.params["target"])
+
+    def run(self, op, ctx):
+        p = op.params
+        instance = _instance(p["instance"])
+        ctx.record_intent()
+        ctx.set_phase(gettext_noop("Migrating the VM"))
+        # migrate_instance logs the outcome
+        utils.migrate_instance(Compute.objects.get(pk=p["target"]), instance, op.user,
+                               **{k: p[k] for k in MIGRATE_OPTIONS})
+        return {}
+
+    def reconcile(self, op):
+        source = _domain(op.intent["compute"], op.intent["uuid"])
+        dest = _domain(op.params["target"], op.intent["uuid"])
+        if source is not None and _libvirt_busy(source):
+            return Outcome(Operation.RUNNING, phase=gettext_noop("libvirt is still migrating the VM"))
+        if source is None and dest is not None:
+            instance = Instance.objects.filter(pk=op.params["instance"], compute_id=op.intent["compute"]).first()
+            if instance is not None:  # the job stopped before it moved the record
+                utils.record_migration(instance, Compute.objects.get(pk=op.params["target"]))
+            return Outcome(Operation.SUCCEEDED)
+        if source is not None and dest is None:
+            return Outcome(Operation.FAILED, error="The VM stayed on the source host")
+        return Outcome(Operation.UNCERTAIN, error="The VM is on both computes or on neither; "
+                                                  "check them, then resolve this job.")

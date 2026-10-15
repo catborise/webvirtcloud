@@ -723,30 +723,24 @@ def destroy(request, pk):
 @require_POST
 @superuser_only
 def migrate(request, pk):
-    instance = get_instance(request.user, pk)
-
+    get_instance(request.user, pk)
     compute_id = request.POST.get("compute_id", "")
-    live = request.POST.get("live_migrate", False)
-    unsafe = request.POST.get("unsafe_migrate", False)
-    offline = request.POST.get("offline_migrate", False)
-    autoconverge = request.POST.get("autoconverge", False)
-    compress = request.POST.get("compress", False)
-
     if not compute_id.isdigit():
         raise Http404
     target_host = get_object_or_404(Compute, pk=compute_id)
-
+    raw = {"instance": pk, "target": target_host.pk, "live": request.POST.get("live_migrate"),
+           "unsafe": request.POST.get("unsafe_migrate"), "offline": request.POST.get("offline_migrate"),
+           "autoconverge": request.POST.get("autoconverge"), "compress": request.POST.get("compress")}
     try:
-        # migrate_instance logs the outcome
-        utils.migrate_instance(target_host, instance, request.user, live, unsafe, offline, autoconverge, compress)
+        op = jobs.submit("instance.migrate", request.user, raw, request.POST.get("submission_key", ""))
     except claims.Busy as busy:
-        return _busy(request, instance.id, busy)
-    except (libvirtError, OSError) as err:
-        messages.error(request, err)
-
-    return get_safe_redirect(
-        request, default=reverse("instances:instance", args=[instance.id])
-    )
+        return _busy(request, pk, busy)
+    except (jobs.SubmissionConflict, libvirtError) as err:
+        messages.error(request, error_text(request, err))
+    else:
+        messages.info(request, _("The VM is being migrated; follow it in the job panel."))
+        jobs.remember_job(request, op)
+    return get_safe_redirect(request, default=reverse("instances:instance", args=[pk]))
 
 
 GSTFSD_PORT = 16510

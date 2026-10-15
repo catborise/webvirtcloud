@@ -83,7 +83,7 @@ class ErrorHandlingTestCase(TestCase):
 
     def migrate(self, target_id, up=True):
         with patch("instances.models.wvmInstance"), patch.object(Compute, "status", up):
-            return self.client.post(self.url("migrate"), {"compute_id": target_id})
+            return self.client.post(self.url("migrate"), {"compute_id": target_id, "submission_key": "key-migrate01"})
 
     def test_migrate_to_a_down_host_is_reported_and_not_logged_as_done(self):
         target = Compute.objects.create(name="down", hostname="10.0.0.9", login="", password="", type=4)
@@ -122,7 +122,8 @@ class ApiErrorTestCase(TestCase):
         target = Compute.objects.create(name="api-down", hostname="10.0.0.9", login="", password="", type=4)
         with patch("instances.models.wvmInstance"), patch.object(Compute, "status", False):
             response = self.client.post(
-                reverse("instance-migrate-list"), {"instance": self.instance.id, "target_compute": target.id}
+                reverse("instance-migrate-list"), {"instance": self.instance.id, "target_compute": target.id,
+                                                "submission_key": "key-migrate02"}
             )
         self.assertEqual(response.status_code, 400)
         self.assertIn("not reachable", response.json()["detail"])

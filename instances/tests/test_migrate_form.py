@@ -10,6 +10,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from instances.models import Instance
+from operations.models import Operation
 from rest_framework.test import APIClient
 
 DOMAIN = """<domain type='test'><name>migrate-form-vm</name><memory unit='MiB'>128</memory><vcpu>1</vcpu>
@@ -55,10 +56,13 @@ class MigrateFormTests(TestCase):
         api = APIClient()
         api.force_authenticate(self.admin)
         request = {"instance": self.vm.id, "target_compute": self.other.id, "live": True, "offline": False}
-        with patch("instances.api.viewsets.migrate_instance", return_value="live") as migrate:
-            for encoding in ("json", "multipart"):
-                api.post("/api/v1/migrate/", request, format=encoding)
-            api.post("/api/v1/migrate/", {**request, "autoconverge": False}, format="json")
-            api.post("/api/v1/migrate/", {**request, "unsafe": True}, format="json")
-        self.assertEqual([c.kwargs["autoconverge"] for c in migrate.call_args_list], [True, True, False, True])
-        self.assertEqual([c.kwargs["unsafe"] for c in migrate.call_args_list], [False, False, False, True])
+        with patch("instances.api.viewsets.jobs.submit") as submit:
+            submit.return_value = Operation.objects.create(kind="instance.migrate", user=self.admin,
+                                                           username=self.admin.username, submission_key="key-api00000")
+            for n, encoding in enumerate(("json", "multipart"), 1):
+                api.post("/api/v1/migrate/", {**request, "submission_key": f"key-api0000{n}"}, format=encoding)
+            api.post("/api/v1/migrate/", {**request, "autoconverge": False, "submission_key": "key-api00003"},
+                     format="json")
+            api.post("/api/v1/migrate/", {**request, "unsafe": True, "submission_key": "key-api00004"}, format="json")
+        self.assertEqual([c.args[2]["autoconverge"] for c in submit.call_args_list], [True, True, False, True])
+        self.assertEqual([c.args[2]["unsafe"] for c in submit.call_args_list], [False, False, False, True])

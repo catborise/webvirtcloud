@@ -96,6 +96,7 @@ class MigrateSerializer(serializers.ModelSerializer):
     autoconverge = serializers.BooleanField(default=True)
     compress = serializers.BooleanField(default=False)
     unsafe = serializers.BooleanField(default=False)
+    submission_key = serializers.CharField(write_only=True)
 
     class Meta:
         model = MigrateInstance
@@ -107,4 +108,5 @@ class MigrateSerializer(serializers.ModelSerializer):
             "autoconverge",
             "compress",
             "unsafe",
+            "submission_key",
         ]

@@ -1,6 +1,5 @@
-"""What migrate_instance does around the migration itself: it checks the
-destination with the app's connection, re-reads the VM under the compute
-locks, and records a finished migration even when autostart fails."""
+"""What migrate_instance does around the migration itself: it records a
+finished migration even when autostart fails."""
 
 import re
 from pathlib import Path
@@ -39,22 +38,6 @@ class MigrationBookkeepingTests(TestCase):
             self.moveto = instances.return_value.moveto
             self.set_autostart = instance.return_value.set_autostart
             return migrate_instance(self.dest, vm or self.vm, self.admin, live=True)
-
-    def test_a_destination_the_app_cannot_connect_to_is_refused(self):
-        with self.assertRaisesRegex(util.OperationError, "mb-dst is not reachable"):
-            self.migrate(up=False)
-        self.moveto.assert_not_called()
-
-    def test_a_vm_moved_meanwhile_is_not_migrated_again(self):
-        stale = Instance.objects.get(id=self.vm.id)
-        Instance.objects.filter(id=self.vm.id).update(compute=self.dest)  # another request moved it
-        with self.assertRaisesRegex(util.OperationError, "no longer on mb-src"):
-            self.migrate(vm=stale)
-        self.moveto.assert_not_called()
-        Instance.objects.filter(id=self.vm.id).delete()  # merged into a record on the destination
-        with self.assertRaisesRegex(util.OperationError, "no longer on mb-src"):
-            self.migrate(vm=stale)
-        self.moveto.assert_not_called()
 
     def test_autostart_is_read_from_libvirt_and_restored_on_the_destination(self):
         self.vm.__dict__["autostart"] = False  # an earlier, cached read

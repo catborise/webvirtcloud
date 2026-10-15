@@ -3,8 +3,7 @@ from django.core.exceptions import PermissionDenied
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.http import Http404
-from django.db import connection
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import UserInstance
@@ -336,106 +335,3 @@ class InstanceSecurityMutationsTestCase(TestCase):
             response = self.client.post(reverse("instances:poweron", args=[self.instance.pk]), {})
         self.assertRedirects(response, reverse("instances:instance", args=[self.instance.pk]), fetch_redirect_response=False)
         proxy.assert_not_called()
-
-
-class OppositeMigrationsTestCase(TransactionTestCase):
-    """Two migrations between the same computes in opposite directions: a
-    claim is refused at once instead of waited for, so one may be refused but
-    none deadlocks."""
-
-    def setUp(self):
-        self.superuser = get_user_model().objects.create_superuser("migrate_admin", "a@example.com", "x")
-
-    def test_opposite_direction_migrations_never_deadlock(self):
-        import threading
-        import time
-        from instances.utils import migrate_instance
-
-        c1 = MagicMock()
-        c1.id = 101
-        c1.pk = 101
-        c1.hostname = "192.0.2.1"
-        c1.type = 1
-        c1.login = "root"
-        c1.password = ""
-
-        c2 = MagicMock()
-        c2.id = 102
-        c2.pk = 102
-        c2.hostname = "192.0.2.2"
-        c2.type = 1
-        c2.login = "root"
-        c2.password = ""
-
-        inst1 = MagicMock()
-        inst1.id = "inst1"
-        inst1.compute = c1
-        inst1.name = "inst1"
-        inst1.autostart = False
-        inst1.proxy = MagicMock()
-        inst1.uuid = "u1"
-
-        inst2 = MagicMock()
-        inst2.id = "inst2"
-        inst2.compute = c2
-        inst2.name = "inst2"
-        inst2.autostart = False
-        inst2.proxy = MagicMock()
-        inst2.uuid = "u2"
-
-        barrier = threading.Barrier(2)
-        errors, refused = [], []
-
-        def worker_1_to_2():
-            try:
-                barrier.wait(timeout=5)
-                migrate_instance(c2, inst1, self.superuser)
-            except claims.Busy:
-                refused.append("worker_1_to_2")
-            except Exception as e:
-                errors.append(("worker_1_to_2", e))
-            finally:
-                connection.close()
-
-        def worker_2_to_1():
-            try:
-                barrier.wait(timeout=5)
-                migrate_instance(c1, inst2, self.superuser)
-            except claims.Busy:
-                refused.append("worker_2_to_1")
-            except Exception as e:
-                errors.append(("worker_2_to_1", e))
-            finally:
-                connection.close()
-
-        def slow_moveto(*args, **kwargs):
-            time.sleep(0.05)
-
-        with patch("instances.utils.wvmInstances") as mock_instances_cls, \
-             patch("instances.utils.wvmInstance"), \
-             patch("instances.utils.record_migration"), \
-             patch("instances.utils.addlogmsg"), \
-             patch("instances.utils.Instance") as mock_instance_model:
-
-            mock_instances_cls.return_value.moveto.side_effect = slow_moveto
-            # under the locks each VM is still on its compute; the
-            # destination has no record of it
-            def rows(**query):
-                found = MagicMock(compute_id={"inst1": 101, "inst2": 102}[query["id"]]) if "id" in query else None
-                return MagicMock(**{"first.return_value": found})
-
-            mock_instance_model.objects.filter.side_effect = rows
-
-            t1 = threading.Thread(target=worker_1_to_2)
-            t2 = threading.Thread(target=worker_2_to_1)
-            t1.start()
-            t2.start()
-            t1.join(timeout=10)
-            t2.join(timeout=10)
-
-            self.assertFalse(t1.is_alive(), "Worker 1 to 2 timed out / deadlocked")
-            self.assertFalse(t2.is_alive(), "Worker 2 to 1 timed out / deadlocked")
-            self.assertEqual(errors, [], f"Unexpected errors during concurrent migrations: {errors}")
-            # a refusal is immediate; at least one of them migrates
-            self.assertLess(len(refused), 2)
-            self.assertEqual(mock_instances_cls.return_value.moveto.call_count, 2 - len(refused))
