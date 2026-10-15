@@ -13,6 +13,8 @@ from django.contrib.auth import get_user_model
 from django.db import OperationalError, connection
 from django.test import TransactionTestCase
 
+from appsettings.models import AppSettings
+from appsettings.settings import app_settings
 from operations import jobs
 from operations.models import Claim, Operation, WorkerLease
 from operations.tests import fakes
@@ -62,6 +64,18 @@ class WorkerTestCase(TransactionTestCase):
         self.start()
         self.assertTrue(wait_for(lambda: state(op) == Operation.SUCCEEDED))
         self.assertFalse(Claim.objects.exists())
+
+    def test_a_job_sees_the_settings_page_values(self):
+        # the worker has no settings middleware: it loads the values itself
+        AppSettings.objects.create(name="t", key="TEST_WORKER_VALUE", value="42", choices="")
+        if hasattr(app_settings, "TEST_WORKER_VALUE"):
+            del app_settings.TEST_WORKER_VALUE
+        op = self.submit("test.noop", {}, "key-00000009")
+        with patch.object(fakes.NoopKind, "run", lambda kind, op, ctx: {"value": app_settings.TEST_WORKER_VALUE}):
+            self.start()
+            self.assertTrue(wait_for(lambda: state(op) in Operation.TERMINAL))
+        op.refresh_from_db()
+        self.assertEqual((op.state, op.result), (Operation.SUCCEEDED, {"value": "42"}), op.error)
 
     def test_an_error_before_effects_fails_the_job(self):
         op = self.submit("test.scripted", {"fail_before": True}, "key-00000001")
