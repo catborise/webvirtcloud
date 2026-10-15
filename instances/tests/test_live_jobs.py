@@ -1,6 +1,8 @@
 """Live checks for the instance jobs: the worker runs them against libvirt
 and recovery reads the same outcome back. Runs only with TEST_LIBVIRT_HOST
-set (see instances/tests/livetest.py)."""
+set (see instances/tests/livetest.py). The migration needs a second host:
+TEST_LIBVIRT_SSH_HOST (and _LOGIN), with TEST_LIBVIRT_MIGRATE_ADDRESS as its
+migration address."""
 
 import os
 import time
@@ -138,3 +140,26 @@ class LiveJobsTestCase(TransactionTestCase):
             "video": "vga", "listener_addr": "127.0.0.1", "compute": self.compute.pk, "arch": "x86_64",
             "machine": "q35"}, "key-smoke003"))
         self.assertEqual(self.conn.lookupByUUIDString(op.intent["uuid"]).name(), P + "smoke-new")
+
+    def test_a_migration_runs_as_a_job_there_and_back(self):
+        if not os.environ.get("TEST_LIBVIRT_SSH_HOST"):
+            self.skipTest("Set TEST_LIBVIRT_SSH_HOST to a second host to run the live migration test")
+        dest = Compute.objects.create(name=P + "dest", hostname=os.environ["TEST_LIBVIRT_SSH_HOST"],
+                                      login=os.environ.get("TEST_LIBVIRT_SSH_LOGIN", "root"), password="", type=2,
+                                      migration_address=os.environ.get("TEST_LIBVIRT_MIGRATE_ADDRESS", ""))
+        dest_conn = connection_manager.get_connection(dest.hostname, dest.login, "", 2)
+        dest_inventory = livetest.inventory(dest_conn)
+        self.addCleanup(lambda: self.assertEqual(livetest.inventory(dest_conn), dest_inventory))
+        self.addCleanup(livetest.cleanup, dest_conn)
+        dom = livetest.define_vm(self.conn, P + "migrate", [])
+        dom.create()
+        uuid = dom.UUIDString()
+        instance = Instance.objects.create(compute=self.compute, name=dom.name(), uuid=uuid)
+        live = {"instance": instance.pk, "target": dest.pk, "live": True, "autoconverge": True}
+        self.run_job(jobs.submit("instance.migrate", self.admin, live, "key-mig00001"))
+        self.assertTrue(dest_conn.lookupByUUIDString(uuid).isActive())
+        dest_conn.lookupByUUIDString(uuid).destroy()
+        offline = {"instance": instance.pk, "target": self.compute.pk, "offline": True}
+        self.run_job(jobs.submit("instance.migrate", self.admin, offline, "key-mig00002"))
+        self.assertFalse(self.conn.lookupByUUIDString(uuid).isActive())  # defined on the source again
+        self.assertEqual(Instance.objects.get(uuid=uuid).compute, self.compute)
