@@ -117,6 +117,15 @@ class JobsPageTestCase(TransactionTestCase):
             self.assertContains(response, "Oct 13 23:04:00")
             self.assertNotContains(response, "2026-10-13T20:04")
 
+    def test_list_and_detail_refresh_while_a_job_is_active(self):
+        self.client.force_login(self.user)
+        pages = (reverse("operations:jobs"), reverse("operations:job", args=[self.op.pk]))
+        for url in pages:  # the job is queued
+            self.assertContains(self.client.get(url), 'id="follow-active-jobs"')
+        Operation.objects.filter(pk=self.op.pk).update(state=Operation.SUCCEEDED)
+        for url in pages:
+            self.assertNotContains(self.client.get(url), 'id="follow-active-jobs"')
+
     def test_list_and_detail_show_a_state_badge(self):
         Operation.objects.filter(pk=self.op.pk).update(state=Operation.FAILED, error="disk busy")
         self.client.force_login(self.admin)
