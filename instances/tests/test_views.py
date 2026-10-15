@@ -662,10 +662,12 @@ class InstancesTestCase(TestCase):
                 "clone-title": "",
                 "clone-description": "",
                 "clone": "",
+                "submission_key": "key-clone",
             },
             HTTP_REFERER=reverse("index"),
         )
         self.assertEqual(response.status_code, 302)
+        run(Operation.objects.get(kind="instance.clone"))
         self.assertEqual(Instance.objects.count(), instance_count + 1)
 
         clone_qs = Instance.objects.filter(name="wvc-test-vm-clone")

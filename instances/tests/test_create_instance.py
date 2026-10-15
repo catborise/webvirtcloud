@@ -8,10 +8,9 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from instances.api.serializers import CreateInstanceSerializer
-from instances.jobs import CreateInstance
 from instances.models import Instance
 from instances.utils import nic_macs
-from operations.jobs import Context
+from operations.jobs import Context, Outcome, finish, get_kind
 from operations.models import Operation, acquire
 
 
@@ -19,11 +18,12 @@ wvm_create = MagicMock()  # the page and the job reach the same host
 
 
 def run(op):
-    """The queued job, run as the worker runs it."""
+    """The queued job, run and finished as the worker does."""
     acquire("wvc-test:1:a", "wvc-test")
     Operation.objects.filter(pk=op.pk).update(state=Operation.RUNNING, worker="wvc-test:1:a")
     op.refresh_from_db()
-    CreateInstance().run(op, Context(op, SimpleNamespace(identity="wvc-test:1:a")))
+    result = get_kind(op.kind).run(op, Context(op, SimpleNamespace(identity="wvc-test:1:a")))
+    finish(op, Outcome(Operation.SUCCEEDED, result=result))
 
 
 @patch("instances.jobs.wvmCreate", new=wvm_create)

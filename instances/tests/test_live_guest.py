@@ -23,7 +23,10 @@ from django.urls import reverse
 from lxml import etree
 from vrtManager.connection import connection_manager
 
+from operations.models import Operation
+
 from . import livetest
+from .test_create_instance import run
 from instances.models import Instance
 from instances.utils import refr
 
@@ -339,7 +342,9 @@ class LiveGuestTestCase(TestCase):
         source, inst = self.define("gsrc")
         mac = "52:54:00:aa:06:01"
 
-        self.post("clone", inst, {"name": P + "gclone", "disk-vda": P + "gclone.qcow2", "clone-net-mac-0": mac})
+        self.post("clone", inst, {"name": P + "gclone", "disk-vda": P + "gclone.qcow2", "clone-net-mac-0": mac,
+                                   "submission_key": "key-gclone"})
+        run(Operation.objects.get(kind="instance.clone"))
         clone = self.conn.lookupByName(P + "gclone")
         self.start(clone)
 
@@ -357,12 +362,12 @@ class LiveGuestTestCase(TestCase):
         dom, inst = self.boot("gsnap")
         mac = "52:54:00:aa:07:01"
 
-        self.post("snapshot", inst, {"name": "before"})
+        inst.proxy.create_snapshot("before")
         self.assertEqual(dom.snapshotNum(0), 1, "snapshot was not taken")
         self.post("add_network", inst, {"add-net-mac": mac, "add-net-network": "net:default", "add-net-model": "virtio"})
         self.assertTrue(wait_for(lambda: mac in self.guest_view(dom)["macs"], 60), "guest does not see the new NIC")
 
-        self.post("revert_snapshot", inst, {"name": "before"})
+        inst.proxy.snapshot_revert("before")
         self.wait_agent(dom)
 
         self.assertTrue(dom.isActive(), "reverting a running snapshot left the VM stopped")

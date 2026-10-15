@@ -104,6 +104,21 @@ class LiveJobsTestCase(TransactionTestCase):
         self.assertEqual(op.state, Operation.SUCCEEDED, op.error)
         return op
 
+    def test_snapshot_create_and_revert_run_as_jobs(self):
+        running, _vm = self.vm("smoke-ext", "running")
+        stopped, _vm = self.vm("smoke-int")
+        steps = ((running, "snapshot.create", {"name": "m", "external": True, "memory": True}),
+                 (running, "snapshot.create", {"name": "d", "external": True}),
+                 (running, "snapshot.revert", {"name": "m", "external": True}),
+                 (stopped, "snapshot.create", {"name": "i"}),
+                 (stopped, "snapshot.revert", {"name": "i"}))
+        for n, (dom, kind, params) in enumerate(steps):
+            instance = Instance.objects.get_or_create(compute=self.compute, name=dom.name(), uuid=dom.UUIDString())[0]
+            self.run_job(jobs.submit(kind, self.admin, {"instance": instance.pk, **params}, f"key-snap{n:04d}"))
+        self.assertEqual(running.snapshotCurrent(0).getName(), "m")
+        self.assertTrue(running.isActive())  # a memory snapshot resumes the VM
+        self.assertEqual(stopped.snapshotCurrent(0).getName(), "i")
+
     def test_clone_create_and_volume_clone_run_as_jobs(self):
         dom, _vm = self.vm("smoke-src")
         source = Instance.objects.create(compute=self.compute, name=dom.name(), uuid=dom.UUIDString())

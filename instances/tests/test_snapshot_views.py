@@ -1,6 +1,6 @@
-"""The snapshot views call the backend once (an external snapshot delete
-queues a job instead) and show its refusals as messages; they no longer
-start, pause or stop the VM themselves."""
+"""Deleting an internal snapshot calls the backend once and shows its
+refusals as messages; it no longer starts, pauses or stops the VM itself. The
+other snapshot actions queue jobs (test_snapshot_jobs)."""
 
 from datetime import datetime
 from unittest.mock import PropertyMock, patch
