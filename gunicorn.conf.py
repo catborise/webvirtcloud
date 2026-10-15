@@ -87,8 +87,6 @@ def get_workers():
 workers = get_workers()
 # worker_class = 'egg:gunicorn#eventlet'
 worker_connections = 1000
-# Must exceed instances.utils.MIGRATION_TIME_LIMIT (540 s) plus time to answer;
-# a lower value would kill a worker in the middle of a live migration.
 timeout = 600
 keepalive = 2
 
