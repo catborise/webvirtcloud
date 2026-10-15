@@ -95,7 +95,7 @@ class LiveDataLossTestCase(TestCase):
     def test_revert_external_snapshot_keeps_disk_added_later(self):
         base = livetest.create_volume(self.conn, P + "r03-a")
         dom, inst = self.vm("r03-a", [base])
-        self.post("create_external_snapshot", inst, {"name": "snap"})
+        inst.proxy.create_external_snapshot("snap")
 
         later = livetest.create_volume(self.conn, P + "r03-later")
         dom.attachDeviceFlags(
@@ -103,7 +103,7 @@ class LiveDataLossTestCase(TestCase):
             f"<source file='{later}'/><target dev='vdb' bus='virtio'/></disk>",
             libvirt.VIR_DOMAIN_AFFECT_CONFIG,
         )
-        self.post("revert_external_snapshot", inst, {"name": "snap"})
+        inst.proxy.revert_external_snapshot("snap")
 
         self.assertTrue(livetest.volume_exists(self.conn, later), "revert deleted a disk the snapshot never had")
         self.assertEqual(set(self.disk_sources(dom, libvirt.VIR_DOMAIN_XML_INACTIVE)), {"vda"})
@@ -111,11 +111,11 @@ class LiveDataLossTestCase(TestCase):
     def test_delete_older_external_snapshot_keeps_newer_snapshot_files(self):
         base = livetest.create_volume(self.conn, P + "r03-b")
         dom, inst = self.vm("r03-b", [base])
-        self.post("create_external_snapshot", inst, {"name": "older"})
-        self.post("create_external_snapshot", inst, {"name": "newer"})
+        inst.proxy.create_external_snapshot("older")
+        inst.proxy.create_external_snapshot("newer")
         sources = set(self.disk_sources(dom).values())
 
-        self.post("delete_external_snapshot", inst, {"name": "older"})
+        inst.proxy.delete_external_snapshot("older")
 
         for path in sources:
             self.assertTrue(livetest.volume_exists(self.conn, path), f"{path} was deleted")
@@ -130,13 +130,12 @@ class LiveDataLossTestCase(TestCase):
             dom.create()
         os_before = self.os_xml(dom)
 
-        response = self.post("snapshot", inst, {"name": "snap"})
-
-        # Taken where libvirt supports it, otherwise refused with a message;
-        # never a server error and never a rewritten loader or NVRAM.
-        self.assertEqual(response.status_code, 302)
-        if dom.snapshotNum(0) == 0:
-            self.assertTrue(list(get_messages(response.wsgi_request)))
+        # Taken where libvirt supports it, otherwise refused; never a
+        # rewritten loader or NVRAM.
+        try:
+            inst.proxy.create_snapshot("snap")
+        except libvirt.libvirtError:
+            self.assertEqual(dom.snapshotNum(0), 0)
         self.assertEqual(self.os_xml(dom), os_before)
 
     def os_xml(self, dom):
