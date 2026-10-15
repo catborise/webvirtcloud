@@ -2,6 +2,7 @@
 
 import math
 import re
+import time
 
 from django.core.exceptions import PermissionDenied
 from django.utils.translation import gettext_noop
@@ -19,7 +20,7 @@ from computes.models import Compute
 from instances import utils
 from instances.models import Instance
 from operations import claims
-from operations.jobs import Kind, Outcome, Plan, register
+from operations.jobs import Cancelled, Kind, Outcome, Plan, register
 from operations.models import Claim, Operation
 
 
@@ -610,6 +611,8 @@ def _domain(compute_pk, uuid):
 class MigrateInstance(Kind):
     name = "instance.migrate"
     label = gettext_noop("Migrate VM")
+    cancellable = True  # libvirt aborts a migration; the VM keeps running on the source
+    progress_bytes = True  # libvirt job data processed/total
 
     def normalize(self, raw):
         return {"instance": int(raw["instance"]), "target": int(raw["target"]),
@@ -643,10 +646,31 @@ class MigrateInstance(Kind):
         instance = _instance(p["instance"])
         ctx.record_intent()
         ctx.set_phase(gettext_noop("Migrating the VM"))
-        # migrate_instance logs the outcome
-        utils.migrate_instance(Compute.objects.get(pk=p["target"]), instance, op.user,
-                               **{k: p[k] for k in MIGRATE_OPTIONS})
+        try:
+            # migrate_instance logs the outcome
+            utils.migrate_instance(Compute.objects.get(pk=p["target"]), instance, op.user,
+                                   **{k: p[k] for k in MIGRATE_OPTIONS})
+        except libvirtError:
+            op.refresh_from_db(fields=["cancel_requested"])
+            if op.cancel_requested:
+                raise Cancelled from None
+            raise
         return {}
+
+    def progress(self, op):
+        info = _proxy(_instance(op.params["instance"])).instance.jobInfo()
+        return (info[4], info[3]) if info[3] else None
+
+    def cancel(self, op):
+        dom = _proxy(_instance(op.params["instance"])).instance
+        # the worker sends a cancel once: one that comes before libvirt began
+        # the migration waits for it, or for the job to end without it
+        while not _libvirt_busy(dom):
+            if not Operation.objects.filter(pk=op.pk, state__in=Operation.ACTIVE).exists():
+                return
+            time.sleep(1)
+        # an error (the migration ended meanwhile) goes to the worker log
+        dom.abortJob()
 
     def reconcile(self, op):
         source = _domain(op.intent["compute"], op.intent["uuid"])

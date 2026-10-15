@@ -11,7 +11,8 @@ from appsettings.settings import get_settings
 from computes.models import Compute
 from instances.jobs import MigrateInstance
 from instances.models import Instance
-from operations.jobs import Context, get_kind
+from libvirt import libvirtError
+from operations.jobs import Cancelled, Context, get_kind
 from operations.models import Claim, Operation, acquire
 
 UUID = "31313131-4242-5353-6464-757575757575"
@@ -74,3 +75,37 @@ class MigrateJobTestCase(TransactionTestCase):
             self.assertEqual(MigrateInstance().reconcile(op).state, Operation.SUCCEEDED)
         self.vm.refresh_from_db()
         self.assertEqual(self.vm.compute, self.dest)
+
+    def test_a_cancelled_migration_ends_cancelled_and_the_vm_stays(self):
+        op = self.queue(live_migrate="true")
+        ctx = self.start(op)
+        self.dest_conn.moveto.side_effect = libvirtError("operation aborted: migration out: canceled by client")
+        Operation.objects.filter(pk=op.pk).update(cancel_requested=True)
+        with self.assertRaises(Cancelled):
+            get_kind(op.kind).run(op, ctx)
+        self.vm.refresh_from_db()
+        self.assertEqual(self.vm.compute, self.source)
+
+    def test_cancel_and_progress_ask_the_source_vm(self):
+        op = self.queue(live_migrate="true")
+        with patch("instances.jobs.wvmInstance") as proxy:
+            proxy.return_value.instance.jobInfo.return_value = [2, 0, 0, 1000, 250] + [0] * 7
+            self.assertEqual(get_kind(op.kind).progress(op), (250, 1000))
+            get_kind(op.kind).cancel(op)
+        proxy.return_value.instance.abortJob.assert_called_once_with()
+
+    def test_a_cancel_before_libvirt_starts_the_migration_waits_for_it(self):
+        op = self.queue(live_migrate="true")
+        self.start(op)
+        with patch("instances.jobs.wvmInstance") as proxy, patch("instances.jobs.time.sleep") as sleep:
+            dom = proxy.return_value.instance
+            dom.isActive.return_value = True
+            dom.jobInfo.side_effect = [[0] * 12, [2] + [0] * 11]  # no job yet, then the migration
+            get_kind(op.kind).cancel(op)
+        sleep.assert_called_once()
+        dom.abortJob.assert_called_once_with()
+        Operation.objects.filter(pk=op.pk).update(state=Operation.SUCCEEDED)  # ended before libvirt began
+        with patch("instances.jobs.wvmInstance") as proxy:
+            proxy.return_value.instance.isActive.return_value = False
+            get_kind(op.kind).cancel(op)
+        proxy.return_value.instance.abortJob.assert_not_called()

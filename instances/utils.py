@@ -148,11 +148,6 @@ def get_network_tuple(network_source_str):
         return network_source_pack[0], "net"
 
 
-# A migration that has not finished by then is cancelled: below the 600 s
-# after which gunicorn (gunicorn.conf.py) ends the request.
-MIGRATION_TIME_LIMIT = 540
-
-
 def migrate_instance(
     new_compute,
     instance,
@@ -186,7 +181,6 @@ def migrate_instance(
             autoconverge,
             compress,
             uri=new_compute.migration_uri,
-            timeout=MIGRATION_TIME_LIMIT,
         )
     except Exception as error:
         msg = _("Instance migration to %(target)s failed: %(error)s") % {
