@@ -4,7 +4,6 @@ except ImportError:
     import crypt
 import functools
 import json
-import math
 import os
 import re
 import socket
@@ -1337,22 +1336,10 @@ def mount_iso(request, pk):
 
 
 @require_POST
-@serialize_instance_mutation
 def snapshot(request, pk):
-    instance = get_instance(request.user, pk, perm_type="change")
-    if not request.user.has_perm("instances.snapshot_instances"):
-        raise PermissionDenied
-    name = request.POST.get("name", "")
-    desc = request.POST.get("description", "")
-    try:
-        instance.proxy.create_snapshot(name, desc)
-    except libvirtError as err:
-        # e.g. UEFI firmware whose NVRAM format does not allow internal snapshots
-        messages.error(request, _("Snapshot was not created: %(err)s") % {"err": error_text(request, err)})
-    else:
-        msg = _("Create snapshot: %(snap)s") % {"snap": name}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return _back(request, pk, "managesnapshot")
+    return _snapshot_job(request, pk, "snapshot.create",
+                         {"name": request.POST.get("name", ""), "description": request.POST.get("description", "")},
+                         _("The snapshot is being taken; follow it in the job panel."))
 
 
 @require_POST
@@ -1406,38 +1393,13 @@ def _warn_left_behind(request, files):
         )
 
 
-def _snapshot_free_space():
-    """The free space each storage pool keeps for a snapshot, from the
-    Settings page; an invalid value leaves the backend's default."""
-    values = {}
-    for key, argument in (("SNAPSHOT_FREE_SPACE_PERCENT", "free_percent"), ("SNAPSHOT_FREE_SPACE_MIN_GIB", "free_min_gib")):
-        try:
-            value = float(getattr(app_settings, key))
-        except (AttributeError, TypeError, ValueError):
-            continue
-        if math.isfinite(value) and value >= 0:
-            values[argument] = value
-    return values
-
-
 @require_POST
-@serialize_instance_mutation
 def create_external_snapshot(request, pk):
-    instance = get_instance(request.user, pk, perm_type="change")
-    if not request.user.has_perm("instances.snapshot_instances"):
-        raise PermissionDenied
-    name = request.POST.get("name", "")
-    desc = request.POST.get("description", "")
-    memory = request.POST.get("memory") == "on"
-    quiesce = request.POST.get("quiesce") == "on"
-    try:
-        instance.proxy.create_external_snapshot(name, desc, memory, quiesce, **_snapshot_free_space())
-    except libvirtError as err:
-        messages.error(request, _("Snapshot was not created: %(err)s") % {"err": error_text(request, err)})
-    else:
-        msg = _("Create external snapshot: %(snap)s") % {"snap": name}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return _back(request, pk, "managesnapshot")
+    return _snapshot_job(request, pk, "snapshot.create",
+                         {"name": request.POST.get("name", ""), "description": request.POST.get("description", ""),
+                          "external": True, "memory": request.POST.get("memory") == "on",
+                          "quiesce": request.POST.get("quiesce") == "on"},
+                         _("The snapshot is being taken; follow it in the job panel."))
 
 
 @require_POST
@@ -1459,25 +1421,29 @@ def revert_external_snapshot(request, pk):
     return _back(request, pk, "managesnapshot")
 
 
-@require_POST
-def delete_external_snapshot(request, pk):
+def _snapshot_job(request, pk, kind, params, queued):
+    """Queue a snapshot job on the VM; refusals become messages."""
     get_instance(request.user, pk, perm_type="change")
     if not request.user.has_perm("instances.snapshot_instances"):
         raise PermissionDenied
     try:
-        op = jobs.submit("snapshot.delete", request.user,
-                            {"instance": pk, "name": request.POST.get("name", "")},
-                            request.POST.get("submission_key", ""))
+        op = jobs.submit(kind, request.user, {"instance": pk, **params}, request.POST.get("submission_key", ""))
     except claims.Busy as busy:
         messages.error(request, busy_message(busy, request.user))
     except jobs.SubmissionConflict as err:
         messages.error(request, str(err))
     except libvirtError as err:
-        messages.error(request, _("Snapshot was not deleted: %(err)s") % {"err": error_text(request, err)})
+        messages.error(request, error_text(request, err))
     else:
-        messages.info(request, _("The snapshot is being deleted; follow it in the job panel."))
+        messages.info(request, queued)
         jobs.remember_job(request, op)
     return _back(request, pk, "managesnapshot")
+
+
+@require_POST
+def delete_external_snapshot(request, pk):
+    return _snapshot_job(request, pk, "snapshot.delete", {"name": request.POST.get("name", "")},
+                         _("The snapshot is being deleted; follow it in the job panel."))
 
 
 @require_POST

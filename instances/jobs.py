@@ -1,12 +1,13 @@
 """Jobs of the instances app (operations framework, spec section 5)."""
 
+import math
 import re
 
 from django.core.exceptions import PermissionDenied
 from django.utils.translation import gettext_noop
 from django.utils.translation import gettext_noop as _
-from libvirt import (VIR_CONNECT_LIST_STORAGE_POOLS_ACTIVE, VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL, VIR_ERR_NO_DOMAIN,
-                     libvirtError)
+from libvirt import (VIR_CONNECT_LIST_STORAGE_POOLS_ACTIVE, VIR_DOMAIN_JOB_NONE, VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL,
+                     VIR_ERR_NO_DOMAIN, libvirtError)
 from vrtManager import util
 from vrtManager.connection import wvmConnect
 from vrtManager.create import wvmCreate
@@ -41,6 +42,63 @@ def _proxy(instance):
 
 def _instance(pk):
     return Instance.objects.select_related("compute").get(pk=pk)
+
+
+def _vm_plan(params):
+    """A job on one VM: the VM exclusive, its compute shared."""
+    instance = _instance(params["instance"])
+    return Plan(
+        claims={claims.compute_key(instance.compute_id): Claim.SHARED,
+                claims.instance_key(instance.uuid): Claim.EXCLUSIVE},
+        resource=claims.instance_key(instance.uuid),
+        label=f"{instance.compute.name}/{instance.name}",
+        intent={"compute": instance.compute_id},
+    )
+
+
+def _checked_proxy(op):
+    """In the worker: the user may still change the VM, and it did not move."""
+    instance = _authorized(op.user, op.params["instance"])
+    if instance.compute_id != op.intent["compute"]:
+        raise util.OperationError("The VM moved to another compute after the job was queued")
+    return _proxy(instance)
+
+
+def _recovery_proxy(op):
+    """The VM for recovery; None when it left the compute the job ran on."""
+    instance = Instance.objects.select_related("compute").filter(pk=op.params["instance"]).first()
+    if instance is None or instance.compute_id != op.intent.get("compute"):
+        return None
+    try:
+        return _proxy(instance)
+    except libvirtError as err:
+        if err.get_error_code() == VIR_ERR_NO_DOMAIN:
+            return None
+        raise  # unreachable: recovery waits and retries
+
+
+def _libvirt_busy(proxy):
+    """libvirt still runs a job on the VM that the worker no longer waits for."""
+    return proxy.instance.isActive() and proxy.instance.jobInfo()[0] != VIR_DOMAIN_JOB_NONE
+
+
+def _log(op, state, message):
+    compute, _sep, vm = op.resource_label.rpartition("/")  # a VM name has no "/"
+    return compute, vm, message if state == Operation.SUCCEEDED else f"{message} ({state})"
+
+
+def _snapshot_free_space():
+    """The free space each storage pool keeps for a snapshot, from the
+    Settings page; an invalid value leaves the backend's default."""
+    values = {}
+    for key, argument in (("SNAPSHOT_FREE_SPACE_PERCENT", "free_percent"), ("SNAPSHOT_FREE_SPACE_MIN_GIB", "free_min_gib")):
+        try:
+            value = float(getattr(app_settings, key))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if math.isfinite(value) and value >= 0:
+            values[argument] = value
+    return values
 
 
 CLONE_POST_KEY_RE = re.compile(r"^(clone-net-mac-\d+|disk-[a-z0-9]+|meta-[a-z0-9]+)$")
@@ -180,20 +238,10 @@ class DeleteExternalSnapshot(Kind):
             raise util.OperationError(f"The VM has no external snapshot named {params['name']}")
 
     def plan(self, user, params):
-        instance = _instance(params["instance"])
-        return Plan(
-            claims={claims.compute_key(instance.compute_id): Claim.SHARED,
-                    claims.instance_key(instance.uuid): Claim.EXCLUSIVE},
-            resource=claims.instance_key(instance.uuid),
-            label=f"{instance.compute.name}/{instance.name}",
-            intent={"compute": instance.compute_id},
-        )
+        return _vm_plan(params)
 
     def precheck(self, op, ctx):
-        instance = _authorized(op.user, op.params["instance"])
-        if instance.compute_id != op.intent["compute"]:
-            raise util.OperationError("The VM moved to another compute after the job was queued")
-        proxy = _proxy(instance)
+        proxy = _checked_proxy(op)
         proxy._snapshot(op.params["name"], external=True)
         proxy._check_snapshot_state()
 
@@ -234,9 +282,59 @@ class DeleteExternalSnapshot(Kind):
                              "changed; check the VM before deleting the snapshot again or reverting to it.")
 
     def log_entry(self, op, state):
-        compute, _sep, vm = op.resource_label.rpartition("/")  # a VM name has no "/"
-        message = f"Delete external snapshot: {op.params['name']}"
-        return compute, vm, message if state == Operation.SUCCEEDED else f"{message} ({state})"
+        return _log(op, state, f"Delete external snapshot: {op.params['name']}")
+
+
+GONE = "The VM is no longer on the compute the job ran on"
+
+
+@register
+class CreateSnapshot(Kind):
+    name = "snapshot.create"
+    label = gettext_noop("Take snapshot")
+    time_limit = 6 * 3600  # a snapshot cannot be stopped: over time is only noted
+
+    def normalize(self, raw):
+        return {"instance": int(raw["instance"]), "name": str(raw.get("name", "")),
+                "description": str(raw.get("description", "")), "external": bool(raw.get("external")),
+                "memory": bool(raw.get("memory")), "quiesce": bool(raw.get("quiesce"))}
+
+    def validate(self, user, params):
+        # recovery counts a listed snapshot as taken by the job
+        if params["name"] in _proxy(_authorized(user, params["instance"])).instance.snapshotListNames(0):
+            raise util.OperationError(f"A snapshot named {params['name']} already exists")
+
+    def plan(self, user, params):
+        return _vm_plan(params)
+
+    def precheck(self, op, ctx):
+        _checked_proxy(op)
+
+    def run(self, op, ctx):
+        p = op.params
+        proxy = _proxy(_instance(p["instance"]))
+        ctx.record_intent()
+        ctx.set_phase(gettext_noop("Taking the snapshot"))
+        if p["external"]:
+            proxy.create_external_snapshot(p["name"], p["description"], p["memory"], p["quiesce"],
+                                           **_snapshot_free_space())
+        else:
+            proxy.create_snapshot(p["name"], p["description"])
+        return {}
+
+    def reconcile(self, op):
+        proxy = _recovery_proxy(op)
+        if proxy is None:
+            return Outcome(Operation.UNCERTAIN, error=GONE)
+        if _libvirt_busy(proxy):
+            return Outcome(Operation.RUNNING, phase=gettext_noop("libvirt is still taking the snapshot"))
+        if op.params["name"] in proxy.instance.snapshotListNames(0):
+            return Outcome(Operation.SUCCEEDED)
+        return Outcome(Operation.FAILED, error="The snapshot was not taken")
+
+    def log_entry(self, op, state):
+        kind = "external snapshot" if op.params["external"] else "snapshot"
+        return _log(op, state, f"Create {kind}: {op.params['name']}")
 
 
 @register

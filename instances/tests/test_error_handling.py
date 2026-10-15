@@ -18,13 +18,16 @@ EXTERNAL = "https://evil.example/instances/1/"
 
 
 def back_views():
-    """URL names of the instance views that return with _back()."""
+    """URL names of the instance views that return with _back(), also through _snapshot_job()."""
     names = []
     for pattern in get_resolver().url_patterns:
         if getattr(pattern, "namespace", None) != "instances":
             continue
         for sub in pattern.url_patterns:
-            if isinstance(sub, URLPattern) and "_back(request, pk" in inspect.getsource(inspect.unwrap(sub.callback)):
+            if isinstance(sub, URLPattern) and any(
+                call in inspect.getsource(inspect.unwrap(sub.callback))
+                for call in ("_back(request, pk", "_snapshot_job(request, pk")
+            ):
                 names.append(sub.name)
     return names
 
@@ -57,7 +60,8 @@ class ErrorHandlingTestCase(TestCase):
         self.assertGreaterEqual(len(names), 30)
         for name in names:
             for referer in (None, EXTERNAL):
-                with self.subTest(view=name, referer=referer), patch("instances.models.wvmInstance"):
+                with self.subTest(view=name, referer=referer), patch("instances.models.wvmInstance"), \
+                        patch("instances.jobs.wvmInstance"):
                     headers = {"HTTP_REFERER": referer} if referer else {}
                     data = self.DATA[name](self) if name in self.DATA else {}
                     response = self.client.post(self.url(name), data, **headers)

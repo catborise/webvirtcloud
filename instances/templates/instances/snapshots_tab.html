@@ -31,12 +31,12 @@
         <div role="tabpanel" class="tab-pane tab-pane-bordered active" id="takesnapshot">
             {% if instance.status != 5 %}
             <p>{% trans "With running machine, internal snapshots may take more than an hour, depending on how much memory has on your instance and how large the disk is." %} </p>
-                <p class="text-danger">{% trans "Live snapshot could cause server timeout and instance might be paused!!!" %}</p>
+                <p class="text-danger">{% trans "The VM is paused while its memory is saved." %}</p>
             {% else %}
                 <p>{% trans "Create an internal snapshot" %}</p>
             {% endif %}
             <form action="{% url 'instances:snapshot' instance.id %}" method="post" role="form" aria-label="Create snapshot form">
-                {% csrf_token %}
+                {% csrf_token %}{% submission_key %}
                     <div class="input-group mb-3">
                         <input type="text" class="form-control form-control-lg" name="name" placeholder="{% trans "Snapshot Name" %}" maxlength="14">
                         <span class="input-group-text">|</span>
@@ -44,7 +44,7 @@
                         {% if instance.external_snapshots or busy or held %}
                             <button type="submit" class="btn btn-lg btn-success float-end" name="snapshot" disabled>{% trans "Take Snapshot" %}</button>
                         {% else %}
-                            <button type="submit" class="btn btn-lg btn-success float-end" name="snapshot" onclick="showPleaseWaitDialog();">{% trans "Take Snapshot" %}</button>
+                            <button type="submit" class="btn btn-lg btn-success float-end" name="snapshot">{% trans "Take Snapshot" %}</button>
                         {% endif %}
                     </div>
             </form>
@@ -53,7 +53,7 @@
         <div role="tabpanel" class="tab-pane tab-pane-bordered" id="takeextsnapshot">
             <p>{% trans "Create an external snapshot. Each disk keeps its state in a new file next to it." %}</p>
             <form action="{% url 'instances:create_external_snapshot' instance.id %}" method="post" role="form" aria-label="Create external snapshot form">
-                {% csrf_token %}
+                {% csrf_token %}{% submission_key %}
                 <div class="input-group mb-3">
                     <input type="text" class="form-control form-control-lg" name="name" placeholder="{% trans "Snapshot Name" %}" maxlength="64" pattern="[A-Za-z0-9_\-][A-Za-z0-9._\-]{0,63}" title="{% trans "Letters, digits, '.', '_' or '-'; not starting with '.'" %}" required>
                     <span class="input-group-text">|</span>
@@ -61,7 +61,7 @@
                     {% if instance.internal_snapshots or busy or held %}
                         <button type="submit" class="btn btn-lg btn-success float-end" name="snapshot" disabled>{% trans "Take Snapshot" %}</button>
                     {% else %}
-                        <button type="submit" class="btn btn-lg btn-success float-end" name="snapshot" onclick="if (this.form.checkValidity()) showPleaseWaitDialog();">{% trans "Take Snapshot" %}</button>
+                        <button type="submit" class="btn btn-lg btn-success float-end" name="snapshot">{% trans "Take Snapshot" %}</button>
                     {% endif %}
                 </div>
                 <div class="form-check mb-3">

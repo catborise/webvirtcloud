@@ -515,14 +515,7 @@ class InstancesTestCase(TestCase):
     def test_snapshots(self):
         self.assertEqual(len(self.instance.snapshots), 0)
 
-        response = self.client.post(
-            reverse("instances:snapshot", args=[self.instance.id]),
-            {
-                "name": "test-snapshot",
-            },
-            HTTP_REFERER=reverse("index"),
-        )
-        self.assertEqual(response.status_code, 302)
+        self.instance.proxy.create_snapshot("test-snapshot")
 
         for cached in ("snapshots", "internal_snapshots", "external_snapshots"):
             self.instance.__dict__.pop(cached, None)
@@ -690,14 +683,7 @@ class InstancesTestCase(TestCase):
 
         self.assertEqual(clone.proxy.get_net_devices()[0]["mac"], "de:ad:be:ef:de:ad")
 
-        response = self.client.post(
-            reverse("instances:snapshot", args=[clone.id]),
-            {
-                "name": "test",
-            },
-            HTTP_REFERER=reverse("index"),
-        )
-        self.assertEqual(response.status_code, 302)
+        clone.proxy.create_snapshot("test")
 
         response = self.client.post(
             reverse("instances:destroy", args=[clone.id]),
