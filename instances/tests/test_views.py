@@ -522,15 +522,6 @@ class InstancesTestCase(TestCase):
         self.assertEqual(len(self.instance.snapshots), 1)
 
         response = self.client.post(
-            reverse("instances:revert_snapshot", args=[self.instance.id]),
-            {
-                "name": "test-snapshot",
-            },
-            HTTP_REFERER=reverse("index"),
-        )
-        self.assertEqual(response.status_code, 302)
-
-        response = self.client.post(
             reverse("instances:delete_snapshot", args=[self.instance.id]),
             {
                 "name": "test-snapshot",

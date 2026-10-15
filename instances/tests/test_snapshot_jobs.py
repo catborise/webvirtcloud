@@ -3,13 +3,14 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from vrtManager.util import OperationError
 from django.contrib.auth import get_user_model
 from django.test import TransactionTestCase
 from django.urls import reverse
 
 from appsettings.settings import get_settings
 from computes.models import Compute
-from instances.jobs import CreateSnapshot
+from instances.jobs import CreateSnapshot, RevertSnapshot
 from instances.models import Instance
 from operations.jobs import Context, get_kind
 from operations.models import Claim, Operation, acquire
@@ -36,7 +37,8 @@ class SnapshotJobsTestCase(TransactionTestCase):
         op = Operation.objects.get()
         self.assertIn((f"instance:{self.instance.uuid}", "exclusive"),
                       set(Claim.objects.values_list("resource", "mode")))
-        self.assertFalse(self.proxy.create_snapshot.called or self.proxy.create_external_snapshot.called)
+        self.assertFalse(self.proxy.create_snapshot.called or self.proxy.create_external_snapshot.called
+                         or self.proxy.snapshot_revert.called or self.proxy.revert_external_snapshot.called)
         acquire("wvc-test:1:a", "wvc-test")
         Operation.objects.filter(pk=op.pk).update(state=Operation.RUNNING, worker="wvc-test:1:a")
         op.refresh_from_db()
@@ -69,3 +71,28 @@ class SnapshotJobsTestCase(TransactionTestCase):
         self.proxy.instance.isActive.return_value = True
         self.proxy.instance.jobInfo.return_value = [2] + [0] * 11  # VIR_DOMAIN_JOB_UNBOUNDED
         self.assertEqual(CreateSnapshot().reconcile(op).state, Operation.RUNNING)
+
+    def test_an_external_revert_is_made_by_the_worker(self):
+        self.proxy.revert_external_snapshot.return_value = ["/pool/a.one"]
+        op, result = self.queue_and_run("revert_external_snapshot", {"name": "a"})
+        self.assertEqual((op.kind, result), ("snapshot.revert", {"left_behind": ["/pool/a.one"]}))
+        self.proxy.revert_external_snapshot.assert_called_once_with("a")
+
+    def test_a_revert_libvirt_cannot_do_is_refused_before_effects(self):
+        self.proxy.check_external_revert.side_effect = OperationError("taken by an older version")
+        with self.assertRaises(OperationError):
+            self.queue_and_run("revert_external_snapshot", {"name": "a"})
+        self.assertFalse(Operation.objects.get().effects_started)
+
+    def test_an_internal_revert_is_made_by_the_worker(self):
+        self.queue_and_run("revert_snapshot", {"name": "b"})
+        self.proxy.snapshot_revert.assert_called_once_with("b")
+
+    def test_revert_recovery(self):
+        op = Operation(params={"instance": self.instance.pk, "name": "a", "external": False},
+                       intent={"compute": self.instance.compute_id, "was_current": "z"})
+        self.proxy.instance.hasCurrentSnapshot.return_value = 1
+        self.proxy.instance.snapshotCurrent.return_value.getName.return_value = "a"
+        self.assertEqual(RevertSnapshot().reconcile(op).state, Operation.SUCCEEDED)
+        op.intent["was_current"] = "a"  # it was current before: nothing tells
+        self.assertEqual(RevertSnapshot().reconcile(op).state, Operation.UNCERTAIN)

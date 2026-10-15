@@ -337,6 +337,59 @@ class CreateSnapshot(Kind):
         return _log(op, state, f"Create {kind}: {op.params['name']}")
 
 
+def _current(proxy):
+    dom = proxy.instance
+    return dom.snapshotCurrent(0).getName() if dom.hasCurrentSnapshot(0) else None
+
+
+@register
+class RevertSnapshot(Kind):
+    name = "snapshot.revert"
+    label = gettext_noop("Revert snapshot")
+    time_limit = 6 * 3600  # a revert cannot be stopped: over time is only noted
+
+    def normalize(self, raw):
+        return {"instance": int(raw["instance"]), "name": str(raw.get("name", "")),
+                "external": bool(raw.get("external"))}
+
+    def validate(self, user, params):
+        _proxy(_authorized(user, params["instance"]))._snapshot(params["name"], params["external"])
+
+    def plan(self, user, params):
+        return _vm_plan(params)
+
+    def precheck(self, op, ctx):
+        proxy = _checked_proxy(op)
+        if op.params["external"]:
+            proxy.check_external_revert(op.params["name"])
+        else:
+            proxy._snapshot(op.params["name"], False)
+
+    def run(self, op, ctx):
+        proxy = _proxy(_instance(op.params["instance"]))
+        ctx.record_intent(was_current=_current(proxy))
+        ctx.set_phase(gettext_noop("Reverting the VM"))
+        if op.params["external"]:
+            return {"left_behind": proxy.revert_external_snapshot(op.params["name"])}
+        proxy.snapshot_revert(op.params["name"])
+        return {}
+
+    def reconcile(self, op):
+        proxy = _recovery_proxy(op)
+        if proxy is None:
+            return Outcome(Operation.UNCERTAIN, error=GONE)
+        if _libvirt_busy(proxy):
+            return Outcome(Operation.RUNNING, phase=gettext_noop("libvirt is still reverting the VM"))
+        if _current(proxy) == op.params["name"] != op.intent.get("was_current"):
+            return Outcome(Operation.SUCCEEDED)
+        return Outcome(Operation.UNCERTAIN, error="It cannot be told whether the VM was reverted; "
+                                                  "check it, then revert again or resolve this job.")
+
+    def log_entry(self, op, state):
+        kind = "external snapshot" if op.params["external"] else "snapshot"
+        return _log(op, state, f"Revert {kind}: {op.params['name']}")
+
+
 @register
 class CloneInstance(Kind):
     name = "instance.clone"

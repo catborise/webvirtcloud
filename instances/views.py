@@ -1360,37 +1360,9 @@ def delete_snapshot(request, pk):
 
 
 @require_POST
-@serialize_instance_mutation
 def revert_snapshot(request, pk):
-    instance = get_instance(request.user, pk, perm_type="change")
-    if not request.user.has_perm("instances.snapshot_instances"):
-        raise PermissionDenied
-    snap_name = request.POST.get("name", "")
-    try:
-        instance.proxy.snapshot_revert(snap_name)
-    except libvirtError as err:
-        messages.error(request, _("Snapshot was not reverted: %(err)s") % {"err": error_text(request, err)})
-        return _back(request, pk, "managesnapshot")
-    msg = _("Successful revert snapshot: ")
-    msg += snap_name
-    messages.success(request, msg)
-    msg = _("Revert snapshot: %(snap)s") % {"snap": snap_name}
-    addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return _back(request, pk, "managesnapshot")
-
-
-def _warn_left_behind(request, files):
-    """libvirt only logs it when it cannot remove a snapshot file."""
-    if files:
-        messages.warning(
-            request,
-            _(
-                "These snapshot files were not removed, although no VM on this host uses them any more: %(files)s. "
-                "On NFS libvirt removes them as the qemu user, who needs write access to their directory. "
-                "Remove them by hand."
-            )
-            % {"files": ", ".join(files)},
-        )
+    return _snapshot_job(request, pk, "snapshot.revert", {"name": request.POST.get("name", "")},
+                         _("The VM is being reverted; follow it in the job panel."))
 
 
 @require_POST
@@ -1403,22 +1375,9 @@ def create_external_snapshot(request, pk):
 
 
 @require_POST
-@serialize_instance_mutation
 def revert_external_snapshot(request, pk):
-    instance = get_instance(request.user, pk, perm_type="change")
-    if not request.user.has_perm("instances.snapshot_instances"):
-        raise PermissionDenied
-    name = request.POST.get("name", "")
-    try:
-        left = instance.proxy.revert_external_snapshot(name)
-    except libvirtError as err:
-        messages.error(request, _("Snapshot was not reverted: %(err)s") % {"err": error_text(request, err)})
-    else:
-        messages.success(request, _("Successful revert snapshot: ") + name)
-        _warn_left_behind(request, left)
-        msg = _("Revert external snapshot: %(snap)s") % {"snap": name}
-        addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return _back(request, pk, "managesnapshot")
+    return _snapshot_job(request, pk, "snapshot.revert", {"name": request.POST.get("name", ""), "external": True},
+                         _("The VM is being reverted; follow it in the job panel."))
 
 
 def _snapshot_job(request, pk, kind, params, queued):

@@ -1683,11 +1683,9 @@ class wvmInstance(wvmConnect):
                     "and the memory if it is saved)"
                 )
 
-    def revert_external_snapshot(self, name):
-        """libvirt returns the disks and the definition to the snapshot's. A
-        disk-only snapshot keeps the VM running, paused or shut off as it is;
-        a snapshot with memory resumes the VM as it was saved. Returns the
-        files libvirt left behind (see _left_behind)."""
+    def check_external_revert(self, name):
+        """Refuses a revert that cannot work, before anything changes; returns
+        the snapshot."""
         snap = self._snapshot(name, external=True)
         self._check_snapshot_state()
         tree = etree.fromstring(snap.getXMLDesc(0))
@@ -1701,6 +1699,15 @@ class wvmInstance(wvmConnect):
             raise util.OperationError(
                 "This snapshot was taken by an older version on a UEFI VM and cannot be reverted; delete it instead"
             )
+        return snap
+
+    def revert_external_snapshot(self, name):
+        """libvirt returns the disks and the definition to the snapshot's. A
+        disk-only snapshot keeps the VM running, paused or shut off as it is;
+        a snapshot with memory resumes the VM as it was saved. Returns the
+        files libvirt left behind (see _left_behind)."""
+        snap = self.check_external_revert(name)
+        tree = etree.fromstring(snap.getXMLDesc(0))
         if tree.find("memory[@snapshot='external']") is not None:
             flags = 0
         else:
