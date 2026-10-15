@@ -14,7 +14,9 @@ from lxml import html as lxml_html
 from vrtManager import util
 
 from appsettings.models import AppSettings
+from appsettings.settings import get_settings
 from computes.models import Compute
+from instances.jobs import _snapshot_free_space
 from instances.models import Instance
 from operations.models import Claim, Operation
 
@@ -32,11 +34,9 @@ class SnapshotViewsTestCase(TestCase):
         with patch("instances.models.wvmInstance") as mock_wvm:
             proxy = mock_wvm.return_value
             method = {
-                "create_external_snapshot": proxy.create_external_snapshot,
                 "revert_external_snapshot": proxy.revert_external_snapshot,
                 "revert_snapshot": proxy.snapshot_revert,
                 "delete_snapshot": proxy.snapshot_delete,
-                "snapshot": proxy.create_snapshot,
             }[view]
             method.return_value = list(left)  # files revert and delete left behind
             if error:
@@ -50,13 +50,6 @@ class SnapshotViewsTestCase(TestCase):
         self.assertEqual(response.status_code, 302)
         return proxy, method, [str(m) for m in get_messages(response.wsgi_request)]
 
-    def test_create_passes_name_description_memory_quiesce_and_free_space(self):
-        free = {"free_percent": 10.0, "free_min_gib": 1.0}  # the Settings page defaults
-        _, method, _ = self.post("create_external_snapshot", {"name": "a", "description": "d", "memory": "on"})
-        method.assert_called_once_with("a", "d", True, False, **free)
-        _, method, _ = self.post("create_external_snapshot", {"name": "a", "description": "", "quiesce": "on"})
-        method.assert_called_once_with("a", "", False, True, **free)
-
     def test_the_free_space_comes_from_the_settings_page(self):
         for percent, minimum, expected in (("20", "0.5", {"free_percent": 20.0, "free_min_gib": 0.5}),
                                            ("0", "0", {"free_percent": 0.0, "free_min_gib": 0.0}),
@@ -64,8 +57,8 @@ class SnapshotViewsTestCase(TestCase):
             with self.subTest(percent=percent, minimum=minimum):
                 AppSettings.objects.filter(key="SNAPSHOT_FREE_SPACE_PERCENT").update(value=percent)
                 AppSettings.objects.filter(key="SNAPSHOT_FREE_SPACE_MIN_GIB").update(value=minimum)
-                _, method, _ = self.post("create_external_snapshot", {"name": "a"})
-                method.assert_called_once_with("a", "", False, False, **expected)
+                get_settings()
+                self.assertEqual(_snapshot_free_space(), expected)
 
     def test_revert_calls_the_backend_once_and_leaves_power_alone(self):
         proxy, method, _ = self.post("revert_external_snapshot", {"name": "a"})
@@ -108,8 +101,7 @@ class SnapshotViewsTestCase(TestCase):
         self.assertFalse(Operation.objects.exists())
 
     def test_refusals_become_messages(self):
-        for view in ("create_external_snapshot", "revert_external_snapshot",
-                     "revert_snapshot", "delete_snapshot", "snapshot"):
+        for view in ("revert_external_snapshot", "revert_snapshot", "delete_snapshot"):
             with self.subTest(view):
                 _, _, messages = self.post(view, {"name": "a"}, error="refused for a reason")
                 self.assertTrue(any("refused for a reason" in m for m in messages), messages)

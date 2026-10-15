@@ -23,6 +23,7 @@ from accounts.models import UserInstance
 from appsettings.models import AppSettings
 from computes.models import Compute
 from instances.models import Instance
+from operations.models import Operation
 
 CONSOLE = {"console", "vv file", "vdi"}
 POWER = {"power"}
@@ -231,11 +232,13 @@ class TemplateSnapshotRuleTestCase(PageControls, TestCase):
 
     def snapshot(self, user):
         self.client.force_login(user)
-        with patch("instances.models.wvmInstance") as mock_wvm:
+        with patch("instances.models.wvmInstance"), patch("instances.jobs.wvmInstance") as mock_wvm:
+            mock_wvm.return_value.instance.snapshotListNames.return_value = []
             self.client.post(
-                reverse("instances:snapshot", args=[self.instance.id]), {"name": "s1", "description": ""}
+                reverse("instances:snapshot", args=[self.instance.id]),
+                {"name": "s1", "description": "", "submission_key": "key-snap0001"},
             )
-            return mock_wvm.return_value.create_snapshot.called
+            return Operation.objects.filter(kind="snapshot.create").exists()
 
     def test_only_staff_owners_snapshot_a_template(self):
         perms = ("snapshot_instances",)
