@@ -73,6 +73,13 @@ class JobsPageTestCase(TransactionTestCase):
         self.assertNotContains(response, "<script>x</script>")
         self.assertContains(response, "Waiting for recovery")
 
+    def test_the_detail_shows_the_results_warning_escaped(self):
+        Operation.objects.filter(pk=self.op.pk).update(result={"warning": "not <b>thawed</b>"},
+                                                       state=Operation.SUCCEEDED)
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("operations:job", args=[self.op.pk]))
+        self.assertContains(response, "not &lt;b&gt;thawed&lt;/b&gt;")
+
     def test_pagination_keeps_the_filters(self):
         for i in range(51):
             Operation.objects.create(kind="test.noop", user=self.user, username="page_user",

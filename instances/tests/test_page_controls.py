@@ -178,6 +178,17 @@ class PageControlsTestCase(PageControls, TestCase):
                 )
                 self.assertEqual(bool(buttons), enabled)
 
+    def test_a_running_paused_or_shut_off_vm_can_be_cloned(self):
+        changer = self.user("vm_cloner", perms=("clone_instances",), owner={"is_change": True})
+        for status, enabled in ((1, True), (3, True), (5, True), (4, False)):
+            with self.subTest(status=status):
+                self.controls(changer, status=status)
+                buttons = lxml_html.fromstring(self.last_page).xpath(
+                    "//form[@action=$a]//button[@type='submit']",
+                    a=reverse("instances:clone", args=[self.instance.id]),
+                )
+                self.assertEqual(bool(buttons), enabled)
+
     def test_owner_with_change_and_no_extra_permissions(self):
         changer = self.user("ctl_plain_changer", owner={"is_change": True})
         self.assertEqual(self.controls(changer), CONSOLE | POWER | CHANGE)

@@ -70,8 +70,9 @@ function jobPanel(element, urls, csrfToken, initialIds) {
 
     function outcomeHtml(job) {
         var left = (job.result && job.result.left_behind) || [];
-        var warn = left.length ? '<div class="small mt-2">Files not removed:</div><ul class="list-unstyled small mb-0">'
-            + left.map(function (path) { return '<li class="text-break"><code>' + esc(path) + "</code></li>"; }).join("") + "</ul>" : "";
+        var note = job.result && job.result.warning ? '<div class="small mt-2">' + esc(job.result.warning) + "</div>" : "";
+        var warn = note + (left.length ? '<div class="small mt-2">Files not removed:</div><ul class="list-unstyled small mb-0">'
+            + left.map(function (path) { return '<li class="text-break"><code>' + esc(path) + "</code></li>"; }).join("") + "</ul>" : "");
         var buttons = '<button type="button" class="btn btn-sm btn-primary" data-refresh="1">Refresh</button>'
             + '<button type="button" class="btn btn-sm btn-outline-secondary" data-dismiss="' + esc(job.id)
             + '">Dismiss</button>';

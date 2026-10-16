@@ -192,6 +192,11 @@ class BackupTestCase(unittest.TestCase):
         }
         self.assertIsNone(p.backup_result())
 
+    def test_discard_reads_the_result_without_keeping_it(self):
+        p = proxy()
+        p.discard_backup_result()
+        p.instance.jobStats.assert_called_once_with(libvirt.VIR_DOMAIN_JOB_STATS_COMPLETED)
+
     def test_freeze_thaw_abort(self):
         p = proxy()
         p.fs_freeze()
