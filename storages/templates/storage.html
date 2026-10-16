@@ -304,6 +304,9 @@
                         processData: false,
                         contentType: false,
                         success: function(data) {
+                            if (chunkIndex === 0) {
+                                window.resourceJobPanel.track(data.job);
+                            }
                             retryCount = 0;
                             chunkIndex++;
                             pendingUpload.chunkIndex = chunkIndex;
@@ -311,16 +314,13 @@
                             progressBar.width(percentComplete + '%').attr('aria-valuenow', percentComplete).text(percentComplete + '%');
                             uploadStatusText.text("{% trans 'Uploading...'|escapejs %} " + percentComplete + '%');
 
-                            if (data.reload) {
-                                pendingUpload = null;
-                                uploadInProgress = false;
-                                location.reload();
-                            } else if (chunkIndex < totalChunks) {
+                            if (chunkIndex < totalChunks) {
                                 uploadChunk();
                             } else {
                                 pendingUpload = null;
                                 uploadInProgress = false;
                                 uploadStatus.removeClass('d-flex').addClass('d-none');
+                                progressContainer.hide();
                                 uploadButton.prop('disabled', false);
                             }
                         },
