@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 MAX_SLOTS = 16
 PROGRESS_THREADS = 2
-HOUSEKEEPING_EVERY = 3600.0
+HOUSEKEEPING_EVERY = 600.0
 
 BACKOFF = (30, 60, 120, 300, 600)
 WATCH_EVERY = 15
@@ -307,6 +307,12 @@ def housekeeping():
     )
     Operation.objects.filter(pk__in=old).delete()
     Claim.objects.filter(operation__isnull=True, expires_at__lt=timezone.now()).delete()
+    # each kind ends its idle jobs; HOUSEKEEPING_EVERY bounds how late an idle request job ends
+    for op in Operation.objects.filter(state__in=ACTIVE, worker=Operation.REQUEST):
+        try:
+            jobs.get_kind(op.kind).expire(op)
+        except Exception as err:
+            logger.error("expiring job %s failed: %s", op.pk, utils.safe_text(err))
 
 
 class Scheduler:
@@ -319,7 +325,9 @@ class Scheduler:
         self.inflight = set()
 
     def schedule_orphans(self):
-        for op_id in (Operation.objects.filter(state__in=ACTIVE).exclude(worker=self.worker.identity)
+        """Other workers' active jobs; not those requests run."""
+        for op_id in (Operation.objects.filter(state__in=ACTIVE)
+                      .exclude(worker__in=[self.worker.identity, Operation.REQUEST])
                       .values_list("pk", flat=True)):
             self.next_try.setdefault(op_id, 0)
 

@@ -10,12 +10,13 @@ class OperationSerializer(serializers.ModelSerializer):
     label = serializers.SerializerMethodField()
     resource_label = serializers.SerializerMethodField()
     cancellable = serializers.SerializerMethodField()
+    in_request = serializers.SerializerMethodField()
 
     class Meta:
         model = Operation
         fields = ["id", "kind", "label", "username", "resource", "resource_label", "state", "phase",
                   "progress_done", "progress_total", "result", "error", "created_at", "started_at",
-                  "finished_at", "cancel_requested", "cancellable", "resolution", "resolution_note"]
+                  "finished_at", "cancel_requested", "cancellable", "in_request", "resolution", "resolution_note"]
         read_only_fields = fields
 
     def get_label(self, op) -> str:
@@ -27,6 +28,10 @@ class OperationSerializer(serializers.ModelSerializer):
     def get_cancellable(self, op) -> bool:
         kind = KINDS.get(op.kind)
         return op.state == Operation.QUEUED or bool(kind and kind.cancellable and op.state == Operation.RUNNING)
+
+    def get_in_request(self, op) -> bool:
+        """A request runs it: it does not wait for the worker."""
+        return op.in_request
 
 
 class OperationSummarySerializer(serializers.Serializer):

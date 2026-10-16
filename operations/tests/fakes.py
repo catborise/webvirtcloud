@@ -4,19 +4,23 @@ submitting (keyed by submission key). start_worker and stop_worker run a
 worker's loop in a thread."""
 
 import threading
+from datetime import timedelta
 
 from django.db import connection
+from django.utils import timezone
 
 from operations.jobs import Cancelled, Kind, Outcome, Plan, register
 from operations.models import Claim, Operation, acquire
 
 BARRIERS = {}  # submission key -> threading.Event the run waits on
 CANCELLED = []
+EXPIRED = []
 
 
 def reset():
     BARRIERS.clear()
     CANCELLED.clear()
+    EXPIRED.clear()
 
 
 def start_worker(worker):
@@ -100,3 +104,26 @@ class ScriptedKind(NoopKind):
 
     def reconcile(self, op):
         return Outcome(op.params["outcome"], error="scripted")
+
+
+@register
+class RequestKind(NoopKind):
+    """A job a request runs, idle after 60 s; params: fail_expire."""
+
+    name = "test.request"
+    label = "Request"
+    cancellable = True
+    runs_in_request = True
+
+    def normalize(self, raw):
+        return {"uuid": str(raw.get("uuid", "u1")), "fail_expire": bool(raw.get("fail_expire"))}
+
+    def cancel(self, op):
+        CANCELLED.append(str(op.id))
+
+    def expire(self, op):
+        if op.heartbeat_at > timezone.now() - timedelta(seconds=60):
+            return
+        if op.params["fail_expire"]:
+            raise RuntimeError("expire failed")
+        EXPIRED.append(str(op.id))

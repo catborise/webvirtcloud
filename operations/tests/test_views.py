@@ -161,10 +161,14 @@ class JobsPageTestCase(TransactionTestCase):
         self.client.force_login(self.user)
         for state, warned in ((Operation.QUEUED, True), (Operation.RUNNING, True), (Operation.CANCELLING, True),
                               (Operation.UNCERTAIN, False), (Operation.SUCCEEDED, False)):
-            Operation.objects.filter(pk=self.op.pk).update(state=state)
+            Operation.objects.filter(pk=self.op.pk).update(state=state, worker="" if state == Operation.QUEUED else "h:1:a")
             response = self.client.get(reverse("operations:jobs"))
             (self.assertContains if warned else self.assertNotContains)(response, "Worker unavailable", msg_prefix=state)
-        Operation.objects.filter(pk=self.op.pk).update(state=Operation.RUNNING)
+        # a job a request runs does not wait for the worker
+        for state in (Operation.RUNNING, Operation.CANCELLING):
+            Operation.objects.filter(pk=self.op.pk).update(state=state, worker=Operation.REQUEST)
+            self.assertNotContains(self.client.get(reverse("operations:jobs")), "Worker unavailable", msg_prefix=state)
+        Operation.objects.filter(pk=self.op.pk).update(state=Operation.RUNNING, worker="h:1:a")
         WorkerLease.objects.update(heartbeat_at=django_timezone.now())
         self.assertNotContains(self.client.get(reverse("operations:jobs")), "Worker unavailable")
         # another user's running job is not this user's concern

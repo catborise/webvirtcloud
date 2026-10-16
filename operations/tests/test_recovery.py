@@ -188,6 +188,12 @@ class RecoveryTestCase(TransactionTestCase):
         self.run_due()
         self.assertEqual(self.reload(op).state, Operation.RUNNING)
 
+    def test_a_request_job_is_not_an_orphan(self):
+        op = jobs.submit("test.request", self.user, {}, "key-00000002")
+        self.run_due()
+        self.assertEqual(self.scheduler.next_try, {})
+        self.assertEqual(self.reload(op).state, Operation.RUNNING)
+
     def test_an_own_job_that_raised_before_its_effects_fails_and_releases(self):
         op = self.orphan({"outcome": "uncertain"}, worker=self.worker.identity, effects=False)
         self.scheduler.inspect_now(op.pk, error="refused before effects")

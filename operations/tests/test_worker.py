@@ -6,19 +6,21 @@ import os
 import tempfile
 import threading
 import time
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import OperationalError, connection
 from django.test import TransactionTestCase
+from django.utils import timezone
 
 from appsettings.models import AppSettings
 from appsettings.settings import app_settings
 from operations import jobs
 from operations.models import Claim, Operation, WorkerLease
 from operations.tests import fakes
-from operations.worker import Worker, data_dir, host_identity
+from operations.worker import Worker, data_dir, host_identity, housekeeping
 from vrtManager.util import ConnectionFailed
 
 
@@ -235,6 +237,45 @@ class WorkerTestCase(TransactionTestCase):
             with self.assertRaises(SystemExit):
                 self.worker.run()
         exit_.assert_called_once_with(1)
+
+
+class RequestJobTestCase(TransactionTestCase):
+    def setUp(self):
+        fakes.reset()
+        self.user = get_user_model().objects.create_user("rq_user", "q@example.com", "pw")
+
+    def request_job(self, key, idle, **params):
+        op = jobs.submit("test.request", self.user, params, key)
+        Operation.objects.filter(pk=op.pk).update(heartbeat_at=timezone.now() - timedelta(seconds=idle))
+        return op
+
+    def test_the_worker_never_takes_a_request_job(self):
+        op = self.request_job("key-00000001", 0)
+        worker = Worker(concurrency=2, tick=0.05, heartbeat_every=0.1, progress_every=0.1, grace=1,
+                        exit_on_lost_lease=False)
+        thread = fakes.start_worker(worker)
+        try:
+            time.sleep(0.5)
+            self.assertEqual(worker.jobs, {})
+        finally:
+            fakes.stop_worker(worker, thread)
+            connection.close()
+        op.refresh_from_db()
+        self.assertEqual((op.state, op.worker), (Operation.RUNNING, Operation.REQUEST))
+
+    def test_housekeeping_lets_the_kind_expire_its_idle_request_jobs(self):
+        fresh = self.request_job("key-00000001", 30, uuid="u1")
+        idle = self.request_job("key-00000002", 61, uuid="u2")
+        housekeeping()
+        self.assertEqual(fakes.EXPIRED, [str(idle.pk)])
+        self.assertNotIn(str(fresh.pk), fakes.EXPIRED)
+
+    def test_one_failing_expire_does_not_stop_the_others(self):
+        self.request_job("key-00000001", 61, uuid="u1", fail_expire=True)
+        other = self.request_job("key-00000002", 61, uuid="u2")
+        with self.assertLogs("operations.worker", "ERROR"):
+            housekeeping()
+        self.assertEqual(fakes.EXPIRED, [str(other.pk)])
 
 
 class DataDirTestCase(TransactionTestCase):

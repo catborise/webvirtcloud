@@ -49,6 +49,14 @@ class OperationsApiTestCase(TransactionTestCase):
         self.client.force_login(self.owner)
         self.assertTrue(self.client.get("/api/v1/operations/resource/", {"key": "instance:u2"}).json()["short_operation"])
 
+    def test_the_resource_view_marks_a_job_a_request_runs(self):
+        request_job = jobs.submit("test.request", self.owner, {"uuid": "u2"}, "key-00000002")
+        self.client.force_login(self.owner)
+        [job] = self.client.get("/api/v1/operations/resource/", {"key": "instance:u2"}).json()["jobs"]
+        self.assertEqual((job["id"], job["in_request"]), (str(request_job.pk), True))
+        # queued: it waits for the worker
+        self.assertFalse(self.client.get(f"/api/v1/operations/{self.op.pk}/").json()["in_request"])
+
     def test_cancel_through_the_api(self):
         self.client.force_login(self.owner)
         response = self.client.post(f"/api/v1/operations/{self.op.pk}/cancel/")
