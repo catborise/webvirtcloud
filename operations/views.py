@@ -39,9 +39,10 @@ def jobs(request):
     # the model for its datetimes, the serialized job for its labels
     rows = [(op, OperationSerializer(op, context={"request": request}).data) for op in page.object_list]
     seen = last_seen()
-    # a job the worker has to start, run or stop (job_panel.js uses the same rule)
+    # a job the worker has to start, run or stop, not one a request runs (job_panel.js uses the same rule)
     unavailable = ((seen is None or timezone.now() - seen > timedelta(seconds=60))
-                   and _visible(request.user).filter(state__in=Operation.ACTIVE).exists())
+                   and _visible(request.user).filter(state__in=Operation.ACTIVE)
+                   .exclude(worker=Operation.REQUEST).exists())
     return render(request, "operations/jobs.html",
                   {"page": page, "rows": rows, "worker_last_seen": seen, "worker_unavailable": unavailable,
                    "filters": request.GET, "active_states": Operation.ACTIVE,

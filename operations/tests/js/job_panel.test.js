@@ -194,6 +194,13 @@ assert.ok(!el8.innerHTML.includes("Worker unavailable"), "a fresh lease does not
 advance(3000);
 answer("/r", { ...empty, worker_last_seen: stale, jobs: [{ ...running, state: "uncertain" }] });
 assert.ok(!el8.innerHTML.includes("Worker unavailable"), "an uncertain job waits for an administrator, not the worker");
+advance(3000);
+answer("/r", { ...empty, worker_last_seen: stale, jobs: [{ ...running, in_request: true }] });
+assert.ok(!el8.innerHTML.includes("Worker unavailable"), "a job a request runs does not wait for the worker");
+advance(3000);
+answer("/r", { ...empty, worker_last_seen: stale, jobs: [{ ...running, in_request: true },
+                                                        { ...running, id: "w", state: "queued", in_request: false }] });
+assert.ok(el8.innerHTML.includes("Worker unavailable"), "a queued job beside it still warns");
 
 // cancel: the button is disabled while the request runs; a refusal or a network error shows; the list is asked again
 open = []; timers = [];
@@ -220,5 +227,39 @@ answer("/r", { ...empty, jobs: [queued] });
 click9({ target: { dataset: { cancel: "q" } } });
 answer("/c/q", { status: 0 }, false);
 assert.ok(el9.innerHTML.includes("could not be reached"), "a network error shows");
+
+// track(id): the panel follows a job the page just started and asks for the list at once
+open = []; timers = [];
+window.backgroundJobRunning = false;
+const el10 = { innerHTML: "", addEventListener() {} };
+const panel = jobPanel(el10, urls, "tok");
+advance(0);
+answer("/r", empty);
+assert.strictEqual(window.backgroundJobRunning, false);
+panel.track("t");
+assert.strictEqual(window.backgroundJobRunning, true, "a tracked job holds the page's reload");
+assert.ok(open.some((r) => r.url === "/r" && !r.settled), "the list is asked for at once");
+answer("/r", empty);
+answer("/j/t", { ...running, id: "t", label: "Upload", state: "cancelled" });
+assert.ok(el10.innerHTML.includes("Upload") && el10.innerHTML.includes('<span class="badge bg-secondary">cancelled</span>'),
+    "the tracked job's outcome shows");
+
+// a list answer older than the job, then its detail still active: the panel keeps following it
+open = []; timers = [];
+const el11 = { innerHTML: "", addEventListener() {} };
+const panel11 = jobPanel(el11, urls, "tok");
+advance(0);
+answer("/r", empty);
+panel11.track("u");
+answer("/r", empty);
+answer("/j/u", { ...running, id: "u", label: "Upload" });
+assert.ok(!open.some((r) => !r.settled && r.url === "/j/u"), "an active detail is not asked for again at once");
+assert.strictEqual(window.backgroundJobRunning, true, "still followed");
+advance(3000);
+answer("/r", empty);
+assert.strictEqual(open.filter((r) => !r.settled && r.url === "/j/u").length, 1, "asked again once per poll");
+answer("/j/u", { ...running, id: "u", label: "Upload", state: "succeeded" });
+assert.ok(el11.innerHTML.includes("Upload") && el11.innerHTML.includes('<span class="badge bg-success">succeeded</span>'),
+    "the outcome shows once the job ends");
 Date.now = realNow;
 console.log("ok");

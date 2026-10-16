@@ -90,8 +90,10 @@ function jobPanel(element, urls, csrfToken, initialIds) {
         if (last.short_operation) {
             html += '<div class="alert alert-secondary mb-3" role="status">A short operation is in progress.</div>';
         }
-        // a job the worker has to start, run or stop (the Jobs page uses the same rule)
-        var waiting = last.jobs.some(function (j) { return ["queued", "running", "cancelling"].indexOf(j.state) >= 0; });
+        // a job the worker has to start, run or stop, not one a request runs (the Jobs page uses the same rule)
+        var waiting = last.jobs.some(function (j) {
+            return ["queued", "running", "cancelling"].indexOf(j.state) >= 0 && !j.in_request;
+        });
         var seen = last.worker_last_seen ? new Date(last.worker_last_seen) : null;
         if (waiting && (!seen || Date.now() - seen.getTime() > 60000)) {
             html += '<div class="alert alert-warning mb-3" role="status">Worker unavailable, last seen '
@@ -115,10 +117,12 @@ function jobPanel(element, urls, csrfToken, initialIds) {
         inflight[id] = true;
         $.getJSON(urls.job(id))
             .done(function (job) {
+                if (dismissed[id]) { delete pending[id]; return; }
+                // still active: pending until a list shows it (one older than the job may not) or it
+                // ends; the next poll asks for it again
+                if (["queued", "running", "cancelling"].indexOf(job.state) >= 0) { return; }
                 delete pending[id];
-                if (dismissed[id]) { return; }
-                // a just-submitted job that is still active shows in the list instead
-                if (["queued", "running", "cancelling"].indexOf(job.state) < 0) { outcomes[id] = job; }
+                outcomes[id] = job;
                 render();
             })
             .fail(function (xhr) {
@@ -169,5 +173,12 @@ function jobPanel(element, urls, csrfToken, initialIds) {
     }
 
     var poller = pollWhileVisible(3000, function () { return $.getJSON(urls.resource); }, onData, 0);
+    // follow a job the page just started, as a remembered one
+    poller.track = function (id) {
+        pending[id] = true;
+        render();
+        poller.stop(); // ask for the list now
+        poller.start();
+    };
     return poller;
 }

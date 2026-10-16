@@ -73,6 +73,7 @@ class Kind:
     label = ""
     cancellable = False
     time_limit = None
+    runs_in_request = False  # its requests run it: admitted running, never the worker's
     progress_bytes = False  # progress counts bytes: the job page shows sizes
 
     def normalize(self, raw):
@@ -99,6 +100,10 @@ class Kind:
 
     def reconcile(self, op):
         raise NotImplementedError
+
+    def expire(self, op):
+        """Called on every housekeeping pass for an active job a request runs;
+        the kind decides whether the job is idle and ends it if so."""
 
     def log_entry(self, op, state):
         """(host, instance, message) of the Logs row written with each end of
@@ -170,6 +175,9 @@ def submit(kind_name, user, raw_params, submission_key):
         resource=plan.resource, resource_label=plan.label[:255], params=params, intent=plan.intent,
         time_limit=kind.time_limit,
     )
+    if kind.runs_in_request:
+        now = timezone.now()
+        op.state, op.started_at, op.heartbeat_at, op.worker = Operation.RUNNING, now, now, Operation.REQUEST
     return claims.admit_job(
         op, plan.claims,
         existing=lambda: _existing(user, submission_key, kind.name, params),
@@ -182,6 +190,8 @@ def cancel(op_id, user):
         op = Operation.objects.select_for_update().get(pk=op_id)
         if not utils.may_see(op, user):
             raise PermissionDenied
+        # read before the update below; a repeated cancel retries the request job's stop
+        request_job = op.in_request and op.state in (Operation.RUNNING, Operation.CANCELLING)
         if op.state == Operation.QUEUED:
             Operation.objects.filter(pk=op.pk).update(state=Operation.CANCELLED, finished_at=timezone.now())
             Claim.objects.filter(operation=op).delete()
@@ -194,6 +204,9 @@ def cancel(op_id, user):
         elif op.state != Operation.CANCELLING:
             raise OperationError("The job has already ended")
     op.refresh_from_db()
+    if request_job:  # no worker signals it: the request stops it
+        get_kind(op.kind).cancel(op)
+        op.refresh_from_db()
     return op
 
 

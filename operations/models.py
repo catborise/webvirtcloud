@@ -26,6 +26,7 @@ class Operation(models.Model):
     ACTIVE = (QUEUED, RUNNING, CANCELLING)
     TERMINAL = (SUCCEEDED, FAILED, CANCELLED, UNCERTAIN)
     STATES = [(s, s) for s in ACTIVE + TERMINAL]
+    REQUEST = "request"  # the worker of a job a request runs
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     kind = models.CharField(max_length=64, db_index=True)
@@ -49,7 +50,8 @@ class Operation(models.Model):
     started_at = models.DateTimeField(null=True)
     finished_at = models.DateTimeField(null=True)
     heartbeat_at = models.DateTimeField(null=True)
-    worker = models.CharField(max_length=128, blank=True)  # identity of the worker that owns it
+    # identity of the owning worker; REQUEST for a job a request runs, which the worker never claims or recovers
+    worker = models.CharField(max_length=128, blank=True)
     time_limit = models.PositiveIntegerField(null=True)  # seconds, fixed at admission
     cancel_requested = models.BooleanField(default=False)
     resolved_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
@@ -63,6 +65,10 @@ class Operation(models.Model):
 
     def __str__(self):
         return f"{self.kind} {self.id}"
+
+    @property
+    def in_request(self):
+        return self.worker == Operation.REQUEST
 
 
 class Claim(models.Model):

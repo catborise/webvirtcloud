@@ -5,9 +5,10 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
+from operations import jobs
 from operations.jobs import KINDS, Context, get_kind, label_of
-from operations.models import TAKEOVER_AFTER, LeaseLost, Operation, WorkerLease, acquire, fenced, renew
-from operations.tests import fakes  # noqa: F401
+from operations.models import TAKEOVER_AFTER, Claim, LeaseLost, Operation, WorkerLease, acquire, fenced, renew
+from operations.tests import fakes
 
 
 class RegistryTestCase(TestCase):
@@ -67,3 +68,38 @@ class ContextTestCase(TestCase):
         self.op.refresh_from_db()
         self.assertEqual((self.op.intent, self.op.effects_started), ({}, False))
         self.assertFalse(ctx.effects_started)
+
+
+class RequestJobTestCase(TestCase):
+    def setUp(self):
+        fakes.reset()
+        self.user = get_user_model().objects.create_user("req_user", "q@example.com", "pw")
+
+    def test_a_request_job_is_admitted_running_in_the_request(self):
+        op = jobs.submit("test.request", self.user, {}, "key-00000001")
+        op.refresh_from_db()
+        self.assertEqual((op.state, op.worker, op.in_request), (Operation.RUNNING, Operation.REQUEST, True))
+        self.assertIsNotNone(op.started_at)
+        self.assertEqual(op.heartbeat_at, op.started_at)
+        self.assertEqual(list(op.claims.values_list("resource", "mode")), [("instance:u1", Claim.EXCLUSIVE)])
+
+    def test_the_same_submission_returns_the_running_request_job(self):
+        op = jobs.submit("test.request", self.user, {}, "key-00000001")
+        again = jobs.submit("test.request", self.user, {}, "key-00000001")
+        self.assertEqual((again.pk, Operation.objects.count()), (op.pk, 1))
+
+    def test_cancelling_a_request_job_runs_its_cancel_in_the_request(self):
+        op = jobs.submit("test.request", self.user, {}, "key-00000001")
+        op = jobs.cancel(op.pk, self.user)
+        self.assertEqual((op.state, op.cancel_requested), (Operation.CANCELLING, True))
+        self.assertEqual(fakes.CANCELLED, [str(op.pk)])
+        jobs.cancel(op.pk, self.user)  # its stop did not end it: a repeated cancel retries
+        self.assertEqual(fakes.CANCELLED, [str(op.pk)] * 2)
+
+    def test_cancelling_a_workers_job_leaves_its_cancel_to_the_worker(self):
+        op = jobs.submit("test.scripted", self.user, {}, "key-00000001")
+        Operation.objects.filter(pk=op.pk).update(state=Operation.RUNNING, worker="h1:1:a")
+        op = jobs.cancel(op.pk, self.user)
+        self.assertEqual(op.state, Operation.CANCELLING)
+        jobs.cancel(op.pk, self.user)
+        self.assertEqual(fakes.CANCELLED, [])
