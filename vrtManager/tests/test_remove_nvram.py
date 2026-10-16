@@ -109,7 +109,7 @@ class RemoveNvramTestCase(TestCase):
         with self.assertRaises(libvirt.libvirtError):
             connect([source]).remove_nvram(PATH, destination)
         self.assertFalse(source.vols["vm_VARS.fd"].delete.called)
-        source.created[0].delete.assert_called_once_with(0)
+        self.assertEqual(source.created, [])  # both pools are opened before the check
 
     def test_the_transient_pool_is_stopped_when_the_delete_fails(self):
         transient = pool(NVRAM_DIR, ["vm_VARS.fd"])

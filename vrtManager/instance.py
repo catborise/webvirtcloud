@@ -1,4 +1,5 @@
 import contextlib
+import io
 import ipaddress
 import json
 import logging
@@ -18,6 +19,7 @@ try:
         VIR_DOMAIN_XML_SECURE,
         VIR_DOMAIN_XML_INACTIVE,
         VIR_DOMAIN_XML_MIGRATABLE,
+        VIR_DOMAIN_UNDEFINE_KEEP_NVRAM,
         VIR_ERR_NO_DOMAIN,
         VIR_ERR_NO_STORAGE_POOL,
         VIR_ERR_NO_STORAGE_VOL,
@@ -158,29 +160,64 @@ class wvmInstances(wvmConnect):
             # Once supported hosts all run a fixed libvirt, this branch and
             # move_definition can go: the flags above are those for
             # dom.migrate.
-            self.move_definition(dom)
+            self.move_definition(dom, conn)
         else:
             dom.migrate(self.wvm, flags, None, uri, 0)
         return ", ".join(mode)
 
     @staticmethod
     def refuse_local_state(xml):
-        """A shut-off VM moves without its UEFI variables (NVRAM) and TPM
-        state, which libvirt keeps in files of the source host: on the
-        destination it would start with new ones (lost boot entries and
-        enrolled keys, a new TPM that no longer unlocks disks). A live
-        migration carries both."""
-        tree = ElementTree.fromstring(xml)
-        state = []
-        if tree.find("os/nvram") is not None:
-            state.append("NVRAM")
-        if tree.find("devices/tpm/backend[@type='emulator']") is not None:
-            state.append("TPM")
-        if state:
+        """A shut-off VM moves without its TPM state, a file of the source
+        host: on the destination it would get a new TPM that no longer
+        unlocks its disks. A live migration carries it. (The UEFI variables
+        are copied: copy_nvram.)"""
+        if ElementTree.fromstring(xml).find("devices/tpm/backend[@type='emulator']") is not None:
             raise util.OperationError(
-                f"A shut-off VM with {' and '.join(state)} state cannot be migrated: the state stays on the source "
-                "host. Start the VM and migrate it live."
+                "A shut-off VM with TPM state cannot be migrated: the state stays on the source host. "
+                "Start the VM and migrate it live."
             )
+
+    def copy_nvram(self, conn):
+        """Copies the UEFI variables file of the shut-off VM of conn (on the
+        source) from libvirt's NVRAM directory there to the same path here,
+        unless both hosts share that directory. Returns the copy's name."""
+        path = conn.get_nvram()
+        if not path or os.path.dirname(path) != NVRAM_DIR:
+            return None
+        name = os.path.basename(path)
+        with conn._nvram_pool() as source, self._nvram_pool() as target:
+            vol = self._find_volume(source, name)
+            if vol is None:
+                return None  # never started: libvirt creates it at the first start
+            if self._nvram_shared(source, target):
+                if self._find_volume(target, name) is None:
+                    raise util.OperationError(f"The destination host cannot see the NVRAM file {path}")
+                return None
+            chunks = []
+            stream = conn.wvm.newStream(0)
+            vol.download(stream, 0, 0, 0)
+            stream.recvAll(lambda _stream, data, out: out.append(data), chunks)
+            stream.finish()
+            data = b"".join(chunks)
+            copy = target.createXML(
+                f"<volume><name>{util.xml_escape(name)}</name><capacity>{len(data)}</capacity>"
+                "<target><format type='raw'/></target></volume>",
+                0,
+            )
+            try:
+                stream = self.wvm.newStream(0)
+                copy.upload(stream, 0, len(data), 0)
+                stream.sendAll(lambda _stream, size, buffer: buffer.read(size), io.BytesIO(data))
+                stream.finish()
+            except Exception:
+                copy.delete(0)
+                raise
+        return name
+
+    def delete_nvram(self, name):
+        if name:
+            with self._nvram_pool() as pool:
+                pool.storageVolLookupByName(name).delete(0)
 
     def missing_disks(self, definitions):
         """(target, source) of the disks in the VM definitions (XML) that are
@@ -252,10 +289,11 @@ class wvmInstances(wvmConnect):
                 return None
             raise
 
-    def move_definition(self, dom):
+    def move_definition(self, dom, conn):
         """Migrates a shut-off VM: that is only its definition, as the disks
-        are on storage both hosts share (moveto refuses a VM with NVRAM or
-        TPM state). The destination's qemu migration hook does not run for it.
+        are on storage both hosts share, and its UEFI variables file
+        (copy_nvram; moveto refuses a VM with TPM state). The destination's
+        qemu migration hook does not run for it.
 
         Workaround, to be removed in a later version: libvirt's own offline
         migration (VIR_MIGRATE_OFFLINE) fails with "operation failed: domain
@@ -278,9 +316,15 @@ class wvmInstances(wvmConnect):
 
         xml = dom.XMLDesc(VIR_DOMAIN_XML_SECURE | VIR_DOMAIN_XML_MIGRATABLE)
         autostart = dom.autostart()
-        new = self.wvm.defineXML(xml)
+        nvram = self.copy_nvram(conn)
         try:
-            dom.undefineFlags(0)
+            new = self.wvm.defineXML(xml)
+        except Exception:
+            self.delete_nvram(nvram)
+            raise
+        try:
+            # libvirt refuses to undefine a VM with NVRAM without this; the file stays for the cleanup
+            dom.undefineFlags(VIR_DOMAIN_UNDEFINE_KEEP_NVRAM)
             try:
                 started = dom.isActive()
             except libvirtError as error:
@@ -292,7 +336,8 @@ class wvmInstances(wvmConnect):
                 dom.connect().defineXML(xml).setAutostart(autostart)
                 raise util.OperationError("The VM was started on the source host during the migration")
         except Exception as error:
-            self.undo_definition(dom, new, error)
+            self.undo_definition(dom, new, error)  # raises when the destination keeps the VM
+            self.delete_nvram(nvram)
             raise
 
     @staticmethod
@@ -308,7 +353,7 @@ class wvmInstances(wvmConnect):
                 f"{error}; the VM may now be defined only on the destination host: check both hosts"
             ) from error
         try:
-            new.undefineFlags(0)
+            new.undefineFlags(VIR_DOMAIN_UNDEFINE_KEEP_NVRAM)
         except libvirtError as undo_error:
             raise util.OperationError(
                 f"{error}; the VM is now defined on both hosts, remove it from the destination: {undo_error}"
@@ -447,7 +492,8 @@ class wvmInstance(wvmConnect):
         return util.get_xml_path(self._XMLDesc(0), "/domain/devices/emulator")
 
     def get_nvram(self):
-        return util.get_xml_path(self._XMLDesc(0), "/domain/os/nvram")
+        xml = self._XMLDesc(0)  # a path as text, or a <source file=...> since libvirt 8.5
+        return util.get_xml_path(xml, "/domain/os/nvram/source/@file") or util.get_xml_path(xml, "/domain/os/nvram")
 
     def get_loader(self):
         xml = self._XMLDesc(0)
