@@ -2,14 +2,17 @@
 and recovery reads the same outcome back. Runs only with TEST_LIBVIRT_HOST
 set (see instances/tests/livetest.py). The migration needs a second host:
 TEST_LIBVIRT_SSH_HOST (and _LOGIN), with TEST_LIBVIRT_MIGRATE_ADDRESS as its
-migration address."""
+migration address. The ISO upload runs on both hosts: TCP writes through a
+libvirt stream, SSH through SFTP."""
 
 import os
 import time
 import unittest
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TransactionTestCase
+from django.urls import reverse
 from vrtManager.connection import connection_manager
 from vrtManager.instance import wvmInstance
 
@@ -163,3 +166,42 @@ class LiveJobsTestCase(TransactionTestCase):
         self.run_job(jobs.submit("instance.migrate", self.admin, offline, "key-mig00002"))
         self.assertFalse(self.conn.lookupByUUIDString(uuid).isActive())  # defined on the source again
         self.assertEqual(Instance.objects.get(uuid=uuid).compute, self.compute)
+
+    def upload(self, compute, key, chunks):
+        """Post chunks of a two-chunk ISO upload to the storage view; returns the job."""
+        self.client.force_login(self.admin)
+        url = reverse("storage", args=[compute.pk, livetest.POOL])
+        name = P + "upload.iso"
+        for index in chunks:
+            answer = self.client.post(url, {
+                "iso_upload": "1", "file": SimpleUploadedFile(name, b"%d" % index * 4096), "file_name": name,
+                "chunk_index": str(index), "total_chunks": "2", "file_size": str(2 * 4096), "upload_id": key})
+            self.assertEqual(answer.status_code, 200, answer.content)
+        return Operation.objects.get(pk=answer.json()["job"])
+
+    def pool_volumes(self, conn):
+        pool = conn.storagePoolLookupByName(livetest.POOL)
+        pool.refresh(0)
+        return set(pool.listVolumes())
+
+    def test_an_iso_upload_runs_as_a_job(self):
+        hosts = [(self.compute, self.conn)]
+        if os.environ.get("TEST_LIBVIRT_SSH_HOST"):
+            ssh = Compute.objects.create(name=P + "ssh", hostname=os.environ["TEST_LIBVIRT_SSH_HOST"],
+                                         login=os.environ.get("TEST_LIBVIRT_SSH_LOGIN", "root"), password="", type=2)
+            ssh_conn = connection_manager.get_connection(ssh.hostname, ssh.login, "", 2)
+            ssh_inventory = livetest.inventory(ssh_conn)
+            self.addCleanup(lambda: self.assertEqual(livetest.inventory(ssh_conn), ssh_inventory))
+            self.addCleanup(livetest.remove_pool, ssh_conn)
+            livetest.ensure_pool(ssh_conn)
+            hosts.append((ssh, ssh_conn))
+        for n, (compute, conn) in enumerate(hosts):
+            with self.subTest(host=compute.name):
+                op = self.upload(compute, f"live-upload-{n}", (0, 1))
+                self.assertEqual(op.state, Operation.SUCCEEDED, op.error)
+                self.assertEqual(self.pool_volumes(conn), {P + "upload.iso"})
+                conn.storagePoolLookupByName(livetest.POOL).storageVolLookupByName(P + "upload.iso").delete(0)
+                op = self.upload(compute, f"live-cancel-{n}", (0,))
+                self.assertTrue(self.pool_volumes(conn))  # the volume, or the SSH part file
+                self.assertEqual(jobs.cancel(op.pk, self.admin).state, Operation.CANCELLED)
+                self.assertEqual(self.pool_volumes(conn), set())

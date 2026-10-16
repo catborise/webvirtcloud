@@ -604,6 +604,7 @@ When the restored version predates the worker, `supervisorctl` reports that `web
 - Cloning a VM or a volume and creating a VM run as jobs: the page returns at once and the job panel follows them. The API's VM create answers 202 with the job and needs a new `submission_key` per request. The create form no longer takes a console password; set it on the VM page.
 - Taking and reverting a snapshot run as jobs, like deleting an external snapshot: the page returns at once and the job panel follows them. Deleting an internal snapshot stays immediate.
 - Migrating a VM runs as a job: the page returns at once, the job panel shows its progress, and a running migration can be cancelled there (the VM keeps running on its source host). The 540 s limit is gone. The API's migrate answers 202 with the job and needs a new `submission_key` per request.
+- Uploading an ISO is tracked as a job: the storage page's job panel shows it and can cancel it, and the page no longer reloads when it ends. An upload left idle for an hour is ended and its partial file deleted.
 - Manual installs that keep their own `settings.py` copy the SQLite `OPTIONS` and `TEST` entries from `settings.py.template` and add `"operations"` to `INSTALLED_APPS`.
 - The SQLite database must be on a local file system (WAL).
 - Outside compose, stop the Docker container with `docker stop -t 95` so the worker can finish running jobs.
