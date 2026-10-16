@@ -1,4 +1,4 @@
-FROM phusion/baseimage:noble-1.0.2 AS build
+FROM phusion/baseimage:noble-1.0.3 AS build
 
 # Compilers and headers for libvirt-python and python-ldap; they stay in this stage.
 # hadolint ignore=DL3008
@@ -23,7 +23,7 @@ RUN python3 -m venv venv \
     && venv/bin/pip install --no-cache-dir -U pip wheel \
     && venv/bin/pip install --no-cache-dir -r conf/requirements.txt
 
-FROM phusion/baseimage:noble-1.0.2
+FROM phusion/baseimage:noble-1.0.3
 
 EXPOSE 80
 
