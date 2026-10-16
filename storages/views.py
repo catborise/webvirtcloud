@@ -1,6 +1,3 @@
-import os
-import re
-
 from admin.decorators import superuser_only
 from appsettings.settings import app_settings
 from computes.models import Compute
@@ -14,84 +11,46 @@ from libvirt import libvirtError
 from operations import claims, jobs
 from operations.utils import busy_message
 
-from vrtManager.connection import CONN_TCP, CONN_TLS
 from vrtManager.util import OperationError
 from vrtManager.storage import wvmStorage, wvmStorages
 
 from storages.forms import AddStgPool, CloneImage, CreateVolumeForm
-from storages.upload import handle_uploaded_file
+from storages.upload import write_chunk
 
 
-def _handle_iso_upload(request, conn, path, compute, pool):
+def _handle_iso_upload(request, conn, compute, pool):
     file_chunk = request.FILES.get("file")
     if not file_chunk:
         return JsonResponse({"error": _("No file chunk was submitted.")}, status=400)
-
-    file_name = request.POST.get("file_name", "")
-    clean_file_name = os.path.basename(file_name).strip()
-    if not clean_file_name or clean_file_name in (".", "..") or "\x00" in clean_file_name:
-        return JsonResponse({"error": _("Invalid file name.")}, status=400)
-    file_name = clean_file_name
 
     try:
         chunk_index = int(request.POST.get("chunk_index", 0))
         total_chunks = int(request.POST.get("total_chunks", 1))
     except (ValueError, TypeError):
         return JsonResponse({"error": _("Invalid chunk parameters.")}, status=400)
-
-    if total_chunks < 1 or chunk_index < 0 or chunk_index >= total_chunks:
+    if chunk_index < 0 or chunk_index >= total_chunks:
         return JsonResponse({"error": _("Invalid chunk index or total chunks.")}, status=400)
 
-    is_last_chunk = chunk_index == total_chunks - 1
-
-    file_size = None
-    if conn.conn in (CONN_TCP, CONN_TLS):
-        try:
-            file_size = int(request.POST.get("file_size", ""))
-        except (ValueError, TypeError):
-            return JsonResponse({"error": _("Invalid file size.")}, status=400)
-        if file_size <= 0:
-            return JsonResponse({"error": _("Invalid file size.")}, status=400)
-
-    upload_id = request.POST.get("upload_id")
-    if not upload_id or not isinstance(upload_id, str):
-        return JsonResponse({"error": _("Missing upload_id.")}, status=400)
-    upload_id = upload_id.strip()
-    if not re.match(r"^[a-zA-Z0-9_\-]+$", upload_id) or len(upload_id) > 64:
-        return JsonResponse({"error": _("Invalid upload_id format.")}, status=400)
+    try:
+        file_size = int(request.POST.get("file_size", ""))
+    except (ValueError, TypeError):
+        return JsonResponse({"error": _("Invalid file size.")}, status=400)
 
     try:
-        handle_uploaded_file(
-            conn,
-            path,
-            file_name,
-            file_chunk,
-            is_last_chunk,
-            chunk_index=chunk_index,
-            total_chunks=total_chunks,
-            upload_id=upload_id,
-            user_id=request.user.id,
-            compute_id=compute.id,
-            pool=pool,
-            file_size=file_size,
-        )
-
-        if is_last_chunk:
-            success_msg = _("ISO: %(file)s has been uploaded successfully.") % {"file": file_name}
-            messages.success(request, success_msg)
-            return JsonResponse({"success": True, "message": success_msg, "reload": True})
-        else:
-            return JsonResponse({"success": True, "message": "Chunk received."})
+        op = write_chunk(request.user, conn, compute, pool, request.POST.get("upload_id", ""),
+                         {"name": request.POST.get("file_name", ""), "size": file_size, "chunks": total_chunks},
+                         chunk_index, file_chunk, request=request)
+    except claims.Busy as busy:
+        if busy.blocker is not None:  # another job holds the pool or the name
+            return JsonResponse({"error": busy_message(busy, request.user)}, status=400)
+        return JsonResponse({"error": _("Upload session is busy. Please retry.")}, status=429)
     except FileExistsError:
         return JsonResponse({"error": _("ISO image already exists")}, status=400)
-    except TimeoutError:
-        return JsonResponse({"error": _("Upload session is busy. Please retry.")}, status=429)
-    except ValueError as e:
+    except (ValueError, jobs.SubmissionConflict, OperationError) as e:
         return JsonResponse({"error": str(e)}, status=400)
     except Exception as e:
-        error_msg = str(e)
-        messages.error(request, error_msg)
-        return JsonResponse({"error": error_msg}, status=500)
+        return JsonResponse({"error": str(e)}, status=500)
+    return JsonResponse({"success": True, "job": str(op.pk)})
 
 
 @superuser_only
@@ -191,7 +150,7 @@ def storage(request, compute_id, pool):
 
     if request.method == "POST" and "iso_upload" in request.POST:
         try:
-            return _handle_iso_upload(request, conn, conn.get_target_path(), compute, pool)
+            return _handle_iso_upload(request, conn, compute, pool)
         finally:
             conn.close()
 

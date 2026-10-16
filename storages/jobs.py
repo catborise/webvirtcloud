@@ -1,14 +1,21 @@
 """Jobs of the storages app (operations framework)."""
 
+import logging
+import os
+
 from django.core.exceptions import PermissionDenied
 from django.utils.translation import gettext_noop
 from vrtManager import util
 from vrtManager.storage import wvmStorage
 
 from computes.models import Compute
-from operations import claims
+from operations import claims, utils
 from operations.jobs import Kind, Outcome, Plan, register
 from operations.models import Claim, Operation
+
+from storages import upload
+
+logger = logging.getLogger(__name__)
 
 
 def _storage(params):
@@ -61,3 +68,51 @@ class CloneVolume(Kind):
             return Outcome(Operation.UNCERTAIN, error="The copy exists, but the job did not see it finish; "
                                                       "check it, then resolve this job.")
         return Outcome(Operation.FAILED, error="The copy was not made")
+
+
+@register
+class UploadVolume(Kind):
+    """An ISO upload: its chunk requests run it (storages.upload)."""
+
+    name = "volume.upload"
+    label = gettext_noop("Upload ISO image")
+    cancellable = True
+    progress_bytes = True
+    runs_in_request = True
+
+    def normalize(self, raw):
+        return {"compute": int(raw["compute"]), "pool": str(raw["pool"]),
+                "name": os.path.basename(str(raw["name"])).strip(), "size": int(raw["size"]),
+                "chunks": int(raw["chunks"])}
+
+    def validate(self, user, params):
+        if not user.is_superuser:
+            raise PermissionDenied
+        name = params["name"]
+        if not name or name in (".", "..") or "\x00" in name:
+            raise ValueError("Invalid file name")
+        if len(name) <= 4 or not name.lower().endswith(".iso"):
+            raise ValueError("Only .iso files can be uploaded")
+        if params["size"] <= 0:
+            raise ValueError("Invalid file size")
+        if params["chunks"] < 1:
+            raise ValueError("Invalid chunk index or total chunks")
+
+    def plan(self, user, params):
+        compute, stg = _storage(params)
+        stg.refresh()
+        if params["name"] in stg.get_volumes():
+            raise FileExistsError(f"The pool has a volume named {params['name']}")
+        pool = claims.pool_key(compute.pk, params["pool"])
+        return Plan(claims={claims.compute_key(compute.pk): Claim.SHARED, pool: Claim.SHARED,
+                            claims.volume_key(compute.pk, params["pool"], params["name"]): Claim.EXCLUSIVE},
+                    resource=pool, label=f"{compute.name}/{params['pool']}", intent={"chunk": 0, "created": False})
+
+    def cancel(self, op):
+        try:
+            upload.end(op, Operation.CANCELLED)
+        except Exception as err:  # the next chunk or the expiry ends it
+            logger.error("cancelling upload %s failed: %s", op.pk, utils.safe_text(err))
+
+    def expire(self, op):
+        upload.end(op, Operation.FAILED, upload.IDLE)

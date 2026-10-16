@@ -64,7 +64,7 @@ def upload(client):
     target = _UploadTarget(MagicMock(conn=CONN_SSH, host="192.0.2.1"), "/pool", "x.iso", "id")
     target.sftp = MagicMock(open=lambda path, mode: paramiko.SFTPFile(client, b"handle", "w"))
     data = bytes(range(256)) * (SIZE // 256)
-    return target.write_chunk(SimpleUploadedFile("x.iso", data), 0, new=True), data
+    return target.write(SimpleUploadedFile("x.iso", data), 0, new=True), data
 
 
 class PipelinedWriteTestCase(unittest.TestCase):
