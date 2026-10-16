@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.test import TransactionTestCase
+from django.urls import reverse
 
 from accounts.models import UserInstance
 from computes.models import Compute
@@ -61,6 +62,13 @@ class OperationsApiTestCase(TransactionTestCase):
         self.client.force_login(self.owner)
         response = self.client.post(f"/api/v1/operations/{self.op.pk}/cancel/")
         self.assertEqual((response.status_code, response.json()["state"]), (200, "cancelled"))
+
+    def test_another_users_job_cannot_be_cancelled(self):
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.post(f"/api/v1/operations/{self.op.pk}/cancel/").status_code, 404)
+        self.assertEqual(self.client.post(reverse("operations:cancel", args=[self.op.pk])).status_code, 404)
+        self.op.refresh_from_db()
+        self.assertEqual(self.op.state, Operation.QUEUED)
 
     def test_a_job_that_cannot_stop_answers_400(self):
         Operation.objects.filter(pk=self.op.pk).update(state=Operation.RUNNING)
