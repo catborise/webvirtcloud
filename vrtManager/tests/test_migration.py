@@ -1,7 +1,9 @@
 """Migration: the source definition never stays behind; a shut-off VM's
 definition is moved by the app, not by libvirt's offline migration."""
 
+import contextlib
 import unittest
+from unittest import mock
 
 import libvirt
 from django.conf import settings
@@ -156,9 +158,13 @@ class FakeHost:
 
 
 class FakeSource:
-    def __init__(self, state, **domain):
+    def __init__(self, state, nvram=None, **domain):
         self.state = state
+        self.nvram = nvram
         self.instance = FakeDomain(**domain)
+
+    def get_nvram(self):
+        return self.nvram
 
     reads = 0
 
@@ -209,23 +215,18 @@ class ShutOffMigrationTestCase(unittest.TestCase):
         destination(host).moveto(source, "vm", live=False, unsafe=False, offline=True)
         self.assertEqual(host.defined, ["<domain><name>vm</name></domain>"])
         self.assertEqual(source.instance.calls, [])
-        self.assertEqual(source.instance.undefined, 0)
+        self.assertEqual(source.instance.undefined, libvirt.VIR_DOMAIN_UNDEFINE_KEEP_NVRAM)
 
-    def test_a_vm_with_nvram_or_tpm_state_is_refused(self):
+    def test_a_vm_with_tpm_state_is_refused(self):
         """That state stays on the source host: the VM would start on the
-        destination with new UEFI variables and a new TPM."""
-        cases = {
-            "nvram": "<os><nvram>/var/lib/libvirt/qemu/nvram/vm_VARS.fd</nvram></os>",
-            "tpm": "<devices><tpm model='tpm-crb'><backend type='emulator' version='2.0'/></tpm></devices>",
-        }
-        for case, xml in cases.items():
-            with self.subTest(case=case):
-                host = FakeHost()
-                source = FakeSource(5, xml=f"<domain>{xml}</domain>")
-                with self.assertRaisesRegex(util.OperationError, "migrate it live"):
-                    destination(host).moveto(source, "vm", live=False, unsafe=False, offline=True)
-                self.assertEqual(host.defined, [])
-                self.assertIsNone(source.instance.undefined)
+        destination with a new TPM."""
+        host = FakeHost()
+        xml = "<domain><devices><tpm model='tpm-crb'><backend type='emulator' version='2.0'/></tpm></devices></domain>"
+        source = FakeSource(5, xml=xml)
+        with self.assertRaisesRegex(util.OperationError, "migrate it live"):
+            destination(host).moveto(source, "vm", live=False, unsafe=False, offline=True)
+        self.assertEqual(host.defined, [])
+        self.assertIsNone(source.instance.undefined)
 
     def test_a_tpm_without_local_state_moves(self):
         xml = "<domain><devices><tpm model='tpm-tis'><backend type='passthrough'/></tpm></devices></domain>"
@@ -425,3 +426,48 @@ class DestinationDisksTestCase(unittest.TestCase):
         xml = with_disks("<disk type='volume' device='disk'><source pool='p' volume='v'/><target dev='vdc'/></disk>")
         with self.assertRaisesRegex(util.OperationError, "vdc \\(p/v\\)"):
             self.migrate(host, xml)
+
+
+class NvramCopyTestCase(unittest.TestCase):
+    """A shut-off move copies the UEFI variables file to the destination."""
+
+    PATH = "/var/lib/libvirt/qemu/nvram/vm_VARS.fd"
+
+    def setUp(self):
+        self.source = FakeSource(5, nvram=self.PATH, xml="<domain><name>vm</name></domain>")
+        self.source.wvm = mock.MagicMock()
+        self.source.wvm.newStream.return_value.recvAll.side_effect = lambda fn, out: fn(None, b"vars", out)
+        self.source_pool = mock.MagicMock()
+        self.source._nvram_pool = lambda: contextlib.nullcontext(self.source_pool)
+        self.host = FakeHost()
+        self.dest = destination(self.host)
+        self.dest_pool = mock.MagicMock()
+        self.dest._nvram_pool = lambda: contextlib.nullcontext(self.dest_pool)
+        self.dest.wvm.newStream = mock.MagicMock()
+        self.shared = mock.patch.object(wvmInstances, "_nvram_shared", return_value=False)
+        self.shared.start()
+        self.addCleanup(self.shared.stop)
+
+    def move(self):
+        self.dest.moveto(self.source, "vm", live=False, unsafe=False, offline=True)
+
+    def test_the_file_is_copied_before_the_definition(self):
+        self.move()
+        copy = self.dest_pool.createXML.return_value
+        self.assertIn("<name>vm_VARS.fd</name><capacity>4</capacity>", self.dest_pool.createXML.call_args[0][0])
+        copy.upload.assert_called_once_with(self.dest.wvm.newStream.return_value, 0, 4, 0)
+        self.assertEqual(self.host.defined, ["<domain><name>vm</name></domain>"])
+
+    def test_a_shared_directory_is_not_copied(self):
+        self.shared.stop()
+        with mock.patch.object(wvmInstances, "_nvram_shared", return_value=True):
+            self.move()
+        self.dest_pool.createXML.assert_not_called()
+        self.shared.start()
+
+    def test_the_copy_is_deleted_when_the_definition_fails(self):
+        self.host.defineXML = mock.MagicMock(side_effect=libvirt.libvirtError("define failed"))
+        with self.assertRaisesRegex(libvirt.libvirtError, "define failed"):
+            self.move()
+        self.dest_pool.storageVolLookupByName.assert_called_once_with("vm_VARS.fd")
+        self.dest_pool.storageVolLookupByName.return_value.delete.assert_called_once_with(0)

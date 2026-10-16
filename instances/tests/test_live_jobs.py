@@ -9,11 +9,12 @@ import os
 import time
 import unittest
 
+import libvirt
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TransactionTestCase
 from django.urls import reverse
-from vrtManager.connection import connection_manager
+from vrtManager.connection import connection_manager, wvmConnect
 from vrtManager.instance import wvmInstance
 
 from appsettings.settings import get_settings
@@ -144,7 +145,7 @@ class LiveJobsTestCase(TransactionTestCase):
             "machine": "q35"}, "key-smoke003"))
         self.assertEqual(self.conn.lookupByUUIDString(op.intent["uuid"]).name(), P + "smoke-new")
 
-    def test_a_migration_runs_as_a_job_there_and_back(self):
+    def second_host(self):
         if not os.environ.get("TEST_LIBVIRT_SSH_HOST"):
             self.skipTest("Set TEST_LIBVIRT_SSH_HOST to a second host to run the live migration test")
         dest = Compute.objects.create(name=P + "dest", hostname=os.environ["TEST_LIBVIRT_SSH_HOST"],
@@ -154,6 +155,10 @@ class LiveJobsTestCase(TransactionTestCase):
         dest_inventory = livetest.inventory(dest_conn)
         self.addCleanup(lambda: self.assertEqual(livetest.inventory(dest_conn), dest_inventory))
         self.addCleanup(livetest.cleanup, dest_conn)
+        return dest, dest_conn
+
+    def test_a_migration_runs_as_a_job_there_and_back(self):
+        dest, dest_conn = self.second_host()
         dom = livetest.define_vm(self.conn, P + "migrate", [])
         dom.create()
         uuid = dom.UUIDString()
@@ -166,6 +171,34 @@ class LiveJobsTestCase(TransactionTestCase):
         self.run_job(jobs.submit("instance.migrate", self.admin, offline, "key-mig00002"))
         self.assertFalse(self.conn.lookupByUUIDString(uuid).isActive())  # defined on the source again
         self.assertEqual(Instance.objects.get(uuid=uuid).compute, self.compute)
+
+    def test_a_shut_off_uefi_vm_migrates_with_its_nvram_there_and_back(self):
+        dest, _dest_conn = self.second_host()
+        hosts = {self.compute.pk: wvmConnect(*self.args), dest.pk: wvmConnect(dest.hostname, dest.login, "", 2)}
+        dom = livetest.define_vm(self.conn, P + "uefi", [], uefi=True)
+        dom.createWithFlags(libvirt.VIR_DOMAIN_START_PAUSED)  # libvirt makes the NVRAM file
+        dom.destroy()
+        name = os.path.basename(wvmInstance(*self.args, None, uuid=dom.UUIDString()).get_nvram())
+
+        def nvram(compute):
+            host = hosts[compute.pk]
+            with host._nvram_pool() as pool:
+                vol = host._find_volume(pool, name)
+                if vol is None:
+                    return None
+                stream, chunks = host.wvm.newStream(0), []
+                vol.download(stream, 0, 0, 0)
+                stream.recvAll(lambda _stream, data, out: out.append(data), chunks)
+                stream.finish()
+                return b"".join(chunks)
+
+        content = nvram(self.compute)
+        instance = Instance.objects.create(compute=self.compute, name=dom.name(), uuid=dom.UUIDString())
+        for n, (source, target) in enumerate(((self.compute, dest), (dest, self.compute))):
+            offline = {"instance": instance.pk, "target": target.pk, "offline": True}
+            self.run_job(jobs.submit("instance.migrate", self.admin, offline, f"key-uefi{n:04d}"))
+            self.assertEqual(nvram(target), content)
+            self.assertIsNone(nvram(source))
 
     def upload(self, compute, key, chunks):
         """Post chunks of a two-chunk ISO upload to the storage view; returns the job."""

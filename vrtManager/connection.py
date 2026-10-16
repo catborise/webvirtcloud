@@ -869,28 +869,33 @@ class wvmConnect(object):
         whether a file was deleted."""
         if os.path.dirname(path) != NVRAM_DIR:
             return False
-        marker = (
-            f"<volume><name>webvirtcloud-check-{uuid.uuid4().hex}</name><capacity>0</capacity>"
-            "<target><format type='raw'/></target></volume>"
-        )
-        with self._nvram_pool() as pool:
-            mine = pool.createXML(marker, 0)
-            try:
-                # Creating the same file on destination fails when both see one
-                # directory: the create is exclusive on the file server, unlike
-                # a directory listing, which an NFS client may cache.
-                with destination._nvram_pool() as other:
-                    try:
-                        other.createXML(marker, 0).delete(0)
-                    except libvirtError:
-                        return False  # shared, or not known to be local
-            finally:
-                mine.delete(0)
+        with self._nvram_pool() as pool, destination._nvram_pool() as other:
+            if self._nvram_shared(pool, other):
+                return False
             vol = self._find_volume(pool, os.path.basename(path))
             if vol is None:
                 return False
             vol.delete(0)
             return True
+
+    @staticmethod
+    def _nvram_shared(pool, other):
+        """Whether pools on NVRAM_DIR of two hosts are one directory, or other
+        is not known to be one of its own: creating the same file in both
+        fails then. The create is exclusive on the file server, unlike a
+        directory listing, which an NFS client may cache."""
+        marker = (
+            f"<volume><name>webvirtcloud-check-{uuid.uuid4().hex}</name><capacity>0</capacity>"
+            "<target><format type='raw'/></target></volume>"
+        )
+        mine = pool.createXML(marker, 0)
+        try:
+            other.createXML(marker, 0).delete(0)
+        except libvirtError:
+            return True
+        finally:
+            mine.delete(0)
+        return False
 
     @contextlib.contextmanager
     def _nvram_pool(self):
