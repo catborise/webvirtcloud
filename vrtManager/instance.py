@@ -40,6 +40,12 @@ try:
         VIR_ERR_OPERATION_INVALID,
         VIR_DOMAIN_SNAPSHOT_LIST_INTERNAL,
         VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL,
+        VIR_DOMAIN_BACKUP_BEGIN_REUSE_EXTERNAL,
+        VIR_DOMAIN_JOB_NONE,
+        VIR_DOMAIN_JOB_OPERATION_BACKUP,
+        VIR_DOMAIN_JOB_STATS_COMPLETED,
+        VIR_DOMAIN_JOB_STATS_KEEP_COMPLETED,
+        VIR_ERR_NO_DOMAIN_BACKUP,
         libvirtError,
     )
     from libvirt_qemu import VIR_DOMAIN_QEMU_AGENT_COMMAND_DEFAULT, qemuAgentCommand
@@ -65,6 +71,12 @@ PERSISTENT_XML = VIR_DOMAIN_XML_INACTIVE | VIR_DOMAIN_XML_SECURE
 SNAPSHOT_NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}")
 # the longest window wvmInstance.usage() averages over
 USAGE_MAX_WINDOW = 30
+# A running VM is cloned with a push backup that keeps the VM alive when the
+# guest shuts down during the copy: libvirt 11.10.
+LIVE_CLONE_MIN_LIBVIRT = 11_010_000
+# libvirt 11.10's value; bindings built against older libvirt lack the name,
+# and the flag is sent to the host, whose version is checked.
+VIR_DOMAIN_BACKUP_BEGIN_PRESERVE_SHUTDOWN_DOMAIN = 2
 
 
 def _rate(before, after, seconds, scale=1):
@@ -1894,13 +1906,11 @@ class wvmInstance(wvmConnect):
         mac_tuples = [mac[i : i + n] for i in range(0, len(mac), n)]
         return ":".join(mac_tuples)
 
-    def clone_instance(self, clone_data, uuid):
-        """Copy a shut-off VM, with its disks and UEFI variables (NVRAM).
-        Inputs are checked before anything is allocated, and on failure only
-        the volumes this call created are removed. Returns the clone's UUID."""
-        if self.get_status() != 5:
-            # A running guest keeps writing while its disks are copied.
-            raise util.OperationError("Shut the VM down before cloning it")
+    def _clone_definition(self, clone_data, uuid):
+        """The VM's persistent definition renamed to the clone, with its UUID,
+        title, description and MACs; returns it and the (source, dev) of each
+        disk to copy. Disks without a source are dropped. Raises before
+        anything is allocated."""
         if clone_data["name"] in self.get_instances():
             raise ValueError("An instance with the clone name already exists")
 
@@ -1941,15 +1951,90 @@ class wvmInstance(wvmConnect):
                 raise ValueError(f"No MAC address for network interface {num}")
             net.find("mac").set("address", self.fix_mac(mac))
 
+        nvram = tree.find("os/nvram")
+        if nvram is not None and nvram.get("type", "file") != "file":
+            raise util.OperationError("Cannot clone a VM whose NVRAM is not a file")
+        return tree, disks
+
+    def _clone_volume_xml(self, name, capacity, vol_format, owner_uid, owner_gid):
+        return f"""<volume>
+                      <name>{util.xml_escape(name)}</name>
+                      <capacity>{capacity}</capacity>
+                      <allocation>0</allocation>
+                      <target>
+                        <format type='{vol_format}'/>
+                        <permissions>
+                          <owner>{owner_uid}</owner>
+                          <group>{owner_gid}</group>
+                          <mode>0644</mode>
+                          <label>virt_image_t</label>
+                        </permissions>
+                        <compat>1.1</compat>
+                        <features><lazy_refcounts/></features>
+                      </target>
+                    </volume>"""
+
+    def define_clone(self, clone_data, uuid, paths):
+        """Defines the clone with each copied disk's source set from paths
+        ({dev: new path}) and its own copy of the VM's UEFI variables (NVRAM).
+        The NVRAM copy is removed if the definition fails. Returns the
+        clone's UUID."""
+        tree, disks = self._clone_definition(clone_data, uuid)
+        for source, dev in disks:
+            source.set("file" if source.get("file") else "dev" if source.get("dev") else "name", paths[dev])
+
         # the UEFI variables: a path as text, or a <source file=...> since libvirt 8.5
         nvram = tree.find("os/nvram")
         nvram_source = nvram.find("source") if nvram is not None else None
         nvram_path = None
         if nvram is not None:
-            if nvram.get("type", "file") != "file":
-                raise util.OperationError("Cannot clone a VM whose NVRAM is not a file")
             nvram_path = nvram_source.get("file") if nvram_source is not None else (nvram.text or "").strip()
 
+        if not nvram_path:
+            return self._defineXML(etree.tostring(tree).decode()).UUIDString()
+        # the clone starts with the VM's UEFI variables: boot entries, enrolled keys
+        if os.path.dirname(nvram_path) == NVRAM_DIR:
+            pools = self._nvram_pool()
+        else:  # a volume of a pool; libvirtError when no pool holds it
+            pools = contextlib.nullcontext(self.get_volume_by_path(nvram_path).storagePoolLookupByVolume())
+        with pools as pool:
+            original = pool.storageVolLookupByName(os.path.basename(nvram_path))
+            # same format, owner and mode as the original: the domain names the format,
+            # and qemu may run without libvirt changing the file's owner
+            target = etree.fromstring(original.XMLDesc(0)).find("target")
+            volume = etree.Element("volume")
+            etree.SubElement(volume, "name").text = clone_data["name"] + "_VARS" + os.path.splitext(nvram_path)[1]
+            etree.SubElement(volume, "capacity").text = "0"
+            copy_target = etree.SubElement(volume, "target")
+            for tag in ("format", "permissions"):
+                if target.find(tag) is not None:
+                    copy_target.append(target.find(tag))
+            copy = pool.createXMLFrom(etree.tostring(volume).decode(), original, 0)
+            if nvram_source is not None:
+                nvram_source.set("file", copy.path())
+            else:
+                nvram.text = copy.path()
+            try:
+                return self._defineXML(etree.tostring(tree).decode()).UUIDString()
+            except Exception as err:
+                try:
+                    copy.delete(0)
+                except libvirtError:
+                    raise util.OperationError(
+                        f"Clone failed ({err}); remove these copies by hand: {copy.path()}"
+                    ) from err
+                raise
+
+    def clone_instance(self, clone_data, uuid):
+        """Copy a shut-off VM, with its disks and UEFI variables (NVRAM).
+        Inputs are checked before anything is allocated, and on failure only
+        the volumes this call created are removed. Returns the clone's UUID."""
+        if self.get_status() != 5:
+            # A running guest keeps writing while its disks are copied.
+            raise util.OperationError("Shut the VM down before cloning it")
+        _, disks = self._clone_definition(clone_data, uuid)
+
+        paths = {}  # dev: path of its copy
         created = []  # paths of volumes this call created
         try:
             for source, dev in disks:
@@ -1959,27 +2044,14 @@ class wvmInstance(wvmConnect):
                     vol = self.get_volume_by_path(source.get("file"))
                     vol_format = util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type")
                     new_vol = vol.storagePoolLookupByVolume().createXMLFrom(
-                        f"""<volume>
-                              <name>{target_file}</name>
-                              <capacity>0</capacity>
-                              <allocation>0</allocation>
-                              <target>
-                                <format type='{vol_format}'/>
-                                <permissions>
-                                  <owner>{clone_data['disk_owner_uid']}</owner>
-                                  <group>{clone_data['disk_owner_gid']}</group>
-                                  <mode>0644</mode>
-                                  <label>virt_image_t</label>
-                                </permissions>
-                                <compat>1.1</compat>
-                                <features><lazy_refcounts/></features>
-                              </target>
-                            </volume>""",
+                        self._clone_volume_xml(
+                            target_file, 0, vol_format, clone_data["disk_owner_uid"], clone_data["disk_owner_gid"]
+                        ),
                         vol,
                         meta_prealloc and vol_format == "qcow2",
                     )
                     created.append(new_vol.path())
-                    source.set("file", new_vol.path())
+                    paths[dev] = new_vol.path()
                 elif source.get("protocol") == "rbd":
                     vol = self.get_volume_by_path(source.get("name"))
                     vol_format = util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type")
@@ -1994,7 +2066,7 @@ class wvmInstance(wvmConnect):
                         meta_prealloc,
                     )
                     created.append(new_vol.path())
-                    source.set("name", f"{os.path.dirname(source.get('name'))}/{target_file}")
+                    paths[dev] = f"{os.path.dirname(source.get('name'))}/{target_file}"
                 else:
                     vol = self.get_volume_by_path(source.get("dev"))
                     pool_name = util.get_xml_path(vol.storagePoolLookupByVolume().XMLDesc(0), "/pool/name")
@@ -2002,41 +2074,9 @@ class wvmInstance(wvmConnect):
                     name = storage.clone_volume(vol.name(), target_file)
                     new_path = storage.get_volume(name).path()
                     created.append(new_path)
-                    source.set("dev", new_path)
+                    paths[dev] = new_path
 
-            if not nvram_path:
-                clone = self._defineXML(etree.tostring(tree).decode())
-            else:
-                # the clone starts with the VM's UEFI variables: boot entries, enrolled keys
-                if os.path.dirname(nvram_path) == NVRAM_DIR:
-                    pools = self._nvram_pool()
-                else:  # a volume of a pool; libvirtError when no pool holds it
-                    pools = contextlib.nullcontext(self.get_volume_by_path(nvram_path).storagePoolLookupByVolume())
-                with pools as pool:
-                    original = pool.storageVolLookupByName(os.path.basename(nvram_path))
-                    # same format, owner and mode as the original: the domain names the format,
-                    # and qemu may run without libvirt changing the file's owner
-                    target = etree.fromstring(original.XMLDesc(0)).find("target")
-                    volume = etree.Element("volume")
-                    etree.SubElement(volume, "name").text = clone_data["name"] + "_VARS" + os.path.splitext(nvram_path)[1]
-                    etree.SubElement(volume, "capacity").text = "0"
-                    copy_target = etree.SubElement(volume, "target")
-                    for tag in ("format", "permissions"):
-                        if target.find(tag) is not None:
-                            copy_target.append(target.find(tag))
-                    copy = pool.createXMLFrom(etree.tostring(volume).decode(), original, 0)
-                    if nvram_source is not None:
-                        nvram_source.set("file", copy.path())
-                    else:
-                        nvram.text = copy.path()
-                    try:
-                        clone = self._defineXML(etree.tostring(tree).decode())
-                    except Exception:
-                        try:
-                            copy.delete(0)
-                        except libvirtError:
-                            created.append(copy.path())
-                        raise
+            return self.define_clone(clone_data, uuid, paths)
         except Exception as err:
             leftovers = []
             for path in reversed(created):
@@ -2048,7 +2088,119 @@ class wvmInstance(wvmConnect):
                 raise util.OperationError(f"Clone failed ({err}); remove these copies by hand: {', '.join(leftovers)}") from err
             raise
 
-        return clone.UUIDString()
+    def live_clone_targets(self, clone_data, free_percent, free_min_gib):
+        """Refuses a live clone that cannot work, before anything is
+        allocated; returns the new volume of each copied disk, in disk order:
+        in the source volume's pool, at its virtual capacity and format. Each
+        pool keeps the copies plus free_percent of them, at least
+        free_min_gib GiB, free (the snapshots' rule); checked only, nothing
+        is reserved."""
+        if self.wvm.getLibVersion() < LIVE_CLONE_MIN_LIBVIRT:
+            raise util.OperationError("Live clone needs libvirt 11.10 or later; shut the VM down to clone it")
+        tree, disks = self._clone_definition(clone_data, "")
+        if tree.find("devices/tpm") is not None:
+            raise util.OperationError("A VM with a TPM is cloned only shut down")
+        for source, dev in disks:
+            if not source.get("file"):
+                raise util.OperationError(f"Disk {dev} is not a local file; shut the VM down to clone it")
+            if source.getparent().find("shareable") is not None:
+                raise util.OperationError(f"Disk {dev} is shareable; shut the VM down to clone it")
+        if self.instance.jobInfo()[0] != VIR_DOMAIN_JOB_NONE:
+            raise util.OperationError("Another job is running on the VM; clone it when that ends")
+
+        targets, pools, copied = [], {}, {}
+        for source, dev in disks:
+            vol = self.get_volume_by_path(source.get("file"))
+            pool = vol.storagePoolLookupByVolume()
+            name = clone_data["disk-" + dev]
+            try:
+                pool.storageVolLookupByName(name)
+            except libvirtError as err:
+                if err.get_error_code() != VIR_ERR_NO_STORAGE_VOL:
+                    raise
+            else:
+                raise util.OperationError(f"Volume {name} already exists in storage pool {pool.name()}")
+            capacity = vol.info()[1]
+            pools[pool.name()] = pool
+            copied[pool.name()] = copied.get(pool.name(), 0) + capacity
+            targets.append(
+                {
+                    "dev": dev,
+                    "pool": pool.name(),
+                    "name": name,
+                    "path": os.path.join(util.get_xml_path(pool.XMLDesc(0), "/pool/target/path"), name),
+                    "capacity": capacity,
+                    "format": util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type"),
+                }
+            )
+        for name, size in copied.items():
+            needed = size + max(size * free_percent / 100, free_min_gib * 1024**3)
+            free = pools[name].info()[3]
+            if free < needed:
+                raise util.OperationError(
+                    f"Storage pool {name} has {free / 1024**3:.1f} GiB free; the clone needs {needed / 1024**3:.1f} GiB "
+                    f"(the copied disks, plus {free_percent:g}% of them, at least {free_min_gib:g} GiB)"
+                )
+        return targets
+
+    def create_clone_target(self, target, owner_uid, owner_gid):
+        """An empty volume for a copied disk; libvirt refuses one that exists.
+        Returns its path."""
+        pool = self.wvm.storagePoolLookupByName(target["pool"])
+        xml = self._clone_volume_xml(target["name"], target["capacity"], target["format"], owner_uid, owner_gid)
+        return pool.createXML(xml, 0).path()
+
+    def begin_clone_backup(self, targets):
+        """Starts libvirt's push backup of the targets' disks into their
+        volumes. The VM keeps running when the guest shuts down meanwhile."""
+        disks = "".join(
+            f"<disk name='{util.xml_escape(t['dev'])}' backup='yes' type='file'>"
+            f"<target file='{util.xml_escape(t['path'])}'/><driver type='{util.xml_escape(t['format'])}'/></disk>"
+            for t in targets
+        )
+        self.instance.backupBegin(
+            f"<domainbackup mode='push'><disks>{disks}</disks></domainbackup>",
+            None,
+            VIR_DOMAIN_BACKUP_BEGIN_REUSE_EXTERNAL | VIR_DOMAIN_BACKUP_BEGIN_PRESERVE_SHUTDOWN_DOMAIN,
+        )
+
+    def backup_targets(self):
+        """The target paths of the running backup; None when none runs."""
+        try:
+            xml = self.instance.backupGetXMLDesc(0)
+        except libvirtError as err:
+            if err.get_error_code() == VIR_ERR_NO_DOMAIN_BACKUP:
+                return None
+            raise
+        return set(etree.fromstring(xml).xpath("disks/disk/target/@file"))
+
+    def backup_progress(self):
+        """(bytes copied, bytes to copy) of the running backup; None when
+        none runs."""
+        stats = self.instance.jobStats(0)
+        if (
+            stats.get("type", VIR_DOMAIN_JOB_NONE) == VIR_DOMAIN_JOB_NONE
+            or stats.get("operation") != VIR_DOMAIN_JOB_OPERATION_BACKUP
+        ):
+            return None
+        return stats.get("disk_processed", 0), stats.get("disk_total", 0)
+
+    def backup_result(self):
+        """(success, libvirt's error) of the completed backup, kept for later
+        reads; None when libvirt has no completed backup."""
+        stats = self.instance.jobStats(VIR_DOMAIN_JOB_STATS_COMPLETED | VIR_DOMAIN_JOB_STATS_KEEP_COMPLETED)
+        if stats.get("operation") != VIR_DOMAIN_JOB_OPERATION_BACKUP or "success" not in stats:
+            return None
+        return bool(stats["success"]), stats.get("errmsg") or ""
+
+    def abort_backup(self):
+        self.instance.abortJob()
+
+    def fs_freeze(self):
+        self.instance.fsFreeze(None, 0)
+
+    def fs_thaw(self):
+        self.instance.fsThaw(None, 0)
 
     def add_network(
         self, mac_address, source, source_type="net", model="virtio", nwfilter=None
