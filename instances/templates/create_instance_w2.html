@@ -7,6 +7,10 @@
 
 {% block style %}
     <link href="{% static "css/tom-select.bootstrap5.min.css" %}" rel="stylesheet">
+    <style>
+        /* the chosen images and networks are listed below the pickers, not in them */
+        #image-control + .ts-wrapper .ts-control > .item, #network-control + .ts-wrapper .ts-control > .item { display: none; }
+    </style>
 {% endblock %}
 
 {% block page_heading %}
