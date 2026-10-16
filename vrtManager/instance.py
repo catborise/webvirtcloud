@@ -2088,7 +2088,7 @@ class wvmInstance(wvmConnect):
                 raise util.OperationError(f"Clone failed ({err}); remove these copies by hand: {', '.join(leftovers)}") from err
             raise
 
-    def live_clone_targets(self, clone_data, free_percent, free_min_gib):
+    def live_clone_targets(self, clone_data, free_percent=10, free_min_gib=1):
         """Refuses a live clone that cannot work, before anything is
         allocated; returns the new volume of each copied disk, in disk order:
         in the source volume's pool, at its virtual capacity and format. Each
@@ -2192,6 +2192,11 @@ class wvmInstance(wvmConnect):
         if stats.get("operation") != VIR_DOMAIN_JOB_OPERATION_BACKUP or "success" not in stats:
             return None
         return bool(stats["success"]), stats.get("errmsg") or ""
+
+    def discard_backup_result(self):
+        """Drops the result libvirt keeps of the VM's last completed job, so
+        a later backup_result() can only be of a backup started after this."""
+        self.instance.jobStats(VIR_DOMAIN_JOB_STATS_COMPLETED)
 
     def abort_backup(self):
         self.instance.abortJob()

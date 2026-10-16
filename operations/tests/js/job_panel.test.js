@@ -92,8 +92,9 @@ assert.strictEqual(window.backgroundJobRunning, true, "still true while the outc
 answer("/j/a", { status: 0 }, false); // a network error: asked again on the next poll
 advance(3000);
 answer("/r", empty);
-answer("/j/a", { ...running, state: "succeeded", result: { left_behind: ["/pool/a.one"] } });
+answer("/j/a", { ...running, state: "succeeded", result: { left_behind: ["/pool/a.one"], warning: "not <thawed>" } });
 assert.ok(el.innerHTML.includes('<li class="text-break"><code>/pool/a.one</code></li>'), "shows the warning from the result");
+assert.ok(el.innerHTML.includes('<div class="small mt-2">not &lt;thawed&gt;</div>'), "shows the result's warning escaped");
 assert.ok(el.innerHTML.includes('class="alert alert-success') && el.innerHTML.includes('<span class="badge bg-success">succeeded</span>')
     && el.innerHTML.includes('<div class="ms-auto d-flex gap-2"><button type="button" class="btn btn-sm btn-primary" data-refresh'),
     "the outcome has the state colour and its buttons on the right");

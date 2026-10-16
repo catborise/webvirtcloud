@@ -56,6 +56,9 @@
                     </ul>
                 </dd>
             {% endif %}
+            {% if job.result.warning %}
+                <dt class="col-sm-3">{% trans "Warning" %}</dt><dd class="col-sm-9 text-break">{{ job.result.warning }}</dd>
+            {% endif %}
             {% if job.result.links %}
                 <dt class="col-sm-3">{% trans "Results" %}</dt>
                 <dd class="col-sm-9">

@@ -8,7 +8,7 @@ from django.core.exceptions import PermissionDenied
 from django.utils.translation import gettext_noop
 from django.utils.translation import gettext_noop as _
 from libvirt import (VIR_CONNECT_LIST_STORAGE_POOLS_ACTIVE, VIR_DOMAIN_JOB_NONE, VIR_DOMAIN_SNAPSHOT_LIST_EXTERNAL,
-                     VIR_ERR_NO_DOMAIN, libvirtError)
+                     VIR_ERR_NO_DOMAIN, VIR_ERR_NO_STORAGE_VOL, libvirtError)
 from vrtManager import util
 from vrtManager.connection import wvmConnect
 from vrtManager.create import wvmCreate
@@ -391,11 +391,39 @@ class RevertSnapshot(Kind):
         return _log(op, state, f"Revert {kind}: {op.params['name']}")
 
 
+def _delete_created(proxy, op):
+    """The volumes this job made; nothing else."""
+    for entry in op.intent.get("created", []):
+        try:
+            proxy.get_volume_by_path(entry["path"]).delete(0)
+        except libvirtError as err:
+            if err.get_error_code() != VIR_ERR_NO_STORAGE_VOL:
+                raise
+
+
+CLONE_STATE_REFUSED = "The VM must be running, paused or shut off to be cloned"
+THAW_FAILED = "The guest's file systems could not be thawed ({error}); thaw them with: virsh domfsthaw {vm}"
+
+
+def _check_clone_state(proxy, data):
+    """A shut-off VM is copied as it is; a running or paused one only when a
+    live clone can work; other states are refused."""
+    status = proxy.get_status()
+    if status in (1, 3):
+        proxy.live_clone_targets(data, **_snapshot_free_space())
+    elif status != 5:
+        raise util.OperationError(CLONE_STATE_REFUSED)
+
+
 @register
 class CloneInstance(Kind):
+    """A shut-off VM is copied volume by volume; a running or paused one with
+    libvirt's push backup, which copies its disks from one instant."""
+
     name = "instance.clone"
     label = gettext_noop("Clone VM")
-    time_limit = 12 * 3600  # a copy cannot be stopped: over time is only noted
+    cancellable = True  # libvirt aborts a live copy; a shut-off copy runs to its end
+    progress_bytes = True  # libvirt backup job disk_processed/disk_total
 
     def normalize(self, raw):
         fields = {k: str(v) for k, v in raw.items() if k in CLONE_FIELDS or CLONE_POST_KEY_RE.fullmatch(k)}
@@ -403,11 +431,14 @@ class CloneInstance(Kind):
 
     def plan(self, user, params):
         instance = _clonable(user, params["instance"])
-        if instance.proxy.get_status() != 5:
-            raise util.OperationError("Shut the VM down before cloning it")
         data = clone_data(user, instance, params["fields"])
         keys = vm_claims(instance.compute, data["name"])
-        keys[claims.instance_key(instance.uuid)] = Claim.SHARED
+        # the VM's definition is read again when the clone is defined
+        keys[claims.instance_key(instance.uuid)] = Claim.EXCLUSIVE
+        for disk in instance.config_disks:
+            if name := data.get(f"disk-{disk['dev']}"):
+                keys[claims.volume_key(instance.compute_id, disk["storage"], name)] = Claim.EXCLUSIVE
+        _check_clone_state(instance.proxy, data)
         return Plan(claims=keys, resource=claims.instance_key(instance.uuid),
                     label=f"{instance.compute.name}/{instance.name}",
                     intent={"compute": instance.compute_id, "uuid": util.randomUUID(), "name": data["name"],
@@ -417,18 +448,162 @@ class CloneInstance(Kind):
         instance = _clonable(op.user, op.params["instance"])
         if instance.compute_id != op.intent["compute"]:
             raise util.OperationError("The VM moved to another compute after the job was queued")
+        _check_clone_state(instance.proxy, op.intent["clone"])
 
     def run(self, op, ctx):
         instance = _instance(op.params["instance"])
-        ctx.record_intent()
+        proxy = instance.proxy
+        clone, uuid = op.intent["clone"], op.intent["uuid"]
+        status = proxy.get_status()
+        if status == 5:
+            ctx.record_intent(live=False)
+            ctx.set_phase(gettext_noop("Copying disks"))
+            proxy.clone_instance(clone, uuid)
+            record_vm(op, owner=True)
+            return {}
+        if status not in (1, 3):
+            raise util.OperationError(CLONE_STATE_REFUSED)
+        targets = proxy.live_clone_targets(clone, **_snapshot_free_space())
+        ctx.record_intent(live=True, targets=targets)
         ctx.set_phase(gettext_noop("Copying disks"))
-        instance.proxy.clone_instance(op.intent["clone"], op.intent["uuid"])
-        record_vm(op, owner=True)
-        return {}
+
+        copies = []  # the targets at the paths libvirt gave their volumes
+        for t in targets:
+            ctx.record_intent(planned=[*op.intent.get("planned", []), {"dev": t["dev"], "path": t["path"]}])
+            path = proxy.create_clone_target(t, clone["disk_owner_uid"], clone["disk_owner_gid"])
+            ctx.record_intent(created=[*op.intent.get("created", []), {"dev": t["dev"], "path": path}])
+            copies.append({**t, "path": path})
+
+        # a completed result libvirt still holds is of an earlier job; after
+        # copy_started, one can only be of this job's backup
+        proxy.discard_backup_result()
+        ctx.record_intent(copy_started=True)
+        op.refresh_from_db(fields=["cancel_requested"])
+        if op.cancel_requested:
+            _delete_created(proxy, op)
+            raise Cancelled
+
+        freeze = status == 1 and proxy.is_agent_ready()
+        warning = ""
+        try:
+            try:
+                if freeze:
+                    ctx.record_intent(frozen=True)
+                    proxy.fs_freeze()
+                proxy.begin_clone_backup(copies)
+            finally:
+                if freeze:
+                    try:
+                        proxy.fs_thaw()
+                    except libvirtError as err:  # frozen stays recorded: recovery thaws again
+                        warning = THAW_FAILED.format(error=err, vm=instance.name)
+                    else:
+                        ctx.record_intent(frozen=False)
+        except libvirtError as err:
+            # no backup of ours runs: the copy failed (if this read fails, recovery decides)
+            if proxy.backup_targets() != {c["path"] for c in copies}:
+                ctx.record_intent(copy_result=[False, str(err)])
+            raise
+        op.refresh_from_db(fields=["cancel_requested"])
+        if op.cancel_requested:  # the cancel hook may have run before the backup began
+            try:
+                self.cancel(op)
+            except libvirtError:
+                pass  # the hook aborted it, or it ended: its result tells
+
+        while proxy.backup_progress() is not None:
+            time.sleep(2)
+        result = proxy.backup_result()
+        ctx.record_intent(copy_result=list(result) if result else None)
+        if result is None:
+            raise util.OperationError("libvirt has no result of the copy")  # recovery decides
+        success, errmsg = result
+        if success:
+            proxy.define_clone(clone, uuid, {c["dev"]: c["path"] for c in copies})
+            record_vm(op, owner=True)
+            return {"warning": warning} if warning else {}
+        _delete_created(proxy, op)
+        op.refresh_from_db(fields=["cancel_requested"])
+        if op.cancel_requested:
+            raise Cancelled
+        raise util.OperationError(" ".join(filter(None, [errmsg or "The copy failed", warning])))
+
+    def progress(self, op):
+        return _proxy(_instance(op.params["instance"])).backup_progress() if op.intent.get("live") else None
+
+    def cancel(self, op):
+        # a shut-off copy, or a live one not started yet (run checks the request first)
+        if not op.intent.get("live"):
+            return
+        proxy = _proxy(_instance(op.params["instance"]))
+        created = {c["path"] for c in op.intent.get("created", [])}
+        if created and proxy.backup_targets() == created:
+            proxy.abort_backup()
 
     def reconcile(self, op):
-        disks = [v for k, v in op.intent["clone"].items() if k.startswith("disk-") and v]
-        return vm_outcome(op, owner=True, volumes=disks)
+        if not op.intent.get("live"):
+            disks = [v for k, v in op.intent["clone"].items() if k.startswith("disk-") and v]
+            return vm_outcome(op, owner=True, volumes=disks)
+        proxy = _recovery_proxy(op)
+        if proxy is None:
+            created = ", ".join(c["path"] for c in op.intent.get("created", []))
+            return Outcome(Operation.UNCERTAIN, error=f"{GONE}; check these volumes, then resolve this job: {created}")
+        warning = ""
+        if op.intent.get("frozen") and proxy.get_status() == 1:
+            try:
+                proxy.fs_thaw()
+            except libvirtError as err:
+                warning = " " + THAW_FAILED.format(error=err, vm=op.resource_label.rpartition("/")[2])
+        outcome = self._live_outcome(proxy, op)
+        outcome.error += warning
+        return outcome
+
+    def _live_outcome(self, proxy, op):
+        """The spec's recovery table: a defined clone first, then a volume
+        still being created, since it comes before the copy."""
+        if _domain(op.intent["compute"], op.intent["uuid"]) is not None:
+            record_vm(op, owner=True)
+            return Outcome(Operation.SUCCEEDED)
+        created = op.intent.get("created", [])
+        paths = [c["path"] for c in created]
+        ended = Operation.CANCELLED if op.cancel_requested else Operation.FAILED
+        done = {c["dev"] for c in created}
+        planned = {p["dev"] for p in op.intent.get("planned", [])}
+        for t in op.intent.get("targets", []):
+            if t["dev"] not in planned or t["dev"] in done:
+                continue
+            try:
+                proxy.wvm.storagePoolLookupByName(t["pool"]).storageVolLookupByName(t["name"])
+            except libvirtError as err:
+                if err.get_error_code() != VIR_ERR_NO_STORAGE_VOL:
+                    raise
+            else:
+                paths.append(t["path"])
+        check = f"check these volumes, then resolve this job: {', '.join(paths)}"
+        if len(paths) > len(created):
+            return Outcome(Operation.UNCERTAIN, error=f"A volume of the clone was being created; {check}")
+        if not op.intent.get("copy_started"):
+            _delete_created(proxy, op)
+            return Outcome(ended, error="The job stopped before the copy started")
+        # recorded only once this job's backup ended or never started
+        result = op.intent.get("copy_result")
+        if result is None:
+            targets = proxy.backup_targets()
+            if targets is not None:
+                if targets == set(paths):
+                    return Outcome(Operation.RUNNING, phase=gettext_noop("libvirt is still copying the disks"),
+                                   progress=proxy.backup_progress())
+                return Outcome(Operation.UNCERTAIN, error=f"Another backup runs on the VM; {check}")
+            result = proxy.backup_result()
+        if result is None:
+            return Outcome(Operation.UNCERTAIN, error=f"libvirt has no result of the copy; {check}")
+        success, errmsg = result
+        if not success:
+            _delete_created(proxy, op)
+            return Outcome(ended, error=errmsg or "The copy failed")
+        proxy.define_clone(op.intent["clone"], op.intent["uuid"], {c["dev"]: c["path"] for c in created})
+        record_vm(op, owner=True)
+        return Outcome(Operation.SUCCEEDED)
 
     def log_entry(self, op, state):
         compute, _sep, source = op.resource_label.rpartition("/")
