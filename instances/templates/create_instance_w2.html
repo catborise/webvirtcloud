@@ -6,7 +6,7 @@
 {% block title %}{% trans "Create new instance" %}{% endblock %}
 
 {% block style %}
-    <link href="{% static "css/bootstrap-multiselect.css" %}" rel="stylesheet">
+    <link href="{% static "css/tom-select.bootstrap5.min.css" %}" rel="stylesheet">
 {% endblock %}
 
 {% block page_heading %}
@@ -785,7 +785,7 @@
 
 {% endblock %}
 {% block script %}
-<script src="{% static 'js/bootstrap-multiselect.js' %}"></script>
+<script src="{% static 'js/tom-select.complete.min.js' %}"></script>
 <script>
     function toggleValue(string, updated_value, checked) {
         let result = '';
@@ -804,22 +804,16 @@
     }
 
     $(document).ready(function () {
-          $('#image-control').multiselect({
-            disableIfEmpty: true,
-            enableCaseInsensitiveFiltering: true,
-            maxHeight: 400,
-            inheritClass: true,
-            buttonWidth:function (options, select) {
-                return '100%';
-            },
-            buttonText: function (options, select) {
-                return 'Add image...';
-            },
-            buttonTitle: function (options, select) {
-                return '';
-            },
-            onChange: function (element, checked) {
-                let input_value = toggleValue($('#images').val(), element.val(), checked);
+          images_control = new TomSelect('#image-control', {
+            plugins: ['checkbox_options'],
+            placeholder: 'Add image...',
+            hidePlaceholder: false,
+            onItemAdd: function (value) { update_images(value, true); },
+            onItemRemove: function (value) { update_images(value, false); },
+          });
+
+          function update_images(value, checked) {
+                let input_value = toggleValue($('#images').val(), value, checked);
                 $('#images').val(input_value);
 
                 let selected_list_html = '';
@@ -841,7 +835,7 @@
                                     '{% endfor %}' +
                                 '</select>' +
                                 ' -> ' + value + ' ' +
-                                '<a class="btn-link float-end" onclick="javascript:$(\'#image-control\').multiselect(\'deselect\', \'' + value + '\', true)"> X </a></li>';
+                                '<a class="btn-link float-end" onclick="images_control.removeItem(\'' + value + '\')"> X </a></li>';
                         selected_list_html += li;
                         counter++;
                     });
@@ -849,23 +843,19 @@
                     $('#disk_list_div').addClass('d-none');
                 }
                 $('#img-list').html(selected_list_html);
-            }
+          }
+
+
+        networks_control = new TomSelect('#network-control', {
+            plugins: ['checkbox_options'],
+            placeholder: 'Add network',
+            hidePlaceholder: false,
+            onItemAdd: function (value) { update_networks(value, true); },
+            onItemRemove: function (value) { update_networks(value, false); },
         });
 
-
-        $('#network-control').multiselect({
-            inheritClass: true,
-            buttonText: function (options, select) {
-                return 'Add network';
-            },
-            buttonTitle: function (options, select) {
-                return '';
-            },
-            buttonWidth:function (options, select) {
-                return '100%';
-            },
-            onChange: function (element, checked) {
-                let input_value = toggleValue($('#networks').val(), element.val(), checked);
+        function update_networks(value, checked) {
+                let input_value = toggleValue($('#networks').val(), value, checked);
                 $('#networks').val(input_value);
                 let selected_list_html = '';
                 mac_array = [];
@@ -875,7 +865,7 @@
                         let li = '<li><input type="text" class="input-xs" name="mac'+ net_counter +'" maxlength="17" required pattern="[a-zA-Z0-9:]+" onchange="populate_mac(' + net_counter +')">' +
                                 ' eth' + net_counter +
                                 ' -> ' + value + ' ' +
-                                '<a class="btn-link float-end" onclick="$(\'#network-control\').multiselect(\'deselect\', \'' + value + '\', true)"> X </a></li>';
+                                '<a class="btn-link float-end" onclick="networks_control.removeItem(\'' + value + '\')"> X </a></li>';
                         random_mac(net_counter);
                         selected_list_html += li;
                         net_counter++;
@@ -883,9 +873,10 @@
                     
                 }
                 $('#net-list').html(selected_list_html);
-            }
-        });
+        }
     });
+
+    var images_control, networks_control;
 
     var mac_array = [];
     function random_mac(c) {
@@ -901,16 +892,13 @@
         $('input[name="mac"').val(mac_array.join(","));
     }
 
-    $("id[vcpu_mode]").multiselect();
-
     function get_cust_vols(compute_id, pool) {
         get_vol_url = "/computes/" + compute_id + "/storage/" + pool + "/volumes";
         $.getJSON(get_vol_url, function (data) {
-            $("#image-control").find('option').remove();
+            images_control.clearOptions();
             $.each(data['vols'], function(i, item) {
-                $("#image-control").append($("<option>").val(item).text(item));
+                images_control.addOption({value: item, text: item});
             });
-            $('#image-control').multiselect('rebuild');
         });
     }
 
