@@ -86,13 +86,13 @@ def inventory(conn):
     return domains, volumes
 
 
-def create_volume(conn, name, size_mib=64):
-    """A qcow2 volume in the test pool; returns its path."""
+def create_volume(conn, name, size_mib=64, fmt="qcow2"):
+    """A volume named name.fmt in the test pool; returns its path."""
     assert name.startswith(PREFIX)
     pool = conn.storagePoolLookupByName(POOL)
     vol = pool.createXML(
-        f"<volume><name>{name}.qcow2</name><capacity unit='MiB'>{size_mib}</capacity>"
-        "<target><format type='qcow2'/></target></volume>",
+        f"<volume><name>{name}.{fmt}</name><capacity unit='MiB'>{size_mib}</capacity>"
+        f"<target><format type='{fmt}'/></target></volume>",
         0,
     )
     return vol.path()
@@ -101,11 +101,11 @@ def create_volume(conn, name, size_mib=64):
 OVMF_CODE = "/usr/share/edk2/ovmf/OVMF_CODE.fd"
 
 
-def define_vm(conn, name, disk_paths, uefi=False, extra_devices=""):
+def define_vm(conn, name, disk_paths, uefi=False, extra_devices="", disk_format="qcow2"):
     """A small q35 VM without an OS; disks are attached as vda, vdb, ..."""
     assert name.startswith(PREFIX)
     disks = "".join(
-        f"<disk type='file' device='disk'><driver name='qemu' type='qcow2'/>"
+        f"<disk type='file' device='disk'><driver name='qemu' type='{disk_format}'/>"
         f"<source file='{path}'/><target dev='vd{chr(ord('a') + i)}' bus='virtio'/></disk>"
         for i, path in enumerate(disk_paths)
     )
