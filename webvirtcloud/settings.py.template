@@ -4,6 +4,7 @@ Django settings for webvirtcloud project.
 """
 
 import os
+import sys
 try:
     import ldap
     from django_auth_ldap.config import LDAPSearch, NestedActiveDirectoryGroupType
@@ -171,6 +172,10 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 LOGIN_URL = "/accounts/login/"
+
+# Tests create users by the thousand: a fast hash for them (manage.py test only)
+if sys.argv[1:2] == ["test"]:
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 # Failed logins (django-axes): a user is locked for the address the logins
 # come from. The limit and the lock time are on the Settings page
