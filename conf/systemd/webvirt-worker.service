@@ -4,16 +4,17 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
-Type=simple
-Restart=on-failure
-RestartSec=10
 User=www-data
 Group=www-data
-EnvironmentFile=/etc/default/webvirt
-ExecStart=/bin/bash -c "cd ${WEBVIRT_PATH}; WEBVIRTCLOUD_LOG_FILE=${WEBVIRT_PATH}/data/webvirtcloud-worker.log ${WEBVIRT_PATH}/venv/bin/python3 manage.py run_worker"
+WorkingDirectory=/srv/webvirtcloud
+EnvironmentFile=-/etc/default/webvirtcloud
+Environment=WEBVIRTCLOUD_LOG_FILE=/srv/webvirtcloud/data/webvirtcloud-worker.log
+ExecStart=/srv/webvirtcloud/venv/bin/python3 /srv/webvirtcloud/manage.py run_worker
+# the worker finishes its jobs for up to 60 s; its libvirt connections stay meanwhile
+KillMode=mixed
 TimeoutStopSec=90
-StandardOutput=journal
-StandardError=journal
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target

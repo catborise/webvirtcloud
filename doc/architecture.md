@@ -26,7 +26,7 @@ The platform provides:
 | **Frontend** | Django Templates, Bootstrap 5, Bootstrap Icons, jQuery | Server-rendered responsive and dynamic user interface |
 | **Identity & Security** | Django Auth, `django-otp` (2FA/TOTP), `django-auth-ldap` | Role-based authorization, two-factor authentication, and optional LDAP/Active Directory support |
 | **Web / WSGI Server** | Nginx + Gunicorn + WhiteNoise | Static file delivery and reverse proxy architecture |
-| **Process Manager** | Supervisor / Runit / Systemd | Background service management for Gunicorn, novncd, and socketiod |
+| **Process Manager** | systemd (hosts), runit (Docker) | Service management for Gunicorn, novncd, socketiod and the job worker |
 
 ---
 
@@ -162,7 +162,7 @@ Built on Django REST Framework with `drf-nested-routers`, providing a structured
 1. **Gunicorn**: WSGI application server running `webvirtcloud.wsgi:application` (binds to a Unix socket or port 8000).
 2. **novncd**: Background WebSockify daemon translating VNC TCP ports to WebSockets on port 6080.
 3. **Nginx**: Front-facing reverse proxy handling ports 80/443, serving static assets directly, proxying dynamic web requests to Gunicorn, and routing WebSocket console traffic to `novncd`.
-4. **Supervisor / Runit / Systemd**: Process supervision managing Gunicorn and novncd daemon lifecycles with automatic restarts.
+4. **systemd / runit**: systemd units on hosts (`conf/systemd/`) and runit services in the Docker image (`conf/runit/`) run Gunicorn, novncd, socketiod and the job worker with automatic restarts.
 
 ---
 
@@ -176,9 +176,9 @@ WebVirtCloud leverages a hybrid pattern: it combines the relational strengths of
 
 WebVirtCloud installer and runtime dependencies support modern enterprise Linux distributions:
 
-| Distribution Family | Target Versions | Package Manager | Init / Supervisor |
+| Distribution Family | Target Versions | Package Manager | Services |
 |---|---|---|---|
-| **Ubuntu** | 20.04, 22.04 LTS, 24.04 LTS | `apt` | Systemd / Supervisor |
-| **Debian** | 10, 11, 12 (Bookworm) | `apt` | Systemd / Supervisor / Runit |
-| **RHEL / Rocky / Alma** | 9.x, 10.x | `dnf` | Systemd / Supervisord |
-| **openSUSE / SLES** | openSUSE Leap 15.x, Tumbleweed, SLES 15 | `zypper` | Systemd / Supervisord |
+| **Ubuntu** | 20.04, 22.04 LTS, 24.04 LTS | `apt` | systemd |
+| **Debian** | 10, 11, 12 (Bookworm) | `apt` | systemd |
+| **RHEL / Rocky / Alma** | 9.x, 10.x | `dnf` | systemd |
+| **openSUSE / SLES** | openSUSE Leap 15.x, Tumbleweed, SLES 15 | `zypper` | systemd |

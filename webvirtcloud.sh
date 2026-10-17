@@ -64,6 +64,11 @@ if [ "$(id -u)" != "0" ]; then
     fi
 fi
 
+if [ -f /etc/supervisor/conf.d/webvirtcloud.conf ] || [ -f /etc/supervisord.d/webvirtcloud.ini ]; then
+  echo "WebVirtCloud runs under supervisor here: move it to systemd first (README: Updating, Moving from supervisor to systemd)." >&2
+  exit 1
+fi
+
 clear
 
 readonly APP_USER="wvcuser"
@@ -202,13 +207,14 @@ configure_nginx () {
 
 }
 
-configure_supervisor () {
-  # Copy template supervisor service for gunicorn and novnc
-  echo "  * Copying supervisor configuration"
-  mkdir -p "$supervisor_conf_path" > /dev/null 2>&1
-  cp "$APP_PATH"/conf/supervisor/webvirtcloud.conf "$supervisor_conf_path"/"$supervisor_file_name"
-  nginx_group_escape="$(echo -n "$nginx_group"|sed -e 's/[](){}<>=:\!\?\+\|\/\&$*.^[]/\\&/g')"
-  sed -i "s|^\\(user=\\).*|\\1$nginx_group_escape|" "$supervisor_conf_path/$supervisor_file_name"
+configure_systemd () {
+  # The panel's services run as the web server's user; a re-run restarts them.
+  units="webvirt-cloud webvirt-novncd webvirt-socketiod webvirt-worker"
+  for unit in $units; do
+    sed "s/^\\(User\\|Group\\)=.*/\\1=$nginx_group/" "$APP_PATH/conf/systemd/$unit.service" > "/etc/systemd/system/$unit.service" || exit 1
+  done
+  # shellcheck disable=SC2086
+  systemctl daemon-reload && systemctl enable $units && systemctl restart $units || exit 1
 }
 
 create_user () {
@@ -386,14 +392,6 @@ set_hosts () {
   fi
 }
 
-restart_supervisor () {
-  echo "* Setting Supervisor to start on boot and restart."
-  log "systemctl enable $supervisor_service"
-  #systemctl enable $supervisor_service
-  log "systemctl restart $supervisor_service"
-  #systemctl restart $supervisor_service
-}
-
 restart_nginx () {
   echo "* Setting Nginx to start on boot and starting Nginx."
   log "systemctl enable nginx.service"
@@ -449,36 +447,24 @@ case $distro in
     distro=ubuntu
     nginx_group=www-data
     nginxfile=/etc/nginx/conf.d/$APP_NAME.conf
-    supervisor_service=supervisor
-    supervisor_conf_path=/etc/supervisor/conf.d
-    supervisor_file_name=webvirtcloud.conf
     ;;
   *debian*)
     echo "  The installer has detected $distro version $version codename $codename."
     distro=debian
     nginx_group=www-data
     nginxfile=/etc/nginx/conf.d/$APP_NAME.conf
-    supervisor_service=supervisor
-    supervisor_conf_path=/etc/supervisor/conf.d
-    supervisor_file_name=webvirtcloud.conf
     ;;
   *centos*|*redhat*|*ol*|*rhel*|*rocky*|*Rocky*|*alma*)
     echo "  The installer has detected $distro version $version."
     distro=centos
     nginx_group=nginx
     nginxfile=/etc/nginx/conf.d/$APP_NAME.conf
-    supervisor_service=supervisord
-    supervisor_conf_path=/etc/supervisord.d
-    supervisor_file_name=webvirtcloud.ini
     ;;
   *opensuse*|*sles*|*sled*|*suse*)
     echo "  The installer has detected $distro version $version."
     distro=suse
     nginx_group=nginx
     nginxfile=/etc/nginx/conf.d/$APP_NAME.conf
-    supervisor_service=supervisord
-    supervisor_conf_path=/etc/supervisord.d
-    supervisor_file_name=webvirtcloud.ini
     ;;
   *Uos*|*uos*)
     # codename may be fuyu, kongzi, eagle or empty string.
@@ -491,14 +477,8 @@ case $distro in
     nginxfile=/etc/nginx/conf.d/$APP_NAME.conf
     if test "${codename}" == "eagle"; then
       nginx_group=www-data
-      supervisor_service=supervisor
-      supervisor_conf_path=/etc/supervisor/conf.d
-      supervisor_file_name=webvirtcloud.conf
     else
       nginx_group=nginx
-      supervisor_service=supervisord
-      supervisor_conf_path=/etc/supervisord.d
-      supervisor_file_name=webvirtcloud.ini
     fi
     ;;
   *OpenEuler*|*openEuler*)
@@ -506,9 +486,6 @@ case $distro in
     distro=openEuler
     nginx_group=nginx
     nginxfile=/etc/nginx/conf.d/$APP_NAME.conf
-    supervisor_service=supervisord
-    supervisor_conf_path=/etc/supervisord.d
-    supervisor_file_name=webvirtcloud.ini
     ;;
   *)
     if [[ "$id_like" =~ suse ]]; then
@@ -516,9 +493,6 @@ case $distro in
       distro=suse
       nginx_group=nginx
       nginxfile=/etc/nginx/conf.d/$APP_NAME.conf
-      supervisor_service=supervisord
-      supervisor_conf_path=/etc/supervisord.d
-      supervisor_file_name=webvirtcloud.ini
     else
       echo "  The installer was unable to determine your OS. Exiting for safety."
       exit 1
@@ -593,7 +567,7 @@ case $distro in
     progress
 
     echo "*  Installing OS requirements."
-    PACKAGES="git python3-venv python3-virtualenv python3-pip python3-dev python3-lxml libvirt-dev zlib1g-dev libxslt1-dev libsasl2-dev libldap2-dev nginx supervisor smbios-utils libsasl2-modules gcc pkg-config python3-guestfs uuid"
+    PACKAGES="git python3-venv python3-virtualenv python3-pip python3-dev python3-lxml libvirt-dev zlib1g-dev libxslt1-dev libsasl2-dev libldap2-dev nginx smbios-utils libsasl2-modules gcc pkg-config python3-guestfs uuid"
     
     install_packages
     
@@ -604,10 +578,9 @@ case $distro in
     echo "* Configuring Nginx."
     configure_nginx
 
-    echo "* Configuring Supervisor."
-    configure_supervisor
+    echo "* Configuring systemd."
+    configure_systemd
 
-    restart_supervisor
     restart_nginx
   else
     echo "Unsupported Debian version. Version found: $version"
@@ -624,7 +597,7 @@ case $distro in
     progress
 
     echo "*  Installing OS requirements."
-    PACKAGES="git python3-venv python3-virtualenv python3-pip python3-dev python3-lxml libvirt-dev zlib1g-dev libxslt1-dev libsasl2-dev libldap2-dev nginx supervisor libsasl2-modules gcc pkg-config python3-guestfs"
+    PACKAGES="git python3-venv python3-virtualenv python3-pip python3-dev python3-lxml libvirt-dev zlib1g-dev libxslt1-dev libsasl2-dev libldap2-dev nginx libsasl2-modules gcc pkg-config python3-guestfs"
     install_packages
 
     set_hosts
@@ -634,10 +607,9 @@ case $distro in
     echo "* Configuring Nginx."
     configure_nginx
 
-    echo "* Configuring Supervisor."
-    configure_supervisor
+    echo "* Configuring systemd."
+    configure_systemd
 
-    restart_supervisor
     restart_nginx
   else
     echo "Unsupported Ubuntu version. Version found: $version"
@@ -657,8 +629,8 @@ case $distro in
       log "dnf config-manager --set-enabled crb"
     fi
 
-    echo "* Adding wget & epel-release & supervisor repository."
-    log "yum -y install wget epel-release supervisor"
+    echo "* Adding wget & epel-release repository."
+    log "yum -y install wget epel-release"
 
     echo "* Installing OS requirements."
     PACKAGES="git python3-virtualenv python3-devel libvirt-devel python3-libvirt python3-ldap glibc gcc nginx python3-lxml python3-libguestfs iproute-tc cyrus-sasl-md5 openldap-devel cyrus-sasl-devel openssl-devel"
@@ -673,17 +645,14 @@ case $distro in
     echo "* Configuring Nginx."
     configure_nginx
 
-    echo "* Configuring Supervisor."
-    log "pip3 install supervisor "
-    configure_supervisor
-    
-    set_firewall 
-    
+    set_firewall
+
     set_selinux
 
-    restart_supervisor
+    echo "* Configuring systemd."
+    configure_systemd
+
     restart_nginx
-    
   else
     echo "Unsupported RHEL Based OS($distro) version. Version found: $version"
     exit 1
@@ -709,15 +678,13 @@ case $distro in
     echo "* Configuring Nginx."
     configure_nginx
 
-    echo "* Configuring Supervisor."
-    log "pip install supervisor "
-    configure_supervisor
-
     set_firewall
 
     set_selinux
 
-    restart_supervisor
+    echo "* Configuring systemd."
+    configure_systemd
+
     restart_nginx
   fi
   ;;
@@ -737,15 +704,13 @@ case $distro in
     echo "* Configuring Nginx."
     configure_nginx
 
-    echo "* Configuring Supervisor."
-    log "pip install supervisor "
-    configure_supervisor
-
     set_firewall
 
     set_selinux
 
-    restart_supervisor
+    echo "* Configuring systemd."
+    configure_systemd
+
     restart_nginx
   fi
   ;;
@@ -768,64 +733,16 @@ case $distro in
 
     set_hosts
 
-    # Supervisor on SUSE (available as python3-supervisor, supervisor, or via pip)
-    if ! command -v supervisord >/dev/null 2>&1; then
-      if zypper --non-interactive install -y python3-supervisor >/dev/null 2>&1; then
-        echo "  * python3-supervisor installed via zypper"
-      elif zypper --non-interactive install -y supervisor >/dev/null 2>&1; then
-        echo "  * supervisor installed via zypper"
-      else
-        echo "  * Installing supervisor via pip3"
-        log "pip3 install supervisor"
-      fi
-    fi
-
-    # Ensure /etc/supervisord.d directory exists and is included in supervisord.conf
-    mkdir -p /etc/supervisord.d
-    if [ ! -f /etc/supervisord.conf ] && [ ! -f /etc/supervisor/supervisord.conf ]; then
-      if command -v echo_supervisord_conf >/dev/null 2>&1; then
-        echo_supervisord_conf > /etc/supervisord.conf
-        echo -e "\n[include]\nfiles = /etc/supervisord.d/*.ini\n" >> /etc/supervisord.conf
-      fi
-    elif [ -f /etc/supervisord.conf ] && ! grep -q "/etc/supervisord.d" /etc/supervisord.conf; then
-      echo -e "\n[include]\nfiles = /etc/supervisord.d/*.ini\n" >> /etc/supervisord.conf
-    fi
-
-    # Ensure systemd service for supervisord exists if installed via pip
-    if [ ! -f /usr/lib/systemd/system/supervisord.service ] && [ ! -f /etc/systemd/system/supervisord.service ]; then
-      supervisord_bin="$(command -v supervisord 2>/dev/null || echo "/usr/local/bin/supervisord")"
-      supervisorctl_bin="$(command -v supervisorctl 2>/dev/null || echo "/usr/local/bin/supervisorctl")"
-      cat > /etc/systemd/system/supervisord.service <<SVCEOF
-[Unit]
-Description=Process Monitoring and Control Daemon
-After=network.target
-
-[Service]
-Type=forking
-ExecStart=${supervisord_bin} -c /etc/supervisord.conf
-ExecStop=${supervisorctl_bin} shutdown
-ExecReload=${supervisorctl_bin} reload
-KillMode=process
-Restart=on-failure
-RestartSec=42s
-
-[Install]
-WantedBy=multi-user.target
-SVCEOF
-      systemctl daemon-reload >/dev/null 2>&1 || true
-    fi
-
     install_webvirtcloud
 
     echo "* Configuring Nginx."
     configure_nginx
 
-    echo "* Configuring Supervisor."
-    configure_supervisor
-
     set_firewall
 
-    restart_supervisor
+    echo "* Configuring systemd."
+    configure_systemd
+
     restart_nginx
     ;;
 esac
