@@ -89,6 +89,8 @@ workers = get_workers()
 worker_connections = 1000
 timeout = 600
 keepalive = 2
+# gunicorn 26's control socket is unused, and the service user cannot create it
+control_socket_disable = True
 
 #
 # Debugging
