@@ -24,6 +24,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "webvirtcloud.settings")
 django.setup()
 
 import socketio  # noqa: E402
+from gunicorn.app.base import BaseApplication  # noqa: E402
 from django import db  # noqa: E402
 from django.conf import settings  # noqa: E402
 
@@ -32,7 +33,7 @@ from console.tokens import authorize  # noqa: E402
 CONSOLECALLBACK = os.path.join(ROOT_PATH, "conf", "daemon", "consolecallback")
 MAX_SESSIONS = 20
 
-sio = socketio.Server(async_mode="eventlet")  # the same origin only
+sio = socketio.Server(async_mode="threading")  # the same origin only
 sessions = {}  # sid -> {"pid", "fd", "vm"}
 
 
@@ -62,8 +63,7 @@ def forward(sid, session):
     """The worker's output to its client, until the worker ends."""
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")  # a character may be split
     while sessions.get(sid) is session:
-        sio.sleep(0.01)
-        if not select.select([session["fd"]], [], [], 0)[0]:
+        if not select.select([session["fd"]], [], [], 0.1)[0]:
             continue
         try:
             output = os.read(session["fd"], 20480)
@@ -90,17 +90,7 @@ def stop(sid):
         os.kill(session["pid"], signal.SIGKILL)
     except ProcessLookupError:
         pass
-    sio.start_background_task(reap, session["pid"])
-
-
-def reap(pid):
-    while True:
-        try:
-            if os.waitpid(pid, os.WNOHANG)[0]:
-                return
-        except ChildProcessError:
-            return
-        sio.sleep(0.1)
+    sio.start_background_task(os.waitpid, session["pid"], 0)
 
 
 @sio.event
@@ -128,18 +118,27 @@ def disconnect(sid, reason=None):
     stop(sid)
 
 
-def shutdown(signum, frame):
-    for sid in list(sessions):
-        stop(sid)
-    sys.exit(0)
+class Server(BaseApplication):
+    """gunicorn with one worker (the sessions live in it); a thread per connection."""
+
+    def __init__(self, host, port):
+        self.bind = "%s:%d" % (host, port)
+        super().__init__()
+
+    def load_config(self):
+        self.cfg.set("bind", self.bind)
+        self.cfg.set("worker_class", "gthread")
+        self.cfg.set("threads", 2 * MAX_SESSIONS)
+        self.cfg.set("graceful_timeout", 1)  # open consoles never finish; their workers end with the pty
+        self.cfg.set("control_socket_disable", True)
+
+    def load(self):
+        return socketio.WSGIApp(sio)
 
 
 if __name__ == "__main__":
-    import eventlet
-
     parser = argparse.ArgumentParser(description="WebVirtCloud serial console daemon")
     parser.add_argument("-H", "--host", default=settings.SOCKETIO_HOST, help="Listen host")
     parser.add_argument("-p", "--port", type=int, default=settings.SOCKETIO_PORT, help="Listen port")
     options = parser.parse_args()
-    signal.signal(signal.SIGTERM, shutdown)
-    eventlet.wsgi.server(eventlet.listen((options.host, options.port)), socketio.WSGIApp(sio))
+    Server(options.host, options.port).run()

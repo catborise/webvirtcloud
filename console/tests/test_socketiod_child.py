@@ -51,6 +51,11 @@ def children(pid):
     return found
 
 
+def consoles(pid):
+    """(pid, state) of the console workers: children of socketiod's gunicorn worker."""
+    return [c for worker, _ in children(pid) for c in children(worker)]
+
+
 def start_socketiod(test):
     """socketiod on a free port, reading test's database; stopped at test's cleanup."""
     tmp = tempfile.TemporaryDirectory()
@@ -116,13 +121,13 @@ class SocketiodProcessTestCase(TransactionTestCase):
                 self.assertNotIn("vm-a" if name == "vm-b" else "vm-b", output)
                 self.assertIn("console closed", output)
         end = time.monotonic() + 5
-        while children(self.server.pid) and time.monotonic() < end:
+        while consoles(self.server.pid) and time.monotonic() < end:
             time.sleep(0.05)
-        self.assertEqual(children(self.server.pid), [])
+        self.assertEqual(consoles(self.server.pid), [])
         self.assertIsNone(self.server.poll())
 
     def test_a_client_without_a_valid_token_is_refused(self):
         for token in ("", "22-no-such-vm"):
             with self.subTest(token=token), self.assertRaises(socketio.exceptions.ConnectionError):
                 self.console(token)
-        self.assertEqual(children(self.server.pid), [])
+        self.assertEqual(consoles(self.server.pid), [])
