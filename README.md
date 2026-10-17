@@ -257,15 +257,18 @@ A compute node is a KVM host the panel manages over libvirt.
    docker compose exec -u www-data webvirtcloud ssh root@<compute-node-ip> true   # no password or prompt: ready
    ```
 
-3. Install or update the `gstfsd` daemon on the compute node. It sets the root password and SSH key of a shut-off VM:
+3. Install or update the `gstfsd` daemon on the compute node (the bootstrap script does this too). It sets the root password and SSH key of a shut-off VM:
 
    ```bash
    curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/daemon/gstfsd | sudo tee /usr/local/bin/gstfsd > /dev/null
    sudo chmod +x /usr/local/bin/gstfsd
-   sudo systemctl restart supervisor 2>/dev/null || sudo systemctl restart supervisord
+   curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/systemd/webvirt-gstfsd.service | sudo tee /etc/systemd/system/webvirt-gstfsd.service > /dev/null
+   sudo systemctl daemon-reload && sudo systemctl enable webvirt-gstfsd && sudo systemctl restart webvirt-gstfsd
    ```
 
-   It listens on 127.0.0.1:16510 only, which serves a panel on the same host. For a remote panel, uncomment the `environment=GSTFSD_BIND_HOST="0.0.0.0",GSTFSD_ALLOW_REMOTE="1"` line of its supervisor program (`conf/supervisor/gstfsd.conf`) and restart supervisor. It is unauthenticated: allow TCP 16510 only from the panel's IP.
+   It listens on 127.0.0.1:16510 only, which serves a panel on the same host. For a remote panel, run `sudo systemctl edit webvirt-gstfsd`, add `[Service]` and `Environment=GSTFSD_BIND_HOST=0.0.0.0 GSTFSD_ALLOW_REMOTE=1`, and restart it. It is unauthenticated: allow TCP 16510 only from the panel's IP.
+
+   A compute that ran gstfsd under supervisor: remove its program first (`/etc/supervisor/conf.d/gstfsd.conf` on Debian / Ubuntu, `/etc/supervisord.d/gstfsd.ini` on RHEL / openSUSE), run `sudo supervisorctl update`, and remove supervisor once nothing else uses it.
 
 4. Add the compute on the panel's Computes page.
 
@@ -432,7 +435,7 @@ mv /etc/supervisord.d/webvirtcloud.ini /root/webvirtcloud-supervisor.conf       
 supervisorctl update
 ```
 
-Move the `environment=` values of that config into `/etc/default/webvirtcloud` (root, mode 600), one `NAME='value'` per line; leave out the worker's `WEBVIRTCLOUD_LOG_FILE`. Step 4 installs and starts the systemd units. Remove supervisor once nothing else uses it (on a compute node, gstfsd may).
+Move the `environment=` values of that config into `/etc/default/webvirtcloud` (root, mode 600), one `NAME='value'` per line; leave out the worker's `WEBVIRTCLOUD_LOG_FILE`. Step 4 installs and starts the systemd units. Remove supervisor once nothing else uses it; a compute moves gstfsd as in [Adding a Compute Node](#adding-a-compute-node), step 3.
 
 ### Installer and manual installation
 
@@ -600,7 +603,7 @@ A version from before v3.0.0 has no worker: `systemctl disable --now webvirt-wor
 - Manual installs that keep their own `settings.py` copy the SQLite `OPTIONS` and `TEST` entries from `settings.py.template` and add `"operations"` to `INSTALLED_APPS`.
 - The SQLite database must be on a local file system (WAL).
 - Outside compose, stop the Docker container with `docker stop -t 95` so the worker can finish running jobs.
-- Installer and manual installations run the panel as systemd units (`webvirt-cloud`, `webvirt-novncd`, `webvirt-socketiod`, `webvirt-worker`) instead of supervisor; see [Moving from supervisor to systemd](#moving-from-supervisor-to-systemd). Service settings go into `/etc/default/webvirtcloud`, service output into the journal (`journalctl -u webvirt-cloud`); the app log stays in `data/`.
+- Installer and manual installations run the panel as systemd units (`webvirt-cloud`, `webvirt-novncd`, `webvirt-socketiod`, `webvirt-worker`) and computes run `webvirt-gstfsd`, instead of supervisor; see [Moving from supervisor to systemd](#moving-from-supervisor-to-systemd). Service settings go into `/etc/default/webvirtcloud`, service output into the journal (`journalctl -u webvirt-cloud`); the app log stays in `data/`.
 
 ## Usage
 
