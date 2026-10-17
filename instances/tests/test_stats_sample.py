@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import libvirt
 from computes.models import Compute
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import signing
 from django.test import TestCase
@@ -17,6 +18,9 @@ from django.urls import reverse
 from lxml import html
 from instances.models import Instance
 from vrtManager.instance import USAGE_MAX_WINDOW
+
+# the page script runs after the shared chart helpers
+CHARTS_JS = settings.BASE_DIR / "static" / "js" / "charts.js"
 
 SAMPLE = {"key": [7, 4, ["vda"], [["52:54:00:00:00:01", "vnet0"]]], "counters": [1, [[2, 3]], [[4, 5]], 100.0]}
 
@@ -153,42 +157,51 @@ class StatsScriptTestCase(TestDriverVM, TestCase):
         };
         const page = {
             $,
-            document: {querySelector: () => ({addEventListener: (name, handler) => { handlers[name] = handler; }})},
+            document: {body: {}, getElementById: () => ({}),
+                       querySelector: () => ({addEventListener: (name, handler) => { handlers[name] = handler; }})},
             // Chart.js adds the lists a config leaves out
-            Chart: function (ctx, config) {
+            getComputedStyle: () => ({getPropertyValue: () => ""}),
+            Chart: Object.assign(function (canvas, config) {
                 this.data = Object.assign({labels: []}, config.data);
                 this.data.datasets.forEach((set) => { set.data = set.data || []; });
                 this.options = config.options;
                 this.update = () => {};
                 charts.push(this);
-            },
+            }, {defaults: {}}),
             pollWhileVisible: (interval, request, onData, first) => { poll = {interval, first, request, onData}; return {}; },
         };
-        vm.runInNewContext(SCRIPT, vm.createContext(page));
+        const context = vm.createContext(page);
+        vm.runInContext(CHARTS, context);
+        vm.runInContext(SCRIPT, context);
         handlers["shown.bs.tab"]();
         const answer = (cpu, sample) => ({cpudata: cpu, window: 9.9, sample: sample, timeline: "t",
-                                          memdata: {used: 0, total: 1024},
+                                          memdata: {used: 1024, total: 1024},
                                           // vdb was attached after the page loaded
                                           blkdata: [{dev: "vdb", data: [9, 9]}, {dev: "vda", data: [1.5, null]}],
                                           netdata: [{dev: 0, data: [2, 3]}]});
         poll.request();
         poll.onData(answer(3, "token-1"));
         poll.request();
+        // a VM whose memory could not be read
+        poll.onData(Object.assign(answer(4, "token-2"), {memdata: {used: 0, total: 0}}));
         fail = true;
         poll.request();
         fail = false;
         poll.request();
-        const label = charts[0].options.tooltips.callbacks.label({datasetIndex: 0, index: 0, yLabel: 3}, charts[0].data);
+        const label = charts[0].options.plugins.tooltip.callbacks.label({dataset: {label: "Usage"}, formattedValue: "3", dataIndex: 0});
         console.log(JSON.stringify({requests, label, every: [poll.interval, poll.first], cpu: charts[0].data.datasets[0].data,
-                                    disk: charts[2].data.datasets[1].data, net: charts[3].data.datasets[0].data}));
-        """.replace("SCRIPT", json.dumps(script))
+                                    disk: charts[2].data.datasets[1].data, net: charts[3].data.datasets[0].data,
+                                    mem: charts[1].data.datasets[0].data, memMax: charts[1].options.scales.y.max}));
+        """.replace("SCRIPT", json.dumps(script)).replace("CHARTS", json.dumps(CHARTS_JS.read_text()))
         out = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=30)
         self.assertEqual(out.returncode, 0, out.stderr)
         result = json.loads(out.stdout)
         # the first poll at once, then every 5 s
         self.assertEqual(result["every"], [5000, 0])
         # the sample goes with the next poll; a failed poll drops it
-        self.assertEqual(result["requests"], [{}, {"sample": "token-1"}, {"sample": "token-1"}, {}])
+        self.assertEqual(result["requests"], [{}, {"sample": "token-1"}, {"sample": "token-2"}, {}])
         # a disk without a chart is skipped, the other charts still update
-        self.assertEqual((result["cpu"], result["disk"], result["net"]), ([3], [None], [2]))
+        self.assertEqual((result["cpu"], result["disk"], result["net"]), ([3, 4], [None, None], [2, 2]))
+        # memory that could not be read leaves a gap and keeps the axis
+        self.assertEqual((result["mem"], result["memMax"]), ([1, None], 1))
         self.assertTrue(result["label"].endswith(": 3 % (average over 9.9 s)"), result["label"])

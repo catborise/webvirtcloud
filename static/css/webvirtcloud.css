@@ -93,8 +93,10 @@ p {
     margin-top: 20px;
 }
 
-.flot-chart {
-    max-height: 250px;
+/* a live chart (static/js/charts.js) fills the width of its card */
+.chart {
+    position: relative;
+    height: 160px;
 }
 
 .netIN {
