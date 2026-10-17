@@ -1,5 +1,5 @@
 [Unit]
-Description=Webvirt Cloud serial console (socketiod; requires SERIAL_CONSOLE_ENABLED = True)
+Description=Webvirt Cloud serial console (socketiod; refuses connections unless SERIAL_CONSOLE_ENABLED = True)
 Wants=network-online.target
 After=network-online.target
 
