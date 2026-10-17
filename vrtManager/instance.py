@@ -1341,6 +1341,19 @@ class wvmInstance(wvmConnect):
         newxml = etree.tostring(root).decode()
         return self._defineXML(newxml)
 
+    def set_console_type(self, console_type):
+        """VNC: a VNC graphics device on localhost; "pty": no graphics, so the
+        serial console opens (libvirt adds the serial port for the console)."""
+        root = etree.fromstring(self._XMLDesc(PERSISTENT_XML))
+        devices = root.find("devices")
+        for graphic in devices.findall("graphics"):
+            devices.remove(graphic)
+        if console_type == "vnc":
+            etree.SubElement(devices, "graphics", type="vnc", port="-1", autoport="yes", listen="127.0.0.1")
+        elif devices.find("console") is None:
+            etree.SubElement(devices, "console", type="pty")
+        return self._defineXML(etree.tostring(root).decode())
+
     def get_console_socket(self):
         socket = util.get_xml_path(self._XMLDesc(0), "/domain/devices/graphics/@socket")
         return socket
