@@ -136,8 +136,8 @@ nginx -t && systemctl restart nginx
 #### RHEL / Rocky Linux / AlmaLinux / Oracle Linux 10
 
 ```bash
-# 1. System packages
-dnf -y install epel-release
+# 1. System packages (libvirt-devel is in the CRB repository)
+dnf -y install epel-release && crb enable
 dnf -y install git python3-devel libvirt-devel python3-libvirt python3-ldap python3-lxml cyrus-sasl-devel cyrus-sasl-md5 openldap-devel openssl-devel glibc gcc nginx python3-libguestfs iproute-tc
 
 # 2. Code
@@ -203,6 +203,7 @@ python3 manage.py collectstatic --noinput
 # 6. systemd units (gunicorn, novncd, socketiod and the job worker, as nginx) and nginx
 for u in cloud novncd socketiod worker; do sed 's/^\(User\|Group\)=.*/\1=nginx/' conf/systemd/webvirt-$u.service > /etc/systemd/system/webvirt-$u.service; done
 cp conf/nginx/webvirtcloud.conf /etc/nginx/conf.d/
+# make sure the default server block in /etc/nginx/nginx.conf does not also listen on port 80
 
 # 7. Ownership, private files, start
 chown -R nginx:nginx /srv/webvirtcloud

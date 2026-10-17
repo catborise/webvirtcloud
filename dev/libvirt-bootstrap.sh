@@ -188,7 +188,8 @@ __gather_linux_system_info() {
             echo redhat-release lsb-release
             )"); do
 
-        [ -L "/etc/${rsource}" ] && continue        # Don't follow symlinks
+        # Don't follow symlinks, except os-release (a link to /usr/lib/os-release, openSUSE's only release file)
+        [ -L "/etc/${rsource}" ] && [ "${rsource}" != "os-release" ] && continue
         [ ! -f "/etc/${rsource}" ] && continue      # Does not exist
 
         n=$(echo "${rsource}" | sed -e 's/[_-]release$//' -e 's/[_-]version$//')
