@@ -451,6 +451,7 @@ docker compose up -d
    venv/bin/python3 -c "import sqlite3,sys; sqlite3.connect('db.sqlite3').backup(sqlite3.connect(sys.argv[1]))" "$b/db.sqlite3" &&
    cp -p webvirtcloud/settings.py /etc/nginx/conf.d/webvirtcloud.conf "$b"/ &&
    git rev-parse HEAD > "$b/commit" &&
+   git ls-files -z --others --exclude-standard -- '*/migrations/*.py' | tar --null -T - --remove-files -cf "$b/local-migrations.tar" &&
    git checkout -- static/css/wvc-main.min.css dev/scss/wvc-main.scss &&
    git checkout master && git pull
    ```
@@ -480,11 +481,15 @@ docker compose up -d
 
    ```bash
    venv/bin/pip3 install -U -r conf/requirements.txt &&
+   { ! tar -tf "$b/local-migrations.tar" | grep -qx accounts/migrations/0006_alter_userattributes_id_alter_userinstance_id_and_more.py ||
+     venv/bin/python3 manage.py migrate accounts 0005 --fake; } &&
    venv/bin/python3 manage.py migrate &&
    venv/bin/python3 manage.py collectstatic --noinput &&
    chown -R www-data:www-data /srv/webvirtcloud &&
    chmod -R go-rwx data webvirtcloud/settings.py db.sqlite3
    ```
+
+   Installers from before September 2025 generated migrations of their own; step 1 moved them into `local-migrations.tar`. One of them has the name of a tracked migration, which `migrate` would skip; the second line marks it unapplied so that the tracked one runs.
 
 4. Update the nginx config the same way as `settings.py`, and the supervisor config (it gains the `webvirt-worker` program):
 
@@ -541,6 +546,7 @@ cd /srv/webvirtcloud &&
 ! supervisorctl status webvirtcloud novncd socketiod webvirt-worker | grep RUNNING &&
 git checkout -- static/css/wvc-main.min.css dev/scss/wvc-main.scss &&
 git checkout "$(cat "$b/commit")" &&
+tar -xf "$b/local-migrations.tar" &&
 venv/bin/python3 -c "import os,sqlite3,sys; [os.remove(p) for p in ('db.sqlite3-journal','db.sqlite3-wal','db.sqlite3-shm') if os.path.exists(p)]; sqlite3.connect(sys.argv[1]).backup(sqlite3.connect('db.sqlite3'))" "$b/db.sqlite3" &&
 cp "$b/settings.py" webvirtcloud/settings.py &&
 cp "$b/webvirtcloud.conf" /etc/nginx/conf.d/webvirtcloud.conf &&
