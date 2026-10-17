@@ -137,12 +137,6 @@ HTML_SINK = re.compile(r"""\.html\(|innerHTML\s*=|append\(\s*['"]<""")
 ALLOWED_HTML_SINKS = {
     ("accounts/templates/login.html", "$btn.html("): "static spinner markup",
     ("accounts/templates/accounts/otp_login.html", "$btn.html("): "static spinner markup",
-    ("console/templates/console-xterm.html", "status.innerHTML = '<span style=\"background-color: lightgreen;\">connected</span>'"): "static text",
-    ("console/templates/console-xterm.html", "button.innerHTML = 'Disconnect'"): "static text",
-    ("console/templates/console-xterm.html", "status.innerHTML =  '<span style=\"background-color: #ff8383;\">disconnected</span>'"): "static text",
-    ("console/templates/console-xterm.html", "button.innerHTML = 'Connect'"): "static text",
-    ("console/templates/console-xterm.html", "if (button.innerHTML =='Connect'){"): "comparison, not a write",
-    ("console/templates/console-xterm.html", 'else if (button.innerHTML == "Disconnect"){'): "comparison, not a write",
     ("instances/templates/create_instance_w2.html", "$('#img-list').html(selected_list_html);"): "superuser-only; tracked as U-04",
     ("instances/templates/create_instance_w2.html", "$('#net-list').html(selected_list_html);"): "superuser-only; tracked as U-04",
     ("instances/templates/instance.html", "//sto_input.innerHTML = pool;"): "comment",

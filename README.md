@@ -286,6 +286,7 @@ If libvirt warns `Host SMBIOS information is not available`, install `dmidecode`
 | `ALLOWED_HOSTS` | extra host names/IPs the panel answers to (comma-separated, `*` for any); other hosts get 400 |
 | `CSRF_TRUSTED_ORIGINS` | extra trusted origins, e.g. `https://wvc.example.com` |
 | `WEBVIRTCLOUD_HTTPS=1` | HTTPS profile, see [HTTPS and reverse proxy](#https-and-reverse-proxy) |
+| `WEBVIRTCLOUD_SERIAL_CONSOLE=1` | serial console, see [Serial console](#serial-console) |
 | `WEBVIRTCLOUD_DB_HOST` | use PostgreSQL instead of sqlite (new installs); `WEBVIRTCLOUD_DB_PORT`/`_NAME`/`_USER`/`_PASSWORD` default to 5432/webvirtcloud/webvirtcloud/empty |
 | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS` | SMTP for e-mail OTP |
 | `WEBVIRTCLOUD_LOG_FILE` | log file (default `data/webvirtcloud.log`, rotated at 10 MB × 5) |
@@ -390,9 +391,14 @@ An LDAP user is authenticated by LDAP and authorized through the WebVirtCloud pe
 
 Set `OTP_ENABLED = True` in `settings.py` to ask for a one-time code at login. It is per user: a user without a confirmed device signs in with the password alone.
 
-### Serial console (disabled)
+### Serial console
 
-The serial (xterm.js) console is unavailable until `console/socketiod` is rewritten with authentication. Installs from before this change: set `autostart=false` for `[program:socketiod]`, comment out `location /socket.io/` in nginx, and set `SOCKETIO_HOST = "127.0.0.1"` in `settings.py`.
+A VM without graphics (no `<graphics>` device, a `<console type='pty'>`) opens a serial console (xterm.js) instead of VNC. It is off by default. To turn it on, set `WEBVIRTCLOUD_SERIAL_CONSOLE=1` (Docker: in `docker-compose.override.yml`, then `docker compose -p webvirtcloud up -d`) or `SERIAL_CONSOLE_ENABLED = True` in `settings.py` and restart socketiod.
+
+- The guest must use its serial port: a login prompt needs `systemctl enable --now serial-getty@ttyS0`, boot messages need the kernel parameter `console=ttyS0,115200`. The console shows only what the guest writes after it opens; press Enter for a new prompt.
+- socketiod listens on 127.0.0.1:6081; the page reaches it through nginx's `/socket.io/` location on the panel's own address.
+- It accepts the console page's signed token, as noVNC does: whoever gets that token within 120 s gets the console, and an open console stays open after its user loses access to the VM.
+- One console per VM, at most 20 at a time; a second one shows "refused".
 
 ### Running novncd with runit (Debian)
 
@@ -434,12 +440,12 @@ docker compose up -d
 1. Stop the panel, back up and pull:
 
    ```bash
-   supervisorctl stop webvirtcloud novncd webvirt-worker
+   supervisorctl stop webvirtcloud novncd socketiod webvirt-worker
    # once: root may use the repo, which belongs to the service user
    git config --global --add safe.directory /srv/webvirtcloud
    b=/root/webvirtcloud-backup-$(date +%Y%m%d-%H%M%S)
    cd /srv/webvirtcloud &&
-   ! supervisorctl status webvirtcloud novncd webvirt-worker | grep RUNNING &&
+   ! supervisorctl status webvirtcloud novncd socketiod webvirt-worker | grep RUNNING &&
    mkdir -m 700 "$b" &&
    venv/bin/python3 -c "import sqlite3,sys; sqlite3.connect('db.sqlite3').backup(sqlite3.connect(sys.argv[1]))" "$b/db.sqlite3" &&
    cp -p webvirtcloud/settings.py /etc/nginx/conf.d/webvirtcloud.conf "$b"/ &&
@@ -503,7 +509,7 @@ docker compose up -d
    Put back your own lines (`server_name`, TLS, the noVNC port, supervisor `environment=` settings), then reload nginx and start the panel:
 
    ```bash
-   nginx -t && systemctl reload nginx && supervisorctl update && supervisorctl start webvirtcloud novncd webvirt-worker
+   nginx -t && systemctl reload nginx && supervisorctl update && supervisorctl start webvirtcloud novncd socketiod webvirt-worker
    ```
 
 Older versions collected static files into `static/`; `git clean -n static/` lists the leftovers, which can be deleted.
@@ -529,9 +535,9 @@ Installer and manual installation, from a root shell (`nginx:nginx` on RHEL / op
 
 ```bash
 b=/root/webvirtcloud-backup-YYYYMMDD-HHMMSS
-supervisorctl stop webvirtcloud novncd webvirt-worker
+supervisorctl stop webvirtcloud novncd socketiod webvirt-worker
 cd /srv/webvirtcloud &&
-! supervisorctl status webvirtcloud novncd webvirt-worker | grep RUNNING &&
+! supervisorctl status webvirtcloud novncd socketiod webvirt-worker | grep RUNNING &&
 git checkout -- static/css/wvc-main.min.css dev/scss/wvc-main.scss &&
 git checkout "$(cat "$b/commit")" &&
 venv/bin/python3 -c "import os,sqlite3,sys; [os.remove(p) for p in ('db.sqlite3-journal','db.sqlite3-wal','db.sqlite3-shm') if os.path.exists(p)]; sqlite3.connect(sys.argv[1]).backup(sqlite3.connect('db.sqlite3'))" "$b/db.sqlite3" &&
@@ -559,7 +565,7 @@ Then reload nginx and start the panel:
 
 ```bash
 nginx -t && systemctl reload nginx &&
-supervisorctl update && supervisorctl start webvirtcloud novncd webvirt-worker
+supervisorctl update && supervisorctl start webvirtcloud novncd socketiod webvirt-worker
 ```
 
 When the restored version predates the worker, `supervisorctl` reports that `webvirt-worker` does not exist; the other programs start. A rollback leaves the clone on a detached HEAD at the restored commit; the update steps record that commit before they switch back to `master`.
@@ -600,6 +606,7 @@ When the restored version predates the worker, `supervisorctl` reports that `web
 - External snapshots use libvirt's snapshot API and need libvirt 9.9 or newer on the compute hosts. They work on UEFI VMs and running, paused or shut-off VMs, can save memory too or, on a running VM with a connected QEMU guest agent, freeze the guest's file systems (the default there), and a revert keeps disks added later (it detaches them). A snapshot is refused when a storage pool with the VM's disks has less free space than a share of those disks (10%, at least 1 GiB; both on the Settings page) plus, for the pool of the memory file, the VM's memory; this is checked before the snapshot only, nothing is reserved. A VM's snapshots form one chain: after a revert, delete the newer snapshots before taking another. Snapshot names no longer get an `s1.` prefix; existing ones keep theirs and can still be reverted and deleted, except that a snapshot an older version took of a UEFI VM can only be deleted. On NFS, libvirt removes merged snapshot files as the qemu user, who needs write access to the image directory; files it could not remove are named in a warning after the delete or revert. Deleting a VM with its data removes its snapshot files too, except a template it grew from and files another VM uses.
 - A storage volume a VM still needs (a disk, a backing file or a snapshot's file) is no longer deleted from the storage page or the API; the delete is refused with the reason. Only VMs on the same compute are checked.
 - Docker no longer publishes port 6080; the console goes through nginx on the panel's port (`WS_PUBLIC_PORT`, default 80).
+- The serial console works (off by default, see [Serial console](#serial-console)); `SOCKETIO_PUBLIC_HOST`/`_PORT`/`_PATH` are gone, the page uses the panel's own address.
 - Long operations run as jobs in a worker process (`manage.py run_worker`); follow them on the VM page and on the Jobs page.
 - Cloning a VM or a volume and creating a VM run as jobs: the page returns at once and the job panel follows them. The API's VM create answers 202 with the job and needs a new `submission_key` per request. The create form no longer takes a console password; set it on the VM page.
 - Taking and reverting a snapshot run as jobs, like deleting an external snapshot: the page returns at once and the job panel follows them. Deleting an internal snapshot stays immediate.

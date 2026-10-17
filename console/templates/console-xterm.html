@@ -18,25 +18,10 @@
 </div>
 
 <div style="width: 100%; height:100%;" id="terminal"></div>
-<script crossorigin="anonymous">
-        let host = readQueryVariable('host', '{{ socketio_host|escapejs }}');
-        let port = readQueryVariable('port', '{{ socketio_port|escapejs }}');
-        let path = readQueryVariable('path', '{{ socketio_path|escapejs }}');
-      
-
-        // Build the websocket URL used to connect
-        let url;
-        if (window.location.protocol === "https:") {
-            url = 'wss';
-        } else {
-            url = 'ws';
-        }
-        url += '://' + host;
-        if (port) {
-            url += ':' + port;
-        }
-
-        var socket = io.connect(url, {transports: ["websocket", "polling"]});
+<script>
+        // socketiod is behind this page's own /socket.io/ location; the page's
+        // signed token is the credential (the cookie holds the last console's)
+        var socket = io({transports: ["websocket", "polling"], auth: {token: "{{ token|escapejs }}"}});
 
         const status = document.getElementById("status");
         const button = document.getElementById("button");
@@ -58,23 +43,21 @@
             term.write(output["output"])
         })
 
-        socket.on("connect", () => {
-            status.innerHTML = '<span style="background-color: lightgreen;">connected</span>'
-            button.innerHTML = 'Disconnect'
-        })
-
-        socket.on("disconnect", () => {
-            status.innerHTML =  '<span style="background-color: #ff8383;">disconnected</span>'
-            button.innerHTML = 'Connect'
-        })
+        function showStatus(text, color) {
+            status.textContent = text;
+            status.style.backgroundColor = color;
+            button.textContent = socket.connected ? "Disconnect" : "Connect";
+        }
+        socket.on("connect", () => showStatus("connected", "lightgreen"));
+        socket.on("disconnect", () => showStatus("disconnected", "#ff8383"));
+        // refused: serial console off, an expired token, or the VM's console already open
+        socket.on("connect_error", () => showStatus("refused", "#ff8383"));
 
         function myFunction(){
-            if (button.innerHTML =='Connect'){
-               location.reload();
-            }
-
-            else if (button.innerHTML == "Disconnect"){
-                socket.emit("disconnect_request")
+            if (socket.connected) {
+                socket.disconnect();
+            } else {
+                location.reload();
             }
         }
 
@@ -82,26 +65,6 @@
             fitAddon.fit()
             socket.emit("resize", {"cols": term.cols, "rows": term.rows})
         }
-
-        // This function extracts the value of one variable from the
-        // query string. If the variable isn't defined in the URL
-        // it returns the default value instead.
-        function readQueryVariable(name, defaultValue) {
-        // A URL with a query parameter can look like this:
-        // https://www.example.com?myqueryparam=myvalue
-        //
-        // Note that we use location.href instead of location.search
-        // because Firefox < 53 has a bug w.r.t location.search
-        const re = new RegExp('.*[?&]' + name + '=([^&#]*)'),
-            match = document.location.href.match(re);
-
-        if (match) {
-            // We have to decode the URL since want the cleartext value
-            return decodeURIComponent(match[1]);
-        }
-
-        return defaultValue;
-    }
 
         function bindTerminalKey(id, str) {
             const el = document.getElementById(id);

@@ -83,36 +83,11 @@ except ImportError:
 
 
 def get_connection_infos(token):
-    from django.contrib.auth import get_user_model
-    from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-    from instances.models import Instance
-    from instances.utils import can_open_console
+    from console.tokens import authorize
     from vrtManager.instance import wvmInstance
 
-    # The console view signs exactly "host:uuid:user_id". Anything else
-    # (unsigned, expired, or without the user part) is rejected, because the
-    # per-user access check below depends on user_id.
-    signer = TimestampSigner(salt="console.novnc")
     try:
-        unsigned = signer.unsign(token, max_age=120)
-        host, uuid, user_id = unsigned.split(":")
-        host = int(host)
-        user_id = int(user_id)
-    except (BadSignature, SignatureExpired, ValueError, TypeError):
-        raise PermissionError("Invalid or expired console token")
-
-    try:
-        instance = Instance.objects.get(compute_id=host, uuid=uuid)
-        User = get_user_model()
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            raise PermissionError("User not found")
-        if not user.is_active:
-            raise PermissionError("User account is inactive or disabled")
-        if not can_open_console(user, instance):
-            raise PermissionError("User no longer has access to this instance")
-
+        instance = authorize(token)
         conn = wvmInstance(
             instance.compute.hostname,
             instance.compute.login,

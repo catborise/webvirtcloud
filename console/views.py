@@ -2,8 +2,9 @@
 import re
 
 from appsettings.settings import app_settings
+from console import tokens
 from django.conf import settings
-from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
+from django.core.signing import BadSignature, SignatureExpired
 from django.http.response import HttpResponseForbidden
 from django.shortcuts import render
 from django.utils.translation import gettext_lazy as _
@@ -52,7 +53,7 @@ def console(request):
                 request.GET.get("clip_viewport"), default=clip_viewport
             )
 
-    signer = TimestampSigner(salt="console.novnc")
+    signer = tokens.SIGNER
     host = None
     uuid = None
 
@@ -126,30 +127,13 @@ def console(request):
     if console_type == "vnc":
         console_page = "console-vnc-" + view_type + ".html"
         response = render(request, console_page, locals())
-    elif console_type == "pty" and not getattr(
-        settings, "SERIAL_CONSOLE_ENABLED", False
-    ):
-        # socketiod does not authenticate connections yet, so
-        # the serial console stays off unless an admin explicitly enables it.
+    elif console_type == "pty" and not settings.SERIAL_CONSOLE_ENABLED:
         console_error = _(
             "Serial console is disabled on this server. "
             "Please switch VM graphics to VNC or ask an administrator."
         )
         response = render(request, "console-vnc-lite.html", locals())
     elif console_type == "pty":
-        socketio_public_host = getattr(settings, "SOCKETIO_PUBLIC_HOST", None)
-        socketio_public_port = getattr(settings, "SOCKETIO_PUBLIC_PORT", 6081)
-        socketio_public_path = getattr(settings, "SOCKETIO_PUBLIC_PATH", "socket.io/")
-
-        socketio_host = (
-            socketio_public_host if socketio_public_host else request.get_host()
-        )
-        socketio_port = socketio_public_port if socketio_public_port else 6081
-        socketio_path = socketio_public_path if socketio_public_path else "/"
-
-        if ":" in socketio_host:
-            socketio_host = re.sub(":[0-9]+", "", socketio_host)
-
         response = render(request, "console-xterm.html", locals())
     else:
         if console_type is None:

@@ -288,25 +288,15 @@ WS_PUBLIC_PATH = "novncd/"
 # Websock Certificate for SSL
 WS_CERT = None
 
-# Serial console (xterm.js over socketiod). Disabled by default: socketiod does
-# not authenticate connections yet, so anyone who can reach SOCKETIO_PORT can
-# read and write an open serial console. Only enable it on a trusted network,
-# and also start the socketiod service (autostart=false in the supervisor config).
-SERIAL_CONSOLE_ENABLED = False
+# Serial console (xterm.js over socketiod) for VMs without graphics. socketiod
+# accepts only the console page's signed token (as noVNC does); while this is
+# False it refuses every connection. Restart socketiod after changing it.
+SERIAL_CONSOLE_ENABLED = os.getenv("WEBVIRTCLOUD_SERIAL_CONSOLE") == "1"
 
 SOCKETIO_PORT = 6081
-# Listen on localhost only and reach socketiod through the nginx /socket.io/
-# location (set SOCKETIO_PUBLIC_PORT to 80 or 443 then).
+# Listen on localhost only; the console page reaches socketiod through the
+# nginx /socket.io/ location.
 SOCKETIO_HOST = "127.0.0.1"
-
-# Socketio public host
-SOCKETIO_PUBLIC_HOST = None
-
-# Socketio public port - 80 or 443 if reverse-proxy, else 6081
-SOCKETIO_PUBLIC_PORT = 6081
-
-# Socketio public path
-SOCKETIO_PUBLIC_PATH = "socket.io/"
 
 # List of console listen addresses
 QEMU_CONSOLE_LISTENER_ADDRESSES = (

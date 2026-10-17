@@ -1,100 +1,94 @@
 #!/usr/bin/env python3
-# consolecallback - provide a persistent console that survives guest reboots
+# consolecallback <instance id> - the serial console of one VM on stdin/stdout
+# (socketiod runs it in a pty, one per client). It opens the console through
+# the compute's connection (its stored credentials); the connection's event
+# loop thread runs the stream callbacks. The console survives guest reboots.
 
 import os
-import logging
-import libvirt
+import sys
+import time
 import tty
-import termios
-import atexit
-from argparse import ArgumentParser
-from typing import Optional  # noqa F401
+
+import django
+
+ROOT_PATH = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+if ROOT_PATH not in sys.path:
+    sys.path.append(ROOT_PATH)
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "webvirtcloud.settings")
+django.setup()
+
+import libvirt  # noqa: E402
+
+from instances.models import Instance  # noqa: E402
+from vrtManager.connection import connection_manager  # noqa: E402
 
 
-def reset_term() -> None:
-    termios.tcsetattr(0, termios.TCSADRAIN, attrs)
+class Console:
+    def __init__(self, connection, uuid):
+        self.domain = connection.lookupByUUIDString(uuid)
+        self.connection = connection
+        self.stream = None
+        self.running = True
+
+    def check(self):
+        """Open the stream while the VM runs, drop it while it does not."""
+        active = self.domain.state()[0] in (libvirt.VIR_DOMAIN_RUNNING, libvirt.VIR_DOMAIN_PAUSED)
+        if active and self.stream is None:
+            self.stream = self.connection.newStream(libvirt.VIR_STREAM_NONBLOCK)
+            self.domain.openConsole(None, self.stream, 0)  # a console in use is refused
+            self.stream.eventAddCallback(libvirt.VIR_STREAM_EVENT_READABLE, from_vm, self)
+        elif not active and self.stream is not None:
+            self.close_stream()
+
+    def close_stream(self):
+        stream, self.stream = self.stream, None
+        try:
+            stream.eventRemoveCallback()
+            stream.abort()
+        except libvirt.libvirtError:
+            pass
 
 
-def error_handler(unused, error) -> None:
-    # The console stream errors on VM shutdown; we don't care
-    if error[0] == libvirt.VIR_ERR_RPC and error[1] == libvirt.VIR_FROM_STREAMS:
-        return
-    logging.warning(error)
-
-
-class Console(object):
-    def __init__(self, uri: str, uuid: str) -> None:
-        self.uri = uri
-        self.uuid = uuid
-        self.connection = libvirt.open(uri)
-        self.domain = self.connection.lookupByUUIDString(uuid)
-        self.state = self.domain.state(0)
-        self.connection.domainEventRegister(lifecycle_callback, self)
-        self.stream = None  # type: Optional[libvirt.virStream]
-        self.run_console = True
-        self.stdin_watch = -1
-        logging.info("%s initial state %d, reason %d",
-                     self.uuid, self.state[0], self.state[1])
-
-
-def check_console(console: Console) -> bool:
-    if (console.state[0] == libvirt.VIR_DOMAIN_RUNNING or console.state[0] == libvirt.VIR_DOMAIN_PAUSED):
-        if console.stream is None:
-            console.stream = console.connection.newStream(libvirt.VIR_STREAM_NONBLOCK)
-            console.domain.openConsole(None, console.stream, 0)
-            console.stream.eventAddCallback(libvirt.VIR_STREAM_EVENT_READABLE, stream_callback, console)
-    else:
-        if console.stream:
-            console.stream.eventRemoveCallback()
-            console.stream = None
-
-    return console.run_console
-
-
-def stdin_callback(watch: int, fd: int, events: int, console: Console) -> None:
-    readbuf = os.read(fd, 1024)
-    if readbuf.startswith(b""):
-        console.run_console = False
-        return
-    if console.stream:
-        console.stream.send(readbuf)
-
-
-def stream_callback(stream: libvirt.virStream, events: int, console: Console) -> None:
+def from_client(watch, fd, events, console):
     try:
-        assert console.stream
-        received_data = console.stream.recv(1024)
-    except Exception:
+        data = os.read(fd, 1024)
+    except OSError:
+        data = b""
+    if not data:  # the client is gone
+        console.running = False
+    elif console.stream is not None:
+        try:
+            console.stream.send(data)
+        except libvirt.libvirtError:
+            console.close_stream()
+
+
+def from_vm(stream, events, console):
+    try:
+        data = stream.recv(1024)
+    except libvirt.libvirtError:  # the VM shut down
+        data = None
+    if not data or data == -2:  # -2: nothing to read now
+        if data != -2:
+            console.close_stream()
         return
-    os.write(0, received_data)
+    os.write(1, data)
 
 
-def lifecycle_callback(connection: libvirt.virConnect, domain: libvirt.virDomain, event: int, detail: int, console: Console) -> None:
-    console.state = console.domain.state(0)
-    logging.info("%s transitioned to state %d, reason %d",
-                 console.uuid, console.state[0], console.state[1])
+def main():
+    instance = Instance.objects.select_related("compute").get(pk=int(sys.argv[1]))
+    c = instance.compute
+    try:
+        console = Console(connection_manager.get_connection(c.hostname, c.login, c.password, c.type), instance.uuid)
+        console.check()
+    except libvirt.libvirtError as err:
+        sys.stdout.write("Cannot open the console of %s: %s\r\n" % (instance.name, err.get_error_message()))
+        sys.exit(1)
+    tty.setraw(0)
+    libvirt.virEventAddHandle(0, libvirt.VIR_EVENT_HANDLE_READABLE, from_client, console)
+    while console.running:
+        time.sleep(0.2)
+        console.check()
 
 
-# main
-parser = ArgumentParser(epilog="Example: %(prog)s 'qemu:///system' '32ad945f-7e78-c33a-e96d-39f25e025d81'")
-parser.add_argument("uri")
-parser.add_argument("uuid")
-args = parser.parse_args()
-
-print("Escape character is ^]")
-logging.basicConfig(filename='msg.log', level=logging.DEBUG)
-logging.info("URI: %s", args.uri)
-logging.info("UUID: %s", args.uuid)
-
-libvirt.virEventRegisterDefaultImpl()
-libvirt.registerErrorHandler(error_handler, None)
-
-atexit.register(reset_term)
-attrs = termios.tcgetattr(0)
-tty.setraw(0)
-
-console = Console(args.uri, args.uuid)
-console.stdin_watch = libvirt.virEventAddHandle(0, libvirt.VIR_EVENT_HANDLE_READABLE, stdin_callback, console)
-
-while check_console(console):
-    libvirt.virEventRunDefaultImpl()
+main()

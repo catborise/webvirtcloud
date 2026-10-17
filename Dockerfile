@@ -72,17 +72,20 @@ RUN mkdir -p /etc/my_init.d \
 	/etc/service/nginx-log-forwarder \
 	/etc/service/webvirtcloud \
 	/etc/service/webvirtcloud-worker \
-	/etc/service/novnc
+	/etc/service/novnc \
+	/etc/service/socketiod
 COPY conf/runit/10_webvirtcloud_init.sh	/etc/my_init.d/10_webvirtcloud_init.sh
 COPY conf/runit/nginx				/etc/service/nginx/run
 COPY conf/runit/nginx-log-forwarder	/etc/service/nginx-log-forwarder/run
 COPY conf/runit/novncd.sh			/etc/service/novnc/run
+COPY conf/runit/socketiod.sh		/etc/service/socketiod/run
 COPY conf/runit/webvirtcloud.sh		/etc/service/webvirtcloud/run
 COPY conf/runit/webvirtcloud-worker.sh	/etc/service/webvirtcloud-worker/run
 RUN chmod +x /etc/my_init.d/10_webvirtcloud_init.sh \
 	/etc/service/nginx/run \
 	/etc/service/nginx-log-forwarder/run \
 	/etc/service/novnc/run \
+	/etc/service/socketiod/run \
 	/etc/service/webvirtcloud/run \
 	/etc/service/webvirtcloud-worker/run
 

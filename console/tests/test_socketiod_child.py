@@ -1,5 +1,7 @@
-"""socketiod's console process ending on its own: the clients are told and
-disconnected, the process is reaped and the next connection starts a new one."""
+"""socketiod as a process: each client gets the output of its own console
+worker, the worker is reaped, and a client without a valid token is refused.
+The workers cannot reach libvirt here (the VMs' compute is the local socket),
+so each ends with "Cannot open the console of <its VM>"."""
 
 import os
 import socket
@@ -10,6 +12,15 @@ import threading
 import time
 import unittest
 from pathlib import Path
+
+from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test import TransactionTestCase
+
+from accounts.models import UserInstance
+from computes.models import Compute
+from console import tokens
+from instances.models import Instance
 
 try:
     import socketio
@@ -40,79 +51,78 @@ def children(pid):
     return found
 
 
+def start_socketiod(test):
+    """socketiod on a free port, reading test's database; stopped at test's cleanup."""
+    tmp = tempfile.TemporaryDirectory()
+    test.addCleanup(tmp.cleanup)
+    db = {k: connection.settings_dict[k] for k in ("ENGINE", "USER", "PASSWORD", "HOST", "PORT", "OPTIONS")}
+    db["NAME"] = str(connection.settings_dict["NAME"])
+    (Path(tmp.name) / "socketiod_test_settings.py").write_text(
+        "from webvirtcloud.settings import *  # noqa\n"
+        "SERIAL_CONSOLE_ENABLED = True\n"
+        "DATABASES = {'default': %r}\n" % db
+    )
+    port = free_port()
+    env = dict(os.environ, DJANGO_SETTINGS_MODULE="socketiod_test_settings",
+               PYTHONPATH=os.pathsep.join([tmp.name, str(ROOT)]))
+    server = subprocess.Popen([sys.executable, str(SOCKETIOD), "-H", "127.0.0.1", "-p", str(port)],
+                              cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    test.addCleanup(lambda: (server.kill(), server.wait()))
+    end = time.monotonic() + 20
+    while time.monotonic() < end:
+        with socket.socket() as s:
+            if s.connect_ex(("127.0.0.1", port)) == 0:
+                return server, port
+        test.assertIsNone(server.poll(), "socketiod exited at start")
+        time.sleep(0.1)
+    test.fail("socketiod did not listen within 20 s")
+
+
+def console(port, token):
+    """A connected client and what it receives until the server disconnects it."""
+    client = socketio.Client(reconnection=False)
+    received = {"output": [], "gone": threading.Event()}
+    client.on("pty_output", lambda data: received["output"].append(data["output"]))
+    client.on("disconnect", lambda *args: received["gone"].set())
+    # the same origin as the server, as the page through nginx
+    url = "http://127.0.0.1:%d" % port
+    client.connect(url, auth={"token": token}, transports=["polling"], headers={"Origin": url})
+    return client, received
+
+
 @unittest.skipIf(socketio is None, "python-socketio is not installed")
 @unittest.skipUnless(sys.platform.startswith("linux"), "reads /proc")
-class SocketiodChildExitTestCase(unittest.TestCase):
+class SocketiodProcessTestCase(TransactionTestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        (Path(tmp.name) / "socketiod_child_settings.py").write_text(
-            "from webvirtcloud.settings import *  # noqa\n"
-            "SERIAL_CONSOLE_ENABLED = True\n"
-            "DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': %r}}\n"
-            % str(Path(tmp.name) / "db.sqlite3")
-        )
-        self.port = free_port()
-        env = dict(
-            os.environ,
-            DJANGO_SETTINGS_MODULE="socketiod_child_settings",
-            PYTHONPATH=os.pathsep.join([tmp.name, str(ROOT)]),
-        )
-        self.server = subprocess.Popen(
-            [sys.executable, str(SOCKETIOD), "-H", "127.0.0.1", "-p", str(self.port)],
-            cwd=ROOT,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        self.addCleanup(self.stop_server)
-        end = time.monotonic() + 20
-        while time.monotonic() < end:
-            with socket.socket() as s:
-                if s.connect_ex(("127.0.0.1", self.port)) == 0:
-                    return
-            self.assertIsNone(self.server.poll(), "socketiod exited at start")
-            time.sleep(0.1)
-        self.fail("socketiod did not listen within 20 s")
+        compute = Compute.objects.create(name="local", hostname="localhost", login="", password="", type=4)
+        user = get_user_model().objects.create_user("serial-owner", password="pw")
+        self.tokens = {}
+        for n, name in enumerate(("vm-a", "vm-b"), 1):
+            vm = Instance.objects.create(compute=compute, name=name, uuid=f"22222222-0000-0000-0000-00000000000{n}")
+            UserInstance.objects.create(user=user, instance=vm)
+            self.tokens[name] = tokens.SIGNER.sign(f"{compute.id}:{vm.uuid}:{user.id}")
+        self.server, self.port = start_socketiod(self)
 
-    def stop_server(self):
-        self.server.kill()
-        self.server.wait()
+    def console(self, token):
+        return console(self.port, token)
 
-    def open_console(self):
-        """Connect with a malformed token, so the console process fails at once;
-        returns the output and whether the server disconnected the client."""
-        client = socketio.Client(reconnection=False)
-        output = []
-        gone = threading.Event()
-        client.on("pty_output", lambda data: output.append(data["output"]))
-        client.on("disconnect", lambda *args: gone.set())
-        client.connect(
-            "http://127.0.0.1:%d" % self.port,
-            headers={"Cookie": "token=no-such-vm"},
-            transports=["polling"],
-        )
-        try:
-            gone.wait(15)
-        finally:
-            if not gone.is_set():
-                client.disconnect()
-        return "".join(output), gone.is_set()
-
-    def assert_no_child_left(self):
+    def test_each_client_gets_its_own_console(self):
+        sessions = {name: self.console(token) for name, token in self.tokens.items()}
+        for name, (client, received) in sessions.items():
+            with self.subTest(name):
+                received["gone"].wait(20)
+                output = "".join(received["output"])
+                self.assertIn("Cannot open the console of %s" % name, output)
+                self.assertNotIn("vm-a" if name == "vm-b" else "vm-b", output)
+                self.assertIn("console closed", output)
         end = time.monotonic() + 5
         while children(self.server.pid) and time.monotonic() < end:
             time.sleep(0.05)
         self.assertEqual(children(self.server.pid), [])
+        self.assertIsNone(self.server.poll())
 
-    def test_the_client_is_told_and_the_next_connection_starts_again(self):
-        for attempt in (1, 2):
-            with self.subTest(attempt=attempt):
-                output, disconnected = self.open_console()
-                self.assertIn("console closed", output)
-                # no traceback of socketiod's own code (on Python 3.13 eventlet
-                # prints an ignored _after_fork error in every forked child)
-                self.assertNotIn('socketiod", line', output)
-                self.assertTrue(disconnected)
-                self.assert_no_child_left()
-                self.assertIsNone(self.server.poll())
+    def test_a_client_without_a_valid_token_is_refused(self):
+        for token in ("", "22-no-such-vm"):
+            with self.subTest(token=token), self.assertRaises(socketio.exceptions.ConnectionError):
+                self.console(token)
+        self.assertEqual(children(self.server.pid), [])

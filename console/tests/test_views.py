@@ -140,8 +140,6 @@ class ConsoleViewsTestCase(TestCase):
     @override_settings(SERIAL_CONSOLE_ENABLED=False)
     @patch("console.views.wvmInstance")
     def test_console_pty_refused_when_serial_console_disabled(self, mock_wvm):
-        # socketiod is unauthenticated, so the serial console is
-        # disabled unless an admin explicitly enables it.
         mock_conn = MagicMock()
         mock_conn.get_console_type.return_value = "pty"
         mock_wvm.return_value = mock_conn
@@ -519,7 +517,7 @@ class NovncdDaemonLogicTestCase(TestCase):
             "No console token provided in cookie or query parameters"
         )
 
-    @patch("instances.models.Instance.objects.get")
+    @patch("console.tokens.authorize")
     @patch("vrtManager.instance.wvmInstance")
     def test_get_connection_infos_valid_signed_token(self, mock_wvm, mock_inst_get):
         User = get_user_model()
