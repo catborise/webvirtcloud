@@ -68,7 +68,7 @@ chmod 744 install.sh
 sudo ./install.sh
 ```
 
-The installer writes the server's names and IPs to `ALLOWED_HOSTS`. Running it again keeps `settings.py`, the database, the secret key and the main nginx config, but replaces `/etc/nginx/conf.d/webvirtcloud.conf` and the supervisor config; back up your own lines in those two (TLS, `environment=`) first.
+The installer writes the server's names and IPs to `ALLOWED_HOSTS`. Running it again keeps `settings.py`, the database, the secret key and the main nginx config, but replaces `/etc/nginx/conf.d/webvirtcloud.conf` and the systemd units; back up your own lines in the nginx config (TLS) first. Put your own service settings in `/etc/default/webvirtcloud` or in drop-ins (`systemctl edit webvirt-cloud`), which a re-run keeps.
 
 ### Docker
 
@@ -101,7 +101,7 @@ The virtualenv is created with `--system-site-packages`: `libvirt-python` and `p
 
 ```bash
 # 1. System packages
-apt-get update && apt-get -y install git python3-venv python3-dev python3-lxml python3-libvirt libvirt-dev zlib1g-dev libxslt1-dev nginx supervisor libsasl2-modules gcc pkg-config python3-guestfs libsasl2-dev libldap2-dev libssl-dev
+apt-get update && apt-get -y install git python3-venv python3-dev python3-lxml python3-libvirt libvirt-dev zlib1g-dev libxslt1-dev nginx libsasl2-modules gcc pkg-config python3-guestfs libsasl2-dev libldap2-dev libssl-dev
 
 # 2. Code
 git clone https://github.com/retspen/webvirtcloud /srv/webvirtcloud
@@ -121,15 +121,16 @@ pip install -r conf/requirements.txt
 python3 manage.py migrate
 python3 manage.py collectstatic --noinput
 
-# 6. Supervisor (gunicorn, novncd and the job worker) and nginx
-cp conf/supervisor/webvirtcloud.conf /etc/supervisor/conf.d/
+# 6. systemd units (gunicorn, novncd, socketiod and the job worker) and nginx
+cp conf/systemd/webvirt-{cloud,novncd,socketiod,worker}.service /etc/systemd/system/
 cp conf/nginx/webvirtcloud.conf /etc/nginx/conf.d/
 rm -f /etc/nginx/sites-enabled/default
 
 # 7. Ownership, private files, start
 chown -R www-data:www-data /srv/webvirtcloud
 chmod 700 data && chmod 600 webvirtcloud/settings.py db.sqlite3
-systemctl restart nginx supervisor
+systemctl daemon-reload && systemctl enable --now webvirt-cloud webvirt-novncd webvirt-socketiod webvirt-worker
+nginx -t && systemctl restart nginx
 ```
 
 #### RHEL / Rocky Linux / AlmaLinux / Oracle Linux 10
@@ -137,7 +138,7 @@ systemctl restart nginx supervisor
 ```bash
 # 1. System packages
 dnf -y install epel-release
-dnf -y install git python3-devel libvirt-devel python3-libvirt python3-ldap python3-lxml cyrus-sasl-devel cyrus-sasl-md5 openldap-devel openssl-devel glibc gcc nginx supervisor python3-libguestfs iproute-tc
+dnf -y install git python3-devel libvirt-devel python3-libvirt python3-ldap python3-lxml cyrus-sasl-devel cyrus-sasl-md5 openldap-devel openssl-devel glibc gcc nginx python3-libguestfs iproute-tc
 
 # 2. Code
 git clone https://github.com/retspen/webvirtcloud /srv/webvirtcloud
@@ -157,8 +158,8 @@ pip install -r conf/requirements.txt
 python3 manage.py migrate
 python3 manage.py collectstatic --noinput
 
-# 6. Supervisor (gunicorn, novncd and the job worker, as nginx) and nginx
-sed 's/^user=.*/user=nginx/' conf/supervisor/webvirtcloud.conf > /etc/supervisord.d/webvirtcloud.ini
+# 6. systemd units (gunicorn, novncd, socketiod and the job worker, as nginx) and nginx
+for u in cloud novncd socketiod worker; do sed 's/^\(User\|Group\)=.*/\1=nginx/' conf/systemd/webvirt-$u.service > /etc/systemd/system/webvirt-$u.service; done
 cp conf/nginx/webvirtcloud.conf /etc/nginx/conf.d/
 # make sure the default server block in /etc/nginx/nginx.conf does not also listen on port 80
 
@@ -171,8 +172,8 @@ setsebool -P httpd_can_network_connect on 2>/dev/null || true
 firewall-cmd --add-service=http --permanent 2>/dev/null || true
 firewall-cmd --add-port=6080/tcp --permanent 2>/dev/null || true
 firewall-cmd --reload 2>/dev/null || true
-systemctl enable nginx supervisord
-nginx -t && systemctl restart nginx supervisord
+systemctl daemon-reload && systemctl enable --now webvirt-cloud webvirt-novncd webvirt-socketiod webvirt-worker
+systemctl enable nginx && nginx -t && systemctl restart nginx
 ```
 
 #### openSUSE Leap 15.x / Tumbleweed, SLES 15
@@ -180,7 +181,6 @@ nginx -t && systemctl restart nginx supervisord
 ```bash
 # 1. System packages (Python 3.11 stack)
 zypper --non-interactive install -y git hostname python311 python311-base python311-devel python311-pip python311-libvirt-python python311-lxml python311-ldap libvirt-devel openldap2-devel cyrus-sasl-devel libopenssl-devel gcc pkg-config nginx
-zypper --non-interactive install -y python3-supervisor || zypper --non-interactive install -y supervisor
 
 # 2. Code
 git clone https://github.com/retspen/webvirtcloud /srv/webvirtcloud
@@ -200,17 +200,15 @@ pip install -r conf/requirements.txt
 python3 manage.py migrate
 python3 manage.py collectstatic --noinput
 
-# 6. Supervisor (gunicorn, novncd and the job worker, as nginx) and nginx
-mkdir -p /etc/supervisord.d
-sed 's/^user=.*/user=nginx/' conf/supervisor/webvirtcloud.conf > /etc/supervisord.d/webvirtcloud.ini
-# make sure /etc/supervisord.conf has: [include] files = /etc/supervisord.d/*.ini
+# 6. systemd units (gunicorn, novncd, socketiod and the job worker, as nginx) and nginx
+for u in cloud novncd socketiod worker; do sed 's/^\(User\|Group\)=.*/\1=nginx/' conf/systemd/webvirt-$u.service > /etc/systemd/system/webvirt-$u.service; done
 cp conf/nginx/webvirtcloud.conf /etc/nginx/conf.d/
 
 # 7. Ownership, private files, start
 chown -R nginx:nginx /srv/webvirtcloud
 chmod 700 data && chmod 600 webvirtcloud/settings.py db.sqlite3
-systemctl enable nginx supervisord
-nginx -t && systemctl restart nginx supervisord
+systemctl daemon-reload && systemctl enable --now webvirt-cloud webvirt-novncd webvirt-socketiod webvirt-worker
+systemctl enable nginx && nginx -t && systemctl restart nginx
 ```
 
 ### First login
@@ -296,15 +294,15 @@ If libvirt warns `Host SMBIOS information is not available`, install `dmidecode`
 Where to set them:
 
 - **Docker:** the `environment:` list of `docker-compose.override.yml`; every process in the container gets it.
-- **Installer and manual installation:** edit `webvirtcloud/settings.py`, or put the same `environment=` line in `[program:webvirtcloud]`, `[program:novncd]` and `[program:webvirt-worker]` of the supervisor config (novncd and the worker read the database too; supervisor takes one `environment=` per program, so merge the worker's into its `WEBVIRTCLOUD_LOG_FILE` line) and export the variables before running `manage.py`.
-- **gunicorn** runs at most 8 workers (fewer on hosts with under 4 CPUs); to change it, set `GUNICORN_CMD_ARGS="--workers N"` in the `[program:webvirtcloud]` environment or in `docker-compose.override.yml`.
+- **Installer and manual installation:** edit `webvirtcloud/settings.py`, or put them in `/etc/default/webvirtcloud` (root, mode 600), one `NAME='value'` per line (single quotes: systemd and the shell then read the same value); all four services read it. Then `systemctl restart webvirt-cloud webvirt-novncd webvirt-socketiod webvirt-worker`, and load the file before running `manage.py`: `set -a; . /etc/default/webvirtcloud; set +a`.
+- **gunicorn** runs at most 8 workers (fewer on hosts with under 4 CPUs); to change it, set `GUNICORN_CMD_ARGS=--workers N` in a drop-in of `webvirt-cloud` (`systemctl edit webvirt-cloud`: `[Service]` and `Environment="GUNICORN_CMD_ARGS=--workers N"`) or in `docker-compose.override.yml`.
 
 ### HTTPS and reverse proxy
 
 For a panel served over HTTPS:
 
 - set `WEBVIRTCLOUD_HTTPS=1`: session and CSRF cookies become HTTPS-only, HTTP is redirected to HTTPS (except `/datasource/`, which VMs fetch over HTTP), and HSTS is sent for one year;
-- add the HTTPS origin to `CSRF_TRUSTED_ORIGINS`, e.g. `environment=CSRF_TRUSTED_ORIGINS="https://wvc.example.com",WEBVIRTCLOUD_HTTPS="1"` in supervisor;
+- add the HTTPS origin to `CSRF_TRUSTED_ORIGINS`, e.g. `CSRF_TRUSTED_ORIGINS=https://wvc.example.com` and `WEBVIRTCLOUD_HTTPS=1` in `/etc/default/webvirtcloud`;
 - set the public noVNC port to the proxy's port (the bundled nginx config already proxies `/novncd/`): `WS_PUBLIC_PORT = 443` in `webvirtcloud/settings.py`, or `WS_PUBLIC_PORT=443` in `docker-compose.override.yml` for Docker;
 
 TLS can end at the bundled nginx or at a proxy in front of it; such a proxy must send `X-Forwarded-Proto: https`. Failed logins are counted per client address, which the bundled nginx passes in `X-Real-IP`. A proxy that replaces the bundled nginx must set `X-Real-IP` itself, and its address must be in `LOGIN_TRUSTED_PROXIES` in `settings.py`. With a proxy in front of the bundled nginx, configure nginx's `set_real_ip_from` / `real_ip_header` for that proxy, or all clients share its address.
@@ -393,24 +391,13 @@ Set `OTP_ENABLED = True` in `settings.py` to ask for a one-time code at login. I
 
 ### Serial console
 
-A VM without graphics (no `<graphics>` device, a `<console type='pty'>`) opens a serial console (xterm.js) instead of VNC. It is off by default. To turn it on, set `WEBVIRTCLOUD_SERIAL_CONSOLE=1` (Docker: in `docker-compose.override.yml`, then `docker compose -p webvirtcloud up -d`) or `SERIAL_CONSOLE_ENABLED = True` in `settings.py` and restart socketiod.
+A VM without graphics (no `<graphics>` device, a `<console type='pty'>`) opens a serial console (xterm.js) instead of VNC. It is off by default. To turn it on, set `WEBVIRTCLOUD_SERIAL_CONSOLE=1` (Docker: in `docker-compose.override.yml`, then `docker compose -p webvirtcloud up -d`) or `SERIAL_CONSOLE_ENABLED = True` in `settings.py` and `systemctl restart webvirt-cloud webvirt-socketiod`.
 
 - The VM page's Settings → Console switches a shut-off VM between VNC and serial (Console type). A new VNC console takes the form's other fields; on a TCP or TLS compute it needs Listen on: All interfaces (only SSH computes reach a localhost console).
 - The guest must use its serial port: a login prompt needs `systemctl enable --now serial-getty@ttyS0`, boot messages need the kernel parameter `console=ttyS0,115200`. The console shows only what the guest writes after it opens; press Enter for a new prompt.
 - socketiod listens on 127.0.0.1:6081; the page reaches it through nginx's `/socket.io/` location on the panel's own address.
 - It accepts the console page's signed token, as noVNC does: whoever gets that token within 120 s gets the console, and an open console stays open after its user loses access to the VM.
 - One console per VM, at most 20 at a time; a second one shows "refused".
-
-### Running novncd with runit (Debian)
-
-Instead of Supervisor, `novncd` can run under `runit`. First set `autostart=false` for `[program:novncd]` in the supervisor config and run `sudo supervisorctl update`, so the two do not compete for the port:
-
-```bash
-sudo apt install -y runit runit-systemd
-sudo mkdir -p /etc/service/novncd/
-sudo ln -s /srv/webvirtcloud/conf/runit/novncd.sh /etc/service/novncd/run
-sudo systemctl start runit.service
-```
 
 ## Updating
 
@@ -434,6 +421,19 @@ docker compose run --rm --no-deps -T --entrypoint /srv/webvirtcloud/venv/bin/pyt
 docker compose up -d
 ```
 
+### Moving from supervisor to systemd
+
+Versions up to v3.0.0 ran the panel under supervisor. Once, before the update steps below, stop it there, keep its config and remove it:
+
+```bash
+supervisorctl stop webvirtcloud novncd socketiod webvirt-worker
+mv /etc/supervisor/conf.d/webvirtcloud.conf /root/webvirtcloud-supervisor.conf   # Debian / Ubuntu
+mv /etc/supervisord.d/webvirtcloud.ini /root/webvirtcloud-supervisor.conf        # RHEL / openSUSE
+supervisorctl update
+```
+
+Move the `environment=` values of that config into `/etc/default/webvirtcloud` (root, mode 600), one `NAME='value'` per line; leave out the worker's `WEBVIRTCLOUD_LOG_FILE`. Step 4 installs and starts the systemd units. Remove supervisor once nothing else uses it (on a compute node, gstfsd may).
+
 ### Installer and manual installation
 
 `git pull` never overwrites `webvirtcloud/settings.py` or `/etc/nginx/conf.d/webvirtcloud.conf`; steps 2 and 4 bring them up to date. Run the steps from a root shell; they use `$b`, so in a new shell set it again to the backup directory.
@@ -441,29 +441,20 @@ docker compose up -d
 1. Stop the panel, back up and pull:
 
    ```bash
-   supervisorctl stop webvirtcloud novncd socketiod webvirt-worker
+   systemctl stop webvirt-cloud webvirt-novncd webvirt-socketiod webvirt-worker
    # once: root may use the repo, which belongs to the service user
    git config --global --add safe.directory /srv/webvirtcloud
    b=/root/webvirtcloud-backup-$(date +%Y%m%d-%H%M%S)
    cd /srv/webvirtcloud &&
-   ! supervisorctl status webvirtcloud novncd socketiod webvirt-worker | grep RUNNING &&
+   ! systemctl is-active --quiet webvirt-cloud webvirt-novncd webvirt-socketiod webvirt-worker &&
    mkdir -m 700 "$b" &&
    venv/bin/python3 -c "import sqlite3,sys; sqlite3.connect('db.sqlite3').backup(sqlite3.connect(sys.argv[1]))" "$b/db.sqlite3" &&
    cp -p webvirtcloud/settings.py /etc/nginx/conf.d/webvirtcloud.conf "$b"/ &&
+   { [ ! -f /etc/default/webvirtcloud ] || cp -p /etc/default/webvirtcloud "$b"/; } &&
    git rev-parse HEAD > "$b/commit" &&
    git ls-files -z --others --exclude-standard -- '*/migrations/*.py' | tar --null -T - --remove-files -cf "$b/local-migrations.tar" &&
    git checkout -- static/css/wvc-main.min.css dev/scss/wvc-main.scss &&
    git checkout master && git pull
-   ```
-
-   Until step 4 installs the worker, `supervisorctl` reports "no such process" for `webvirt-worker` on a first update from a version without it. Then keep the supervisor config for step 4 and the restore (`supervisor.conf` in the backup directory):
-
-   ```bash
-   cp -p /etc/supervisor/conf.d/webvirtcloud.conf "$b/supervisor.conf"   # Debian / Ubuntu
-   ```
-
-   ```bash
-   cp -p /etc/supervisord.d/webvirtcloud.ini "$b/supervisor.conf"   # RHEL / openSUSE
    ```
 
 2. Rebuild `settings.py` from the template (the file keeps its owner and mode), then put back your own values; the `diff` lists them:
@@ -491,31 +482,29 @@ docker compose up -d
 
    Installers from before September 2025 generated migrations of their own; step 1 moved them into `local-migrations.tar`. One of them has the name of a tracked migration, which `migrate` would skip; the second line marks it unapplied so that the tracked one runs.
 
-4. Update the nginx config the same way as `settings.py`, and the supervisor config (it gains the `webvirt-worker` program):
+4. Update the nginx config the same way as `settings.py`:
 
    ```bash
    cp conf/nginx/webvirtcloud.conf /etc/nginx/conf.d/webvirtcloud.conf
    diff "$b/webvirtcloud.conf" /etc/nginx/conf.d/webvirtcloud.conf
    ```
 
-   Debian / Ubuntu:
+   Put back your own lines (`server_name`, TLS, the noVNC port). Install the systemd units; your own service settings stay in `/etc/default/webvirtcloud` and in drop-ins. Debian / Ubuntu:
 
    ```bash
-   cp conf/supervisor/webvirtcloud.conf /etc/supervisor/conf.d/
-   diff "$b/supervisor.conf" /etc/supervisor/conf.d/webvirtcloud.conf
+   cp conf/systemd/webvirt-{cloud,novncd,socketiod,worker}.service /etc/systemd/system/
    ```
 
    RHEL / openSUSE:
 
    ```bash
-   sed 's/^user=.*/user=nginx/' conf/supervisor/webvirtcloud.conf > /etc/supervisord.d/webvirtcloud.ini
-   diff "$b/supervisor.conf" /etc/supervisord.d/webvirtcloud.ini
+   for u in cloud novncd socketiod worker; do sed 's/^\(User\|Group\)=.*/\1=nginx/' conf/systemd/webvirt-$u.service > /etc/systemd/system/webvirt-$u.service; done
    ```
 
-   Put back your own lines (`server_name`, TLS, the noVNC port, supervisor `environment=` settings), then reload nginx and start the panel:
+   Then reload nginx and start the panel:
 
    ```bash
-   nginx -t && systemctl reload nginx && supervisorctl update && supervisorctl start webvirtcloud novncd socketiod webvirt-worker
+   nginx -t && systemctl reload nginx && systemctl daemon-reload && systemctl enable --now webvirt-cloud webvirt-novncd webvirt-socketiod webvirt-worker
    ```
 
 Older versions collected static files into `static/`; `git clean -n static/` lists the leftovers, which can be deleted.
@@ -541,9 +530,9 @@ Installer and manual installation, from a root shell (`nginx:nginx` on RHEL / op
 
 ```bash
 b=/root/webvirtcloud-backup-YYYYMMDD-HHMMSS
-supervisorctl stop webvirtcloud novncd socketiod webvirt-worker
+systemctl stop webvirt-cloud webvirt-novncd webvirt-socketiod webvirt-worker
 cd /srv/webvirtcloud &&
-! supervisorctl status webvirtcloud novncd socketiod webvirt-worker | grep RUNNING &&
+! systemctl is-active --quiet webvirt-cloud webvirt-novncd webvirt-socketiod webvirt-worker &&
 git checkout -- static/css/wvc-main.min.css dev/scss/wvc-main.scss &&
 git checkout "$(cat "$b/commit")" &&
 tar -xf "$b/local-migrations.tar" &&
@@ -556,26 +545,13 @@ chown -R www-data:www-data /srv/webvirtcloud &&
 chmod 600 db.sqlite3 webvirtcloud/settings.py
 ```
 
-Restore the supervisor config, Debian / Ubuntu:
+Put back `/etc/default/webvirtcloud` if the backup has it (`cp -p "$b/webvirtcloud" /etc/default/`), then reload nginx and start the panel:
 
 ```bash
-cp "$b/supervisor.conf" /etc/supervisor/conf.d/webvirtcloud.conf
+nginx -t && systemctl reload nginx && systemctl start webvirt-cloud webvirt-novncd webvirt-socketiod webvirt-worker
 ```
 
-RHEL / openSUSE:
-
-```bash
-cp "$b/supervisor.conf" /etc/supervisord.d/webvirtcloud.ini
-```
-
-Then reload nginx and start the panel:
-
-```bash
-nginx -t && systemctl reload nginx &&
-supervisorctl update && supervisorctl start webvirtcloud novncd socketiod webvirt-worker
-```
-
-When the restored version predates the worker, `supervisorctl` reports that `webvirt-worker` does not exist; the other programs start. A rollback leaves the clone on a detached HEAD at the restored commit; the update steps record that commit before they switch back to `master`.
+A version from before v3.0.0 has no worker: `systemctl disable --now webvirt-worker`. A rollback keeps the systemd units. A rollback leaves the clone on a detached HEAD at the restored commit; the update steps record that commit before they switch back to `master`.
 
 ### Behavior changes
 
@@ -624,6 +600,7 @@ When the restored version predates the worker, `supervisorctl` reports that `web
 - Manual installs that keep their own `settings.py` copy the SQLite `OPTIONS` and `TEST` entries from `settings.py.template` and add `"operations"` to `INSTALLED_APPS`.
 - The SQLite database must be on a local file system (WAL).
 - Outside compose, stop the Docker container with `docker stop -t 95` so the worker can finish running jobs.
+- Installer and manual installations run the panel as systemd units (`webvirt-cloud`, `webvirt-novncd`, `webvirt-socketiod`, `webvirt-worker`) instead of supervisor; see [Moving from supervisor to systemd](#moving-from-supervisor-to-systemd). Service settings go into `/etc/default/webvirtcloud`, service output into the journal (`journalctl -u webvirt-cloud`); the app log stays in `data/`.
 
 ## Usage
 

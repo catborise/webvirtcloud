@@ -1,7 +1,7 @@
-"""Every install type runs the worker as www-data, with its own log file and
-a stop timeout above the worker's 60 s grace."""
+"""Every install type runs the worker as the web server's user (www-data, or
+nginx where the installer and README substitute it), with its own log file
+and a stop timeout above the worker's 60 s grace."""
 
-import re
 from pathlib import Path
 
 from django.conf import settings
@@ -26,16 +26,9 @@ class WorkerInstallTestCase(SimpleTestCase):
         self.assertIn("webvirtcloud-data:/srv/webvirtcloud/data", compose)
         self.assertNotIn("hostname:", compose)
 
-    def test_supervisor(self):
-        conf = (BASE / "conf/supervisor/webvirtcloud.conf").read_text()
-        block = re.search(r"\[program:webvirt-worker\](.*?)(\n\[|\Z)", conf, re.S).group(1)
-        for text in ("manage.py run_worker", "user=www-data", "webvirtcloud-worker.log", "autorestart=true"):
-            self.assertIn(text, block)
-        self.assertRegex(block, r"stopwaitsecs=9\d")
-
-    def test_systemd_is_an_alternative(self):
+    def test_systemd(self):
         unit = (BASE / "conf/systemd/webvirt-worker.service").read_text()
-        self.assertIn("run_worker", unit)
-        self.assertIn("Restart=on-failure", unit)
+        for text in ("manage.py run_worker", "User=www-data", "webvirtcloud-worker.log", "KillMode=mixed",
+                     "EnvironmentFile=-/etc/default/webvirtcloud", "Restart=on-failure"):
+            self.assertIn(text, unit)
         self.assertRegex(unit, r"TimeoutStopSec=9\d")
-        self.assertIn("one of the two", (BASE / "conf/systemd/README.md").read_text())
