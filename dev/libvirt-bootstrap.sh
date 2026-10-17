@@ -384,13 +384,21 @@ __check_end_of_life_versions
 #
 #   CentOS Install Functions
 #
+# gstfsd and its systemd unit, enabled and (re)started
+install_gstfsd() {
+    curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/daemon/gstfsd -o /usr/local/bin/gstfsd &&
+    chmod +x /usr/local/bin/gstfsd &&
+    curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/systemd/webvirt-gstfsd.service -o /etc/systemd/system/webvirt-gstfsd.service &&
+    systemctl daemon-reload && systemctl enable webvirt-gstfsd && systemctl restart webvirt-gstfsd || return 1
+}
+
 install_centos() {
     yum -y install epel-release || return 1
 
     if [ "$DISTRO_MAJOR_VERSION" -lt 8 ]; then
-        yum -y install qemu-kvm libvirt bridge-utils python-libguestfs libguestfs-tools supervisor cyrus-sasl-md5 || return 1
+        yum -y install qemu-kvm libvirt bridge-utils python-libguestfs libguestfs-tools cyrus-sasl-md5 || return 1
     else
-        yum -y install qemu-kvm libvirt python3-libguestfs libguestfs-tools cyrus-sasl-md5 supervisor || return 1
+        yum -y install qemu-kvm libvirt python3-libguestfs libguestfs-tools cyrus-sasl-md5 || return 1
     fi
     return 0
 }
@@ -425,25 +433,7 @@ install_centos_post() {
         echoerror "/etc/sasl2/libvirt.conf not found. Exiting..."
         exit 1
     fi
-    if [ "$DISTRO_MAJOR_VERSION" -lt 7 ]; then
-        if [ -f /etc/supervisord.conf ]; then
-            curl https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/daemon/gstfsd > /usr/local/bin/gstfsd
-            chmod +x /usr/local/bin/gstfsd
-            curl https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/supervisor/gstfsd.conf >> /etc/supervisor.conf
-        else
-            echoerror "Supervisor not found. Exiting..."
-            exit 1
-        fi
-    else
-        if [ -f /etc/supervisord.conf ]; then
-            curl https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/daemon/gstfsd > /usr/local/bin/gstfsd
-            chmod +x /usr/local/bin/gstfsd
-            curl https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/supervisor/gstfsd.conf > /etc/supervisord.d/gstfsd.ini
-        else
-            echoerror "Supervisor not found. Exiting..."
-            exit 1
-        fi
-    fi
+    install_gstfsd || return 1
     return 0
 }
 
@@ -464,9 +454,7 @@ daemons_running_centos() {
         fi
     elif [ "$DISTRO_MAJOR_VERSION" -ge 10 ]; then
         # EL10 runs the modular daemons; virtproxyd serves remote TCP (SASL).
-        # supervisord runs gstfsd, so it must start at boot too.
         systemctl enable --now virtqemud.socket virtproxyd.socket virtproxyd-tcp.socket || return 1
-        systemctl enable supervisord.service || return 1
     else
         if [ -f /usr/lib/systemd/system/libvirtd-tcp.socket ]; then
             systemctl stop libvirtd-tcp.socket > /dev/null 2>&1
@@ -479,14 +467,6 @@ daemons_running_centos() {
         systemctl start libvirt-guests.service
     fi
 
-    if [ -f /etc/init.d/supervisord ]; then
-        service supervisord stop > /dev/null 2>&1
-        service supervisord start
-    fi
-    if [ -f /usr/lib/systemd/system/supervisord.service ]; then
-        systemctl stop supervisord.service > /dev/null 2>&1
-        systemctl start supervisord.service || return 1
-    fi
     return 0
 }
 #
@@ -499,7 +479,7 @@ daemons_running_centos() {
 #   Fedora Install Functions
 #
 install_fedora() {
-    yum -y install kvm libvirt bridge-utils python3-libguestfs supervisor || return 1
+    yum -y install kvm libvirt bridge-utils python3-libguestfs || return 1
     return 0
 }
 
@@ -524,14 +504,7 @@ install_fedora_post() {
         echoerror "/etc/libvirt/qemu.conf not found. Exiting..."
         exit 1
     fi
-    if [ -f /etc/supervisord.conf ]; then
-        curl https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/daemon/gstfsd > /usr/local/bin/gstfsd
-        chmod +x /usr/local/bin/gstfsd
-        curl https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/supervisor/gstfsd.conf > /etc/supervisord.d/gstfsd.ini
-    else
-        echoerror "Supervisor not found. Exiting..."
-        exit 1
-    fi
+    install_gstfsd || return 1
     return 0
 }
 
@@ -543,10 +516,6 @@ daemons_running_fedora() {
     if [ -f /usr/lib/systemd/system/libvirt-guests.service ]; then
         systemctl stop libvirt-guests.service > /dev/null 2>&1
         systemctl start libvirt-guests.service
-    fi
-    if [ -f /usr/lib/systemd/system/supervisord.service ]; then
-        systemctl stop supervisord.service > /dev/null 2>&1
-        systemctl start supervisord.service
     fi
     return 0
 }
@@ -560,8 +529,7 @@ daemons_running_fedora() {
 #   Opensuse Install Functions
 #
 install_opensuse() {
-    zypper -n install -l qemu-kvm libvirt libvirt-daemon-qemu libvirt-client bridge-utils python3-libguestfs supervisor || \
-    zypper -n install -l kvm libvirt bridge-utils python3-libguestfs python3-supervisor || \
+    zypper -n install -l qemu-kvm libvirt libvirt-daemon-qemu libvirt-client bridge-utils python3-libguestfs || \
     zypper -n install -l kvm libvirt bridge-utils python3-libguestfs || return 1
     return 0
 }
@@ -589,19 +557,13 @@ install_opensuse_post() {
     if [ -f /etc/libvirt/qemu.conf ]; then
         sed -i 's/#[ ]*vnc_listen.*/vnc_listen = "0.0.0.0"/g' /etc/libvirt/qemu.conf
     fi
-    mkdir -p /etc/supervisord.d /etc/supervisor/conf.d
-    if [ -f /etc/supervisord.conf ] || [ -f /etc/supervisor/supervisord.conf ]; then
-        curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/daemon/gstfsd > /usr/local/bin/gstfsd 2>/dev/null || true
-        chmod +x /usr/local/bin/gstfsd 2>/dev/null || true
-        curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/supervisor/gstfsd.conf > /etc/supervisord.d/gstfsd.ini 2>/dev/null || true
-    fi
+    install_gstfsd || return 1
     return 0
 }
 
 daemons_running_opensuse() {
     systemctl enable --now libvirtd.service 2>/dev/null || systemctl enable --now virtqemud.service 2>/dev/null || true
     systemctl enable --now libvirt-guests.service 2>/dev/null || true
-    systemctl enable --now supervisord.service 2>/dev/null || systemctl enable --now supervisor.service 2>/dev/null || true
     return 0
 }
 
@@ -628,9 +590,9 @@ daemons_running_suse() {
 install_ubuntu() {
     apt-get update || return 1
     if [ "$DISTRO_MAJOR_VERSION" -lt 18 ]; then
-       apt-get -y install kvm libvirt-bin bridge-utils sasl2-bin python-guestfs supervisor || return 1
+       apt-get -y install kvm libvirt-bin bridge-utils sasl2-bin python-guestfs || return 1
     else
-       apt install -y qemu-kvm libvirt-clients libvirt-daemon-system bridge-utils virt-manager sasl2-bin python3-guestfs supervisor || return 1
+       apt install -y qemu-kvm libvirt-clients libvirt-daemon-system bridge-utils virt-manager sasl2-bin python3-guestfs || return 1
     fi
 
     return 0
@@ -661,14 +623,7 @@ install_ubuntu_post() {
         echoerror "/etc/libvirt/qemu.conf not found. Exiting..."
         exit 1
     fi
-    if [ -f /etc/supervisor/supervisord.conf ]; then
-        wget -O /usr/local/bin/gstfsd https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/daemon/gstfsd
-        chmod +x /usr/local/bin/gstfsd
-        wget -O /etc/supervisor/conf.d/gstfsd.conf https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/supervisor/gstfsd.conf
-    else
-        echoerror "Supervisor not found. Exiting..."
-        exit 1
-    fi
+    install_gstfsd || return 1
     return 0
 }
 
@@ -677,11 +632,6 @@ daemons_running_ubuntu() {
         # Still in SysV init!?
         service libvirt-bin stop > /dev/null 2>&1
         service libvirt-bin start
-    fi
-    if [ -f /etc/init.d/supervisor ]; then
-        # Still in SysV init!?
-        service supervisor stop > /dev/null 2>&1
-        service supervisor start
     fi
     return 0
 }
@@ -697,11 +647,11 @@ daemons_running_ubuntu() {
 install_debian() {
     apt-get update || return 1
     if [ "$DISTRO_MAJOR_VERSION" -lt 10 ]; then
-	    apt-get -y install qemu-kvm libvirt-bin bridge-utils sasl2-bin python-guestfs supervisor || return 1
+	    apt-get -y install qemu-kvm libvirt-bin bridge-utils sasl2-bin python-guestfs || return 1
     elif [ "$DISTRO_MAJOR_VERSION" -lt 12 ]; then
-	    apt-get -y install qemu qemu-kvm qemu-system qemu-utils libvirt-clients libvirt-daemon-system sasl2-bin python3-guestfs virtinst supervisor || return 1
+	    apt-get -y install qemu qemu-kvm qemu-system qemu-utils libvirt-clients libvirt-daemon-system sasl2-bin python3-guestfs virtinst || return 1
     else
-	    apt-get -y install qemu-system qemu-utils libvirt-clients libvirt-daemon-system sasl2-bin python3-guestfs virtinst supervisor || return 1
+	    apt-get -y install qemu-system qemu-utils libvirt-clients libvirt-daemon-system sasl2-bin python3-guestfs virtinst || return 1
     fi
     return 0
 }
@@ -746,14 +696,7 @@ install_debian_post() {
         echoerror "/etc/sasl2/libvirt.conf not found. Exiting..."
         exit 1
     fi
-    if [ -f /etc/supervisor/supervisord.conf ]; then
-        wget -O /usr/local/bin/gstfsd https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/daemon/gstfsd
-        chmod +x /usr/local/bin/gstfsd
-        wget -O /etc/supervisor/conf.d/gstfsd.conf https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/supervisor/gstfsd.conf
-    else
-        echoerror "Supervisor not found. Exiting..."
-        exit 1
-    fi
+    install_gstfsd || return 1
     return 0
 }
 
@@ -766,10 +709,6 @@ daemons_running_debian() {
     if [ -f /etc/init.d/$LIBVIRTSVC ]; then
         /etc/init.d/$LIBVIRTSVC stop > /dev/null 2>&1
         /etc/init.d/$LIBVIRTSVC start
-    fi
-    if [ -f /etc/init.d/supervisor ]; then
-        service supervisor stop > /dev/null 2>&1
-        service supervisor start
     fi
     return 0
 }

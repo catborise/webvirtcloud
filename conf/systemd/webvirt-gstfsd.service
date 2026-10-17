@@ -1,22 +1,12 @@
 [Unit]
-Description=Webvirt Cloud GSTFSD
+Description=WebVirtCloud gstfsd (root password and SSH keys of shut-off VMs)
 Wants=network-online.target
 After=network-online.target
 
 [Service]
-Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/gstfsd
 Restart=on-failure
 RestartSec=10
-LimitNOFILE=64000
-# Remote compute (unauthenticated root service, trusted networks only):
-#Environment=GSTFSD_BIND_HOST=0.0.0.0
-#Environment=GSTFSD_ALLOW_REMOTE=1
-
-ExecStart=/usr/bin/python3 /usr/local/bin/gstfsd
-
-# Make sure stderr/stdout is captured in the systemd journal.
-StandardOutput=journal
-StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
