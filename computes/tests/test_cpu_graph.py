@@ -9,6 +9,7 @@ import unittest
 from unittest import TestCase as UnitTestCase
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import signing
 from django.test import TestCase
@@ -19,6 +20,9 @@ from lxml import html
 from computes.models import Compute
 from computes.views import CPU_SAMPLE_MAX_AGE, CPU_SAMPLE_SIGNER
 from vrtManager.hostdetails import cpu_percent, wvmHostDetails
+
+# the page script runs after the shared chart helpers
+CHARTS_JS = settings.BASE_DIR / "static" / "js" / "charts.js"
 
 
 def host(*readings):
@@ -133,19 +137,22 @@ class GraphScriptTestCase(TestCase):
         const charts = [], requests = [];
         let poll;
         const page = {
-            document: {getElementById: () => ({getContext: () => ({})})},
+            document: {body: {}, getElementById: () => ({})},
             // Chart.js adds the lists a config leaves out
-            Chart: function (ctx, config) {
+            getComputedStyle: () => ({getPropertyValue: () => ""}),
+            Chart: Object.assign(function (canvas, config) {
                 this.data = Object.assign({labels: []}, config.data);
                 this.data.datasets.forEach((set) => { set.data = set.data || []; });
                 this.options = config.options;
                 this.update = () => {};
                 charts.push(this);
-            },
+            }, {defaults: {}}),
             $: {getJSON: (url, params) => { requests.push(params); return {}; }},
             pollWhileVisible: (interval, request, onData) => { poll = {request, onData}; },
         };
-        vm.runInNewContext(SCRIPT, vm.createContext(page));
+        const context = vm.createContext(page);
+        vm.runInContext(CHARTS, context);
+        vm.runInContext(SCRIPT, context);
         const answer = (cpu, sample) => ({cpudata: cpu, window: 5.1, cpu_sample: sample, timeline: "t",
                                           memdata: {total: 1048576, usage: 0}});
         poll.request();
@@ -153,10 +160,10 @@ class GraphScriptTestCase(TestCase):
         poll.request();
         poll.onData({cpudata: null, memdata: {total: null, usage: null}, timeline: "t"});
         poll.request();
-        const label = charts[0].options.tooltips.callbacks.label({datasetIndex: 0, index: 0, yLabel: 3}, charts[0].data);
+        const label = charts[0].options.plugins.tooltip.callbacks.label({dataset: {label: "Usage"}, formattedValue: "3", dataIndex: 0});
         console.log(JSON.stringify({requests, label, cpu: charts[0].data.datasets[0].data,
-                                    mem: charts[1].data.datasets[0].data, memMax: charts[1].options.scales.yAxes[0].ticks.max}));
-        """.replace("SCRIPT", json.dumps(script))
+                                    mem: charts[1].data.datasets[0].data, memMax: charts[1].options.scales.y.max}));
+        """.replace("SCRIPT", json.dumps(script)).replace("CHARTS", json.dumps(CHARTS_JS.read_text()))
         out = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=30)
         self.assertEqual(out.returncode, 0, out.stderr)
         result = json.loads(out.stdout)

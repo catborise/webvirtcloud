@@ -99,7 +99,7 @@
                         {% bs_icon 'arrow-right' %} 
                         {% trans "CPU Utilization" %}
                     </h5>
-                    <canvas id="cpuChart" width="735" height="160"></canvas>
+                    <div class="chart"><canvas id="cpuChart" role="img" aria-label="{% trans "CPU Utilization" %}"></canvas></div>
                 </div>
             </div>
 
@@ -108,7 +108,7 @@
                         <h5 class="card-title ">
                             {% bs_icon 'arrow-right'%} {% trans "RAM Utilization" %}
                         </h5>
-                        <canvas id="memChart" width="735" height="160"></canvas>
+                        <div class="chart"><canvas id="memChart" role="img" aria-label="{% trans "RAM Utilization" %}"></canvas></div>
                     </div>
                 </div>
             </div>
@@ -116,114 +116,22 @@
     </div>
 {% endblock %}
 {% block script %}
-<script src="{% static "js/Chart.bundle.min.js" %}"></script>
+<script src="{% static "js/chart.umd.min.js" %}"></script>
+<script src="{% static "js/charts.js" %}"></script>
 <script src="{% static "js/poll.js" %}"></script>
 <script>
 
     {% trans "average over" as average_over %}
     // the seconds each CPU point averages
     var cpuWindows = [];
-    var cpu_ctx = document.getElementById("cpuChart").getContext("2d");
-    var cpuChart = new Chart(cpu_ctx, {
-        type: 'line',
-        data: {
-            datasets : [{
-                label: 'Usage',
-                backgroundColor: "rgba(241,72,70,0.5)",
-                pointRadius: 2,
-            }]
+    var cpuChart = lineChart(document.getElementById("cpuChart"), "%", ["Usage"], {
+        max: 100,
+        tooltip: function (context, text) {
+            var span = cpuWindows[context.dataIndex];
+            return span ? text + ' ({{ average_over|escapejs }} ' + span + ' s)' : text;
         },
-        options: {
-            responsive: true,
-            legend: {
-                display: false
-            },
-            scales: {
-                xAxes:[{
-                    offset: false,
-                    ticks: {
-                        beginAtZero: false,
-                        autoSkip: true,
-                        maxTicksLimit: 10,
-                        maxRotation: 0,
-                        minRotation: 0,
-                        stepSize: 10,
-                    },
-                }],
-                yAxes: [{
-                    ticks: {
-                        max: 100,
-                        min: 0,
-                        stepSize: 20,
-                        callback: function(value, index, values) {
-                            return value + ' %';
-                        }
-                    },
-                }],
-            },
-            tooltips: {
-                 callbacks: {
-                     label: function (tooltipItem, chart) {
-                         var label = chart.datasets[tooltipItem.datasetIndex].label || '';
-                         if (label) {
-                            label += ': ';
-                         }
-                         label += tooltipItem.yLabel + ' %';
-                         var span = cpuWindows[tooltipItem.index];
-                         return span ? label + ' ({{ average_over|escapejs }} ' + span + ' s)' : label;
-                     }
-                 }
-            }
-        }
     });
-
-    var mem_ctx = document.getElementById("memChart").getContext("2d");
-    var memChart = new Chart(mem_ctx, {
-        type: 'line',
-        data: {
-            datasets: [{
-                pointRadius: 2,
-            }]
-        },
-        options: {
-            responsive: true,
-            legend: {
-                display: false
-            },
-            scales: {
-                xAxes:[{
-                    offset: false,
-                    ticks: {
-                        beginAtZero: false,
-                        autoSkip: true,
-                        maxTicksLimit: 10,
-                        maxRotation: 0,
-                        minRotation: 0
-                    }
-                }],
-                yAxes: [{
-                    ticks:{
-                        suggestedMin: 0,
-                        suggestedMax: 100,
-                        callback: function(value, index, values) {
-                            return value + ' MB';
-                        }
-                    },
-                }],
-            },
-            tooltips: {
-                 callbacks: {
-                     label: function (tooltipItem, chart) {
-                         var label = chart.datasets[tooltipItem.datasetIndex].label || '';
-                         if (label) {
-                            label += ': ';
-                         }
-                         return label += tooltipItem.yLabel  + ' MB';
-                     }
-                 }
-            }
-        }
-    });
+    var memChart = lineChart(document.getElementById("memChart"), "MB", ["Usage"]);
     if (Boolean({{ status }}) === true) {
         // the CPU sample of the previous answer: usage is taken since then
         var cpuSample = null;
@@ -231,32 +139,18 @@
             return $.getJSON('{% url 'compute_graph' compute_id %}', cpuSample ? {cpu_sample: cpuSample} : {});
         }, function graph_usage(data) {
             cpuSample = data.cpu_sample || null;
-            cpuChart.data.labels.push(data.timeline);
-            memChart.data.labels.push(data.timeline);
-
-            cpuChart.data.datasets[0].data.push(data.cpudata);
             cpuWindows.push(data.window);
-            if (cpuChart.data.datasets[0].data.length > 10){
-                cpuChart.data.labels.shift();
-                cpuChart.data.datasets[0].data.shift();
+            if (cpuWindows.length > CHART_POINTS) {
                 cpuWindows.shift();
             }
+            addPoint(cpuChart, data.timeline, [data.cpudata]);
             // a host that could not be read gives no memory value: a gap, same axis
             if (data.memdata.total) {
-                memChart.options.scales.yAxes[0].ticks.max = parseInt(data.memdata.total / 1048576);
-                memChart.options.scales.yAxes[0].ticks.stepSize = parseInt(data.memdata.total / (1048576 * 5));
-                memChart.data.datasets[0].data.push(parseInt(data.memdata.usage / 1048576));
+                memChart.options.scales.y.max = Math.round(data.memdata.total / 1048576);
+                addPoint(memChart, data.timeline, [Math.round(data.memdata.usage / 1048576)]);
             } else {
-                memChart.data.datasets[0].data.push(null);
+                addPoint(memChart, data.timeline, [null]);
             }
-
-            if (memChart.data.datasets[0].data.length > 10){
-                memChart.data.labels.shift();
-                memChart.data.datasets[0].data.shift();
-            }
-
-            cpuChart.update();
-            memChart.update();
         });
     }
 </script>
