@@ -16,7 +16,7 @@ from vrtManager.connection import connection_manager
 from accounts.models import UserInstance
 from computes.models import Compute
 from console import tokens
-from console.tests.test_socketiod_child import children, console, start_socketiod, socketio
+from console.tests.test_socketiod_child import consoles, console, start_socketiod, socketio
 from instances.models import Instance
 from instances.tests import livetest
 
@@ -73,7 +73,7 @@ class LiveSerialConsoleTestCase(TransactionTestCase):
                     console(self.port, token)
                 client.disconnect()
                 deadline = time.monotonic() + 5
-                while children(self.server.pid) and time.monotonic() < deadline:
+                while consoles(self.server.pid) and time.monotonic() < deadline:
                     time.sleep(0.05)
-                self.assertEqual(children(self.server.pid), [])
+                self.assertEqual(consoles(self.server.pid), [])
                 dom.destroy()
