@@ -122,6 +122,7 @@ def _instance_page(request, pk, instance, compute):
     if can_manage_console:
         console_form = ConsoleForm(
             initial={
+                "console_type": instance.console_type,
                 "listen_on": instance.config_console_listener_address,
                 "password": instance.config_console_passwd,
                 "keymap": instance.config_console_keymap,
@@ -1806,7 +1807,11 @@ def update_console(request, pk):
     if not utils.can_manage_console(request.user, instance):
         raise PermissionDenied
     form = ConsoleForm(request.POST or None, can_set_listener=request.user.is_superuser)
-    if form.is_valid():
+    if form.is_valid() and form.cleaned_data["console_type"] not in ("", instance.console_type):
+        instance.proxy.set_console_type(form.cleaned_data["console_type"])
+        addlogmsg(request.user.username, instance.compute.name, instance.name, _("Set console type"))
+    # the other fields are VNC settings; a new VNC console gets them too
+    if form.is_valid() and form.cleaned_data["console_type"] != "pty":
         if (
             "generate_password" in form.changed_data
             or "clear_password" in form.changed_data
@@ -1860,7 +1865,7 @@ def update_console(request, pk):
             addlogmsg(
                 request.user.username, instance.compute.name, instance.name, msg
             )
-    else:
+    if not form.is_valid():
         messages.error(request, _("Console settings were not saved: %(errors)s") % {"errors": form.errors.as_text()})
 
     return get_safe_redirect(

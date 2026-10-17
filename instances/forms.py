@@ -1,6 +1,7 @@
 import re
 
 from django import forms
+from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 from webvirtcloud.settings import QEMU_CONSOLE_LISTENER_ADDRESSES, QEMU_KEYMAPS
 
@@ -14,6 +15,7 @@ class FlavorForm(forms.ModelForm):
 
 
 class ConsoleForm(forms.Form):
+    console_type = forms.ChoiceField(label=_("Console type"), required=False)
     listen_on = forms.ChoiceField(label=_("Listen on"))
     generate_password = forms.BooleanField(label=_("Generate password"), required=False)
     clear_password = forms.BooleanField(label=_("Clear password"), required=False)
@@ -27,6 +29,10 @@ class ConsoleForm(forms.Form):
 
     def __init__(self, *args, can_set_listener=True, **kwargs):
         super(ConsoleForm, self).__init__(*args, **kwargs)
+        types = [("vnc", "VNC")]
+        if settings.SERIAL_CONSOLE_ENABLED:
+            types.append(("pty", _("Serial (xterm; the guest needs a getty on ttyS0)")))
+        self.fields["console_type"].choices = types
         keymap_choices = [("auto", _("Auto"))] + list((c, c) for c in QEMU_KEYMAPS)
         # Only administrators choose the listen address: beyond localhost the
         # console is reachable from the network. A disabled field ignores

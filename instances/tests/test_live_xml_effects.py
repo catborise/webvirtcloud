@@ -105,6 +105,16 @@ EDITS = {
         lambda t: first(t, "devices/graphics/listen/@address") == "127.0.0.1",
         ["devices/graphics/@listen", "devices/graphics/listen/@address"], True, False,
     ),
+    "set_console_type pty": (
+        lambda vm: vm.set_console_type("pty"),
+        lambda t: not t.xpath("devices/graphics") and first(t, "devices/console/@type") == "pty",
+        ["devices/graphics", "devices/console"], True, False,
+    ),
+    "set_console_type vnc": (
+        lambda vm: vm.set_console_type("vnc"),
+        lambda t: t.xpath("devices/graphics/@type") == ["vnc"] and first(t, "devices/graphics/@listen") == "127.0.0.1",
+        ["devices/graphics"], True, False,
+    ),
     "set_console_passwd": (
         lambda vm: vm.set_console_passwd("new12345"),
         lambda t: first(t, "devices/graphics/@passwd") == "new12345",
