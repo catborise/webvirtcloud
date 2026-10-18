@@ -28,14 +28,6 @@
             </div>
         </form>
         {% if request.user.is_superuser %}
-        <form method="post" action="" role="form" aria-label="Edit sass directory settings form">{% csrf_token %}
-            <div class="row mb-1">
-                <label class="col-sm-3 col-form-label">{% trans sass_dir.name %}</label>
-                <div class="col-sm-6">
-                    <input class="form-control" name="{{ sass_dir.key }}" value="{{ sass_dir.value }}" onchange="this.form.submit()" title="{% trans sass_dir.description %}"/>
-                </div>
-            </div>
-        </form>
         <form method="post" action="" role="form" aria-label="Edit theme settings form">{% csrf_token %}
             <div class="row mb-1">
                 <label class="col-sm-3 col-form-label">{% trans bootstrap_theme.name %}</label>
@@ -45,7 +37,6 @@
                         <option {% if bootstrap_theme.value == theme %}selected{% endif %} value="{{ theme }}">{{ theme }}</option>
                     {% endfor %}
                     </select>
-                    <span class="text-muted">{% trans "After change please full refresh page with 'Ctrl + F5' "%}</span>
                 </div>
             </div>
         </form>

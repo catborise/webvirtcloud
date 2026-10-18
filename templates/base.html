@@ -12,7 +12,8 @@
     <title>{% block title %}{% endblock %}</title>
 
     <!-- Bootstrap Core CSS -->
-    <link href="{% static "css/wvc-main.min.css" %}" rel="stylesheet" id="wvc_css">
+    {# error pages render without app_settings: they get zephyr #}
+    {% with theme=app_settings.BOOTSTRAP_THEME|default:"zephyr" %}<link href="{% static "css/themes/"|add:theme|add:".min.css" %}" rel="stylesheet" id="wvc_css">{% endwith %}
 
     <!-- WebVirtCloud CSS -->
     <link href="{% static "css/webvirtcloud.css" %}" rel="stylesheet">

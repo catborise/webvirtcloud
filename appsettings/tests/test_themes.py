@@ -1,33 +1,17 @@
-"""The themes in dev/scss/wvc-themes compile with the pinned libsass, and the
-shipped wvc-main.min.css is the default theme compiled from these sources."""
+"""static/css/themes holds every theme in dev/scss/wvc-themes, compiled from
+these sources with the pinned libsass (manage.py build_themes)."""
 
-from pathlib import Path
-
-import sass
-from django.conf import settings
 from django.test import SimpleTestCase
 
-SCSS = Path(settings.BASE_DIR, "dev", "scss")
-
-
-def compile_theme(theme):
-    # the imports the settings view compiles
-    return sass.compile(
-        string=f"@import '{SCSS}/wvc-themes/{theme}/variables';\n"
-        f"@import '{SCSS}/bootstrap-overrides.scss';\n"
-        f"@import '{SCSS}/wvc-themes/{theme}/bootswatch';",
-        output_style="compressed",
-    )
+from appsettings.management.commands.build_themes import SCSS, compile_theme
+from appsettings.views import THEMES_DIR
 
 
 class ThemeTests(SimpleTestCase):
-    def test_every_theme_compiles(self):
+    def test_the_shipped_themes_are_compiled_from_these_sources(self):
         themes = sorted(p.name for p in (SCSS / "wvc-themes").iterdir() if p.is_dir())
         self.assertIn("zephyr", themes)
+        self.assertEqual(sorted(p.name for p in THEMES_DIR.iterdir()), [f"{theme}.min.css" for theme in themes])
         for theme in themes:
             with self.subTest(theme=theme):
-                self.assertIn(".btn", compile_theme(theme))
-
-    def test_the_shipped_css_is_zephyr_from_these_sources(self):
-        shipped = Path(settings.BASE_DIR, "static", "css", "wvc-main.min.css").read_text()
-        self.assertEqual(shipped, compile_theme("zephyr"))
+                self.assertEqual((THEMES_DIR / f"{theme}.min.css").read_text(), compile_theme(theme), "run manage.py build_themes")

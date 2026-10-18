@@ -154,12 +154,12 @@ jobs:
           done
 
       - name: Import Compiled Dependencies
-        run: docker exec wvc /srv/webvirtcloud/venv/bin/python3 -c "import libvirt, ldap, lxml.etree, psycopg, sass"
+        run: docker exec wvc /srv/webvirtcloud/venv/bin/python3 -c "import libvirt, ldap, lxml.etree, psycopg"
 
       # Static URLs carry no version: browsers must revalidate them
       - name: Static Files Revalidated
         run: |
-          url=http://127.0.0.1:8080/static/css/wvc-main.min.css
+          url=http://127.0.0.1:8080/static/css/themes/zephyr.min.css
           header() { tr -d '\r' | awk -v h="$1" 'tolower($0) ~ "^" h ":" {sub(/^[^:]*: */, ""); print}'; }
           h=$(curl -s -m 5 -D - -o /dev/null "$url")
           [ "$(echo "$h" | header cache-control)" = no-cache ] || { echo "$h"; exit 1; }
@@ -168,7 +168,7 @@ jobs:
           h=$(curl -s -m 5 -D - -o /dev/null -H "If-None-Match: $etag" "$url")
           echo "$h" | head -1 | grep -q " 304" || { echo "$h"; exit 1; }
           [ "$(echo "$h" | header cache-control)" = no-cache ]
-          docker exec wvc sh -c 'echo "/* changed */" >> /srv/webvirtcloud/staticfiles/css/wvc-main.min.css'
+          docker exec wvc sh -c 'echo "/* changed */" >> /srv/webvirtcloud/staticfiles/css/themes/zephyr.min.css'
           h=$(curl -s -m 5 -D - -o /dev/null -H "If-None-Match: $etag" "$url")
           echo "$h" | head -1 | grep -q " 200" || { echo "$h"; exit 1; }
           new=$(echo "$h" | header etag)
