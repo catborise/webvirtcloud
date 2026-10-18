@@ -1,55 +1,31 @@
-# -*- mode: ruby -*-
-# vi: set ft=ruby :
+# Two disposable compute nodes for the live tests (README: Running tests), so
+# that migration runs between them: AlmaLinux 10 with nested KVM, set up by
+# dev/libvirt-bootstrap.sh, with a SASL user for TCP and the host user's SSH
+# key for root (SASL user wvc, password wvc-test).
 
 Vagrant.configure(2) do |config|
-  # Default machine, if name not specified...
-  config.vm.define "dev", primary: true do |dev|
-    dev.vm.box =  "ubuntu/bionic64"
-    dev.vm.hostname = "webvirtcloud"
-    dev.vm.network "private_network", ip: "192.168.33.10"
-    dev.vm.provision "shell", inline: <<-SHELL
-     sudo sh /vagrant/dev/libvirt-bootstrap.sh
-     sudo sed -i 's/auth_tcp = \"sasl\"/auth_tcp = \"none\"/g' /etc/libvirt/libvirtd.conf
-     sudo service libvirt-bin restart
-     sudo adduser vagrant libvirtd
-     sudo apt-get -y install python3-virtualenv virtualenv python3-pip python3-dev python3-lxml libvirt-dev zlib1g-dev python3-guestfs
-     virtualenv -p python3 /vagrant/venv
-     source /vagrant/venv/bin/activate
-     pip3 install -r /vagrant/dev/requirements.txt
-    SHELL
+  config.vm.box = "almalinux/10"
+  %w[compute1 compute2].each do |name|
+    config.vm.define(name) { |node| node.vm.hostname = "wvc-#{name}" }
   end
-  # To start this machine run "vagrant up prod"
-  # To enter this machine run "vagrant ssh prod"
-  config.vm.define "prod",  autostart: false do |prod|
-    prod.vm.box = "ubuntu/bionic64"
-    prod.vm.hostname = "webvirtcloud"
-    prod.vm.network "private_network", ip: "192.168.33.11"
-    prod.vm.network "forwarded_port", guest: 80, host: 8081
-    #prod.vm.synced_folder ".", "/srv/webvirtcloud"
-    prod.vm.provision "shell", inline: <<-SHELL
-     sudo mkdir /srv/webvirtcloud
-     sudo cp -R /vagrant/* /srv/webvirtcloud
-     sudo sh /srv/webvirtcloud/dev/libvirt-bootstrap.sh
-     sudo sed -i 's/auth_tcp = \"sasl\"/auth_tcp = \"none\"/g' /etc/libvirt/libvirtd.conf
-     sudo service libvirt-bin restart
-     sudo adduser vagrant libvirtd
-     sudo chown -R vagrant:vagrant /srv/webvirtcloud
-     sudo apt-get -y install python3-virtualenv python3-dev python3-lxml python3-pip virtualenv libvirt-dev zlib1g-dev libxslt1-dev nginx supervisor libsasl2-modules gcc pkg-config python3-guestfs
-     virtualenv -p python3 /srv/webvirtcloud/venv
-     source /srv/webvirtcloud/venv/bin/activate
-     pip3 install -r /srv/webvirtcloud/requirements.txt
-     sudo cp /srv/webvirtcloud/conf/supervisor/webvirtcloud.conf /etc/supervisor/conf.d
-     sudo cp /srv/webvirtcloud/conf/nginx/webvirtcloud.conf /etc/nginx/conf.d
-     sudo cp /srv/webvirtcloud/webvirtcloud/settings.py.template /srv/webvirtcloud/webvirtcloud/settings.py
-     sudo sed "s/SECRET_KEY = ''/SECRET_KEY = '"`python3 /srv/webvirtcloud/conf/runit/secret_generator.py`"'/" -i /srv/webvirtcloud/webvirtcloud/settings.py
-     python3 /srv/webvirtcloud/manage.py migrate
-     python3 /srv/webvirtcloud/manage.py collectstatic --noinput
-     sudo rm /etc/nginx/sites-enabled/default
-     sudo chown -R www-data:www-data /srv/webvirtcloud
-     sudo service nginx restart
-     sudo service supervisor restart
-    SHELL
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+  config.vm.provider :libvirt do |v|
+    v.memory = 4096
+    v.cpus = 2
+    v.nested = true
+    v.cpu_mode = "host-passthrough"
+    v.video_type = "virtio"  # EL10 hosts have no cirrus
   end
+  # the bootstrap installs this checkout's gstfsd
+  config.vm.provision "file", source: "dev", destination: "/tmp/wvc/dev"
+  config.vm.provision "file", source: "conf", destination: "/tmp/wvc/conf"
+  config.vm.provision "file", source: "~/.ssh/id_ed25519.pub", destination: "/tmp/wvc/key.pub"
+  config.vm.provision "shell", inline: <<-SHELL
+    set -e
+    sh /tmp/wvc/dev/libvirt-bootstrap.sh
+    virsh pool-info default > /dev/null 2>&1 || { virsh pool-define-as default dir --target /var/lib/libvirt/images && virsh pool-autostart default && virsh pool-start default; }
+    echo wvc-test | saslpasswd2 -a libvirt -p wvc
+    install -d -m 700 /root/.ssh
+    cat /tmp/wvc/key.pub >> /root/.ssh/authorized_keys
+  SHELL
 end
-
-
