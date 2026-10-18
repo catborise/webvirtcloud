@@ -86,10 +86,10 @@
 
     
     {% if state %}
-        <p>
+        <div>
             {% include 'search_block.html' %}
             <h5 class="page-header">{% trans "Volumes" %}</h5>
-        </p>     
+        </div>
         {% if volumes  %}
             <table class="table table-hover sortable-theme-bootstrap" data-sortable>
                 <thead>
@@ -190,7 +190,6 @@
             </div>
         {% endif %}
     {% endif %}
-    </div>
 
 {% endblock %}
 {% block script %}

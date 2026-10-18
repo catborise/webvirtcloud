@@ -101,8 +101,8 @@
                                                             <h5 class="modal-title">{% trans "Create Virtual Machine" %} ({{ flavor.label }})</h5>
                                                             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                                                         </div>
-                                                        <div class="modal-body">
-                                                            <form method="post" role="form" aria-label="Create instance from flavor form">{% csrf_token %}{% submission_key %}
+                                                        <form method="post" role="form" aria-label="Create instance from flavor form">{% csrf_token %}{% submission_key %}
+                                                            <div class="modal-body">
                                                                 <div class="row">
                                                                     <label class="col-sm-4 col-form-label">{% trans "Name" %}</label>
                                                                     <div class="col-sm-7">
@@ -118,7 +118,7 @@
                                                                 <div class="row">
                                                                     <label class="col-sm-4 col-form-label">{% trans "Firmware" %}</label>
                                                                     <div class="col-sm-7">
-                                                                        <select class="form-select" id="select_firmware" name="firmware">
+                                                                        <select class="form-select" name="firmware">
                                                                             {% for frm in firmwares %}
                                                                             <option value="{{ frm }}" {% if frm in default_firmware %}selected{% endif %}>{{ frm }}</option>
                                                                             {% endfor %}
@@ -177,12 +177,12 @@
                                                                  <div class="row">
                                                                     <label class="col-sm-4 col-form-label">{% trans "Advanced" %}</label>
                                                                     <div class="d-grid col-sm-7">
-                                                                        <button class="btn btn-outline-light" type="button" data-bs-toggle="collapse" data-bs-target="#flav-add-collapse" aria-expanded="false" aria-controls="flav-add-collapse">
+                                                                        <button class="btn btn-outline-light" type="button" data-bs-toggle="collapse" data-bs-target="#flav-add-collapse-{{ flavor.id }}" aria-expanded="false" aria-controls="flav-add-collapse-{{ flavor.id }}">
                                                                             <span>{% bs_icon 'caret-down'%} </span>
                                                                         </button>
                                                                     </div>        
                                                                 </div>
-                                                                <div class="collapse" id="flav-add-collapse">
+                                                                <div class="collapse" id="flav-add-collapse-{{ flavor.id }}">
                                                                     <div class="row">
                                                                         <label class="col-sm-4 col-form-label">{% trans "MAC" %}</label>
                                                                         <div class="col-sm-7">
@@ -213,7 +213,7 @@
                                                                     <div class="row">
                                                                         <label class="col-sm-4 col-form-label">{% trans "HDD cache mode" %}</label>
                                                                         <div class="col-sm-7">
-                                                                            <select class="form-select" id="cache_mode" name="cache_mode">
+                                                                            <select class="form-select" name="cache_mode">
                                                                                 {% for mode, name in cache_modes %}
                                                                                     <option value="{{ mode }}" {% if mode == default_cache %}selected {% endif %}>
                                                                                     {% trans name %}</option>
@@ -248,7 +248,7 @@
                                                                     <div class="row">
                                                                         <label class="col-sm-4 col-form-label">{% trans "Add CD-Rom" %}</label>
                                                                         <div class="col-sm-7">
-                                                                            <select class="form-select" id="add_cdrom" name="add_cdrom">
+                                                                            <select class="form-select" name="add_cdrom">
                                                                                 <option value="None" {% if bus == default_cdrom %}selected{% endif %}>--{% trans "False" %}--</option>
                                                                                 {% for bus in cdrom_buses %}
                                                                                     <option value="{{ bus }}" {% if bus == default_cdrom %}selected {% endif %}>
@@ -261,7 +261,7 @@
                                                                     <div class="row">
                                                                         <label class="col-sm-4 col-form-label">{% trans "Add Input Device" %}</label>
                                                                         <div class="col-sm-7">
-                                                                            <select class="form-select" id="add_input" name="add_input">
+                                                                            <select class="form-select" name="add_input">
                                                                                 <option value="None" {% if bus == default_input_device_bus %}selected{% endif %}>--{% trans "False" %}--</option>
                                                                                 {% for bus in input_device_buses %}
                                                                                     <option value="{{ bus }}" {% if bus == default_input_device_bus %}selected{% endif %}>
@@ -564,7 +564,7 @@
                             <div class="row">
                                 <label class="col-sm-3 col-form-label">{% trans "Firmware" %}</label>
                                 <div class="col-sm-7">
-                                    <select class="form-select" id="select_firmware" name="firmware">
+                                    <select class="form-select" name="firmware">
                                         {% for frm in firmwares %}
                                         <option value="{{ frm }}" {% if frm == default_firmware %}selected{% endif %}>{{ frm }}</option>
                                         {% endfor %}
@@ -608,7 +608,6 @@
                         </div>
                         <div class="row">
                             <label class="col-sm-3 col-form-label">{% trans "Template Disk" %}</label>
-                            <input id="images" name="images" type="hidden" value=""/>
                             <div class="col-sm-3">
                                 <select class="form-select" onchange="get_template_vols({{ compute_id }}, value);">
                                     {% if storages %}
@@ -673,7 +672,7 @@
                             <div class="row">
                                 <label class="col-sm-3 col-form-label">{% trans "HDD cache mode" %}</label>
                                 <div class="col-sm-7">
-                                    <select class="form-select" id="cache_mode" name="cache_mode">
+                                    <select class="form-select" name="cache_mode">
                                         {% for mode, name in cache_modes %}
                                             <option value="{{ mode }}" {% if mode == default_cache %}selected{% endif %}>
                                             {% trans name %}</option>
@@ -729,7 +728,7 @@
                             <div class="row">
                                 <label class="col-sm-3 col-form-label">{% trans "Add CD-Rom" %}</label>
                                 <div class="col-sm-7">
-                                    <select class="form-select" id="add_cdrom" name="add_cdrom">
+                                    <select class="form-select" name="add_cdrom">
                                         <option value="None" {% if bus == default_cdrom %}selected{% endif %}>--{% trans "False" %}--</option>
                                         {% for bus in cdrom_buses %}
                                             <option value="{{ bus }}" {% if bus == default_cdrom %}selected {% endif %}>
@@ -742,7 +741,7 @@
                             <div class="row">
                                 <label class="col-sm-3 col-form-label">{% trans "Add Input Device" %}</label>
                                 <div class="col-sm-7">
-                                    <select class="form-select" id="add_input" name="add_input">
+                                    <select class="form-select" name="add_input">
                                         <option value="None" {% if bus == default_input_device_bus %}selected{% endif %}>--{% trans "False" %}--</option>
                                         {% for bus in input_device_buses %}
                                             <option value="{{ bus }}" {% if bus == default_input_device_bus %}selected{% endif %}>
@@ -785,6 +784,8 @@
                 <div class="clearfix"></div>
             </div>
         </div><!-- /Tab panes -->
+    </div>
+        </div>
     </div>
 
 {% endblock %}

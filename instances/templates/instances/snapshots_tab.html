@@ -89,10 +89,12 @@
                 <div class="table-responsive">
                     <table class="table" id="internal-snapshots">
                         <thead>
-                            <th scope="col">{% trans "Date" %}</th>
-                            <th scope="col">{% trans "Name" %}</th>
-                            <th scope="col">{% trans "Description" %}</th>
-                            <th scope="colgroup" colspan="2">{% trans "Action" %}</th>
+                            <tr>
+                                <th scope="col">{% trans "Date" %}</th>
+                                <th scope="col">{% trans "Name" %}</th>
+                                <th scope="col">{% trans "Description" %}</th>
+                                <th scope="colgroup" colspan="2">{% trans "Action" %}</th>
+                            </tr>
                         </thead>
                         <tbody>
                             {% for snap in instance.internal_snapshots %}
@@ -135,10 +137,12 @@
                 <div class="table-responsive">
                     <table class="table" id="external-snapshots">
                         <thead>
-                            <th scope="col">{% trans "Date" %}</th>
-                            <th scope="col">{% trans "Name" %}</th>
-                            <th scope="col">{% trans "Description" %}</th>
-                            <th scope="colgroup" colspan="2">{% trans "Action" %}</th>
+                            <tr>
+                                <th scope="col">{% trans "Date" %}</th>
+                                <th scope="col">{% trans "Name" %}</th>
+                                <th scope="col">{% trans "Description" %}</th>
+                                <th scope="colgroup" colspan="2">{% trans "Action" %}</th>
+                            </tr>
                         </thead>
                         <tbody>
                             {% for ext_snap in instance.external_snapshots %}
