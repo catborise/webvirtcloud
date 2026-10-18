@@ -385,12 +385,25 @@ __check_end_of_life_versions
 #
 #   CentOS Install Functions
 #
-# gstfsd and its systemd unit, enabled and (re)started
+# gstfsd and its systemd unit, enabled and (re)started: from the clone this
+# script runs in, else from GitHub
 install_gstfsd() {
-    curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/daemon/gstfsd -o /usr/local/bin/gstfsd &&
-    chmod +x /usr/local/bin/gstfsd &&
-    curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/systemd/webvirt-gstfsd.service -o /etc/systemd/system/webvirt-gstfsd.service &&
+    src="$(dirname "$0")/.."
+    if [ -f "$src/conf/daemon/gstfsd" ]; then
+        install -m 755 "$src/conf/daemon/gstfsd" /usr/local/bin/gstfsd &&
+        install -m 644 "$src/conf/systemd/webvirt-gstfsd.service" /etc/systemd/system/ || return 1
+    else
+        curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/daemon/gstfsd -o /usr/local/bin/gstfsd &&
+        chmod +x /usr/local/bin/gstfsd &&
+        curl -fsSL https://raw.githubusercontent.com/retspen/webvirtcloud/master/conf/systemd/webvirt-gstfsd.service -o /etc/systemd/system/webvirt-gstfsd.service || return 1
+    fi
     systemctl daemon-reload && systemctl enable webvirt-gstfsd && systemctl restart webvirt-gstfsd || return 1
+}
+
+# libvirtd started by systemd sockets ignores libvirtd_opts="-l"; TCP needs its socket
+enable_libvirt_tcp() {
+    systemctl cat libvirtd-tcp.socket > /dev/null 2>&1 || return 0
+    systemctl stop libvirtd.service && systemctl enable --now libvirtd-tcp.socket && systemctl start libvirtd.service || return 1
 }
 
 install_centos() {
@@ -454,8 +467,16 @@ daemons_running_centos() {
             systemctl start libvirtd.service
         fi
     elif [ "$DISTRO_MAJOR_VERSION" -ge 10 ]; then
-        # EL10 runs the modular daemons; virtproxyd serves remote TCP (SASL).
-        systemctl enable --now virtqemud.socket virtproxyd.socket virtproxyd-tcp.socket || return 1
+        # EL10 runs the modular daemons, one per driver; virtproxyd serves remote TCP (SASL).
+        for drv in qemu interface network nodedev nwfilter secret storage proxy; do
+            systemctl enable --now virt${drv}d.socket || return 1
+        done
+        systemctl enable --now virtproxyd-tcp.socket || return 1
+        # EL10's policy lets virtproxyd read but not map the SASL database, so TCP logins fail
+        if selinuxenabled 2>/dev/null; then
+            echo '(allow virtproxyd_t virt_etc_t (file (map)))' > /tmp/wvc-virtproxyd-sasl.cil &&
+            semodule -i /tmp/wvc-virtproxyd-sasl.cil || return 1
+        fi
     else
         if [ -f /usr/lib/systemd/system/libvirtd-tcp.socket ]; then
             systemctl stop libvirtd-tcp.socket > /dev/null 2>&1
@@ -624,6 +645,10 @@ install_ubuntu_post() {
         echoerror "/etc/libvirt/qemu.conf not found. Exiting..."
         exit 1
     fi
+    if [ -f /etc/sasl2/libvirt.conf ]; then
+        sed -i 's/: gssapi/: digest-md5/g' /etc/sasl2/libvirt.conf
+        sed -i 's/#sasldb_path/sasldb_path/g' /etc/sasl2/libvirt.conf
+    fi
     install_gstfsd || return 1
     return 0
 }
@@ -634,6 +659,7 @@ daemons_running_ubuntu() {
         service libvirt-bin stop > /dev/null 2>&1
         service libvirt-bin start
     fi
+    enable_libvirt_tcp || return 1
     return 0
 }
 #
@@ -711,6 +737,7 @@ daemons_running_debian() {
         /etc/init.d/$LIBVIRTSVC stop > /dev/null 2>&1
         /etc/init.d/$LIBVIRTSVC start
     fi
+    enable_libvirt_tcp || return 1
     return 0
 }
 #
