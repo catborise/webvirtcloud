@@ -95,6 +95,18 @@ jobs:
           coverage run manage.py test
           coverage report --skip-covered
 
+      # The per-file report of one leg, to see what a change left untested
+      - name: Store Coverage Report
+        if: always() && matrix.python-version == '3.12' && matrix.database == 'sqlite'
+        run: coverage html -d coverage-html --fail-under=0
+
+      - name: Upload Coverage Report
+        if: always() && matrix.python-version == '3.12' && matrix.database == 'sqlite'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: coverage-html
+
       - name: Validate OpenAPI Schema
         run: python manage.py spectacular --validate --fail-on-warn --file /dev/null
 
