@@ -3,7 +3,23 @@
 # dev/libvirt-bootstrap.sh, with a SASL user for TCP and the host user's SSH
 # key for root (SASL user wvc, password wvc-test). The empty second disk
 # /dev/vdb is for the LVM tests (TEST_LIBVIRT_LVM_DEVICE); each also serves a
-# 1 GiB iSCSI LUN on 127.0.0.1 for the iSCSI tests (TEST_LIBVIRT_ISCSI_TARGET).
+# 1 GiB iSCSI LUN on 127.0.0.1 for the iSCSI tests (TEST_LIBVIRT_ISCSI_TARGET),
+# and accepts TLS logins (SASL) with a certificate from a throwaway CA.
+
+# The CA is made here once; each compute signs its own certificate with it.
+# The client certificate sits where libvirt looks with HOME=.vagrant/tls.
+pki = File.join(__dir__, ".vagrant/tls/.pki/libvirt")
+unless File.exist?(File.join(pki, "clientcert.pem"))
+  # the host's openssl, not the one Vagrant puts first on PATH
+  Vagrant::Util::Env.with_original_env do
+    system("sh", "-ec", <<-SH, pki, exception: true)
+      mkdir -p "$0" && cd "$0"
+      openssl req -x509 -newkey rsa:3072 -nodes -keyout cakey.pem -out cacert.pem -days 365 -subj /CN=wvc-test-ca
+      openssl req -new -newkey rsa:3072 -nodes -keyout clientkey.pem -subj /CN=wvc-test-client |
+        openssl x509 -req -CA cacert.pem -CAkey cakey.pem -days 365 -out clientcert.pem
+    SH
+  end
+end
 
 Vagrant.configure(2) do |config|
   config.vm.box = "almalinux/10"
@@ -23,6 +39,8 @@ Vagrant.configure(2) do |config|
   config.vm.provision "file", source: "dev", destination: "/tmp/wvc/dev"
   config.vm.provision "file", source: "conf", destination: "/tmp/wvc/conf"
   config.vm.provision "file", source: "~/.ssh/id_ed25519.pub", destination: "/tmp/wvc/key.pub"
+  config.vm.provision "file", source: "#{pki}/cacert.pem", destination: "/tmp/wvc/cacert.pem"
+  config.vm.provision "file", source: "#{pki}/cakey.pem", destination: "/tmp/wvc/cakey.pem"
   config.vm.provision "shell", inline: <<-SHELL
     set -e
     sh /tmp/wvc/dev/libvirt-bootstrap.sh
@@ -42,5 +60,14 @@ Vagrant.configure(2) do |config|
       targetcli /iscsi/$T/tpg1 set attribute generate_node_acls=1 demo_mode_write_protect=0
       targetcli saveconfig
     }
+    install -D -m 644 /tmp/wvc/cacert.pem /etc/pki/CA/cacert.pem
+    install -d /etc/pki/libvirt/private
+    echo "subjectAltName=IP:$(hostname -I | cut -d' ' -f1)" > /tmp/wvc/ext
+    openssl req -new -newkey rsa:3072 -nodes -keyout /etc/pki/libvirt/private/serverkey.pem -subj /CN=$(hostname) |
+      openssl x509 -req -CA /tmp/wvc/cacert.pem -CAkey /tmp/wvc/cakey.pem -days 365 -extfile /tmp/wvc/ext -out /etc/pki/libvirt/servercert.pem
+    sed -i 's/^#auth_tls = "none"/auth_tls = "sasl"/' /etc/libvirt/virtproxyd.conf
+    # a running service would keep the old settings and refuse a new socket
+    systemctl stop virtproxyd.service
+    systemctl enable --now virtproxyd-tls.socket
   SHELL
 end
