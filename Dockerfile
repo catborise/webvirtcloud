@@ -17,11 +17,11 @@ RUN apt-get update -qqy \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 WORKDIR /srv/webvirtcloud
-COPY conf/requirements.txt conf/requirements.txt
+COPY conf/requirements.txt conf/requirements-ldap.txt conf/
 # hadolint ignore=DL3013,DL3042
 RUN python3 -m venv venv \
     && venv/bin/pip install --no-cache-dir -U pip wheel \
-    && venv/bin/pip install --no-cache-dir -r conf/requirements.txt
+    && venv/bin/pip install --no-cache-dir -r conf/requirements.txt -r conf/requirements-ldap.txt
 
 FROM phusion/baseimage:noble-1.0.3
 

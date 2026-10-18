@@ -567,7 +567,7 @@ case $distro in
     progress
 
     echo "*  Installing OS requirements."
-    PACKAGES="git python3-venv python3-virtualenv python3-pip python3-dev python3-lxml libvirt-dev zlib1g-dev libxslt1-dev libsasl2-dev libldap2-dev nginx smbios-utils libsasl2-modules gcc pkg-config python3-guestfs uuid"
+    PACKAGES="git python3-venv python3-virtualenv python3-pip python3-dev python3-lxml libvirt-dev zlib1g-dev libxslt1-dev nginx smbios-utils libsasl2-modules gcc pkg-config python3-guestfs uuid"
     
     install_packages
     
@@ -597,7 +597,7 @@ case $distro in
     progress
 
     echo "*  Installing OS requirements."
-    PACKAGES="git python3-venv python3-virtualenv python3-pip python3-dev python3-lxml libvirt-dev zlib1g-dev libxslt1-dev libsasl2-dev libldap2-dev nginx libsasl2-modules gcc pkg-config python3-guestfs"
+    PACKAGES="git python3-venv python3-virtualenv python3-pip python3-dev python3-lxml libvirt-dev zlib1g-dev libxslt1-dev nginx libsasl2-modules gcc pkg-config python3-guestfs"
     install_packages
 
     set_hosts
@@ -633,7 +633,7 @@ case $distro in
     log "yum -y install wget epel-release"
 
     echo "* Installing OS requirements."
-    PACKAGES="git python3-virtualenv python3-devel libvirt-devel python3-libvirt python3-ldap glibc gcc nginx python3-lxml python3-libguestfs iproute-tc cyrus-sasl-md5 openldap-devel cyrus-sasl-devel openssl-devel"
+    PACKAGES="git python3-virtualenv python3-devel libvirt-devel python3-libvirt glibc gcc nginx python3-lxml python3-libguestfs iproute-tc cyrus-sasl-md5 openssl-devel"
     install_packages
 
     set_hosts
@@ -723,11 +723,11 @@ case $distro in
     progress
 
     echo "* Installing OS requirements."
-    # On SUSE, install Python 3.11 stack to satisfy Python >= 3.10 requirement along with native libvirt and ldap bindings
+    # On SUSE, install Python 3.11 stack to satisfy Python >= 3.10 requirement along with the native libvirt bindings
     if zypper se -s python311-devel >/dev/null 2>&1; then
-      PACKAGES="git hostname python311 python311-base python311-devel python311-pip python311-libvirt-python python311-lxml python311-ldap libvirt-devel openldap2-devel cyrus-sasl-devel libopenssl-devel gcc pkg-config nginx"
+      PACKAGES="git hostname python311 python311-base python311-devel python311-pip python311-libvirt-python python311-lxml libvirt-devel libopenssl-devel gcc pkg-config nginx"
     else
-      PACKAGES="git hostname python3-devel python3-pip python3-virtualenv libvirt-devel python3-libvirt python3-lxml openldap2-devel cyrus-sasl-devel libopenssl-devel gcc pkg-config nginx"
+      PACKAGES="git hostname python3-devel python3-pip python3-virtualenv libvirt-devel python3-libvirt python3-lxml libopenssl-devel gcc pkg-config nginx"
     fi
     install_packages
 
