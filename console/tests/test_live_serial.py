@@ -47,12 +47,12 @@ class LiveSerialConsoleTestCase(TransactionTestCase):
         self.server, self.port = start_socketiod(self)
 
     def token(self, host, login, password, conn_type):
-        compute = Compute.objects.create(name=P + host, hostname=host, login=login, password=password, type=conn_type)
+        compute = Compute.objects.create(name=f"{P}{host}-{conn_type}", hostname=host, login=login, password=password, type=conn_type)
         conn = connection_manager.get_connection(host, login, password, conn_type)
         before = livetest.inventory(conn)
         self.addCleanup(lambda: self.assertEqual(livetest.inventory(conn), before))
         self.addCleanup(livetest.cleanup, conn)
-        dom = serial_vm(conn, P + "serial")
+        dom = serial_vm(conn, f"{P}serial-{conn_type}")
         vm = Instance.objects.create(compute=compute, name=dom.name(), uuid=dom.UUIDString())
         UserInstance.objects.create(user=self.user, instance=vm)
         return tokens.SIGNER.sign(f"{compute.id}:{vm.uuid}:{self.user.id}"), dom

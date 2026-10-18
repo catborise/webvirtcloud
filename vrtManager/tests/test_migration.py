@@ -209,6 +209,11 @@ class ShutOffMigrationTestCase(unittest.TestCase):
     """libvirt's offline migration fails on some builds (RHEL-156800); a
     shut-off VM is only its definition, so the app moves that itself."""
 
+    def setUp(self):
+        # a libvirtError built here takes the message of an earlier real error
+        # in this thread (an earlier live test) instead of its own
+        libvirt.virResetLastError()
+
     def test_the_definition_moves_to_the_destination(self):
         host = FakeHost()
         source = FakeSource(5, xml="<domain><name>vm</name></domain>")
@@ -434,6 +439,7 @@ class NvramCopyTestCase(unittest.TestCase):
     PATH = "/var/lib/libvirt/qemu/nvram/vm_VARS.fd"
 
     def setUp(self):
+        libvirt.virResetLastError()  # see ShutOffMigrationTestCase.setUp
         self.source = FakeSource(5, nvram=self.PATH, xml="<domain><name>vm</name></domain>")
         self.source.wvm = mock.MagicMock()
         self.source.wvm.newStream.return_value.recvAll.side_effect = lambda fn, out: fn(None, b"vars", out)
