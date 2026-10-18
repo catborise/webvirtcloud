@@ -1495,8 +1495,9 @@ class wvmInstance(wvmConnect):
 
     def resize_disk(self, disks):
         """Grow disks. QEMU holds the lock of a running domain's image files and
-        grows them itself; block volumes (e.g. LVM) are grown by the storage
-        pool first, then QEMU is told the new size."""
+        grows them itself; other volumes are grown by the storage pool first,
+        then QEMU is told the new size. A pool that cannot resize volumes (LVM
+        for one) raises VIR_ERR_NO_SUPPORT before anything changes."""
         active = self.instance.isActive()
         for disk in disks:
             vol = self.get_volume_by_path(disk["path"])

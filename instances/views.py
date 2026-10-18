@@ -35,6 +35,7 @@ from libvirt import (VIR_DOMAIN_UNDEFINE_KEEP_NVRAM,
                      VIR_DOMAIN_UNDEFINE_MANAGED_SAVE,
                      VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA,
                      VIR_DOMAIN_UNDEFINE_NVRAM,
+                     VIR_ERR_NO_SUPPORT,
                      libvirtError)
 from logs.views import addlogmsg
 from operations import claims, jobs
@@ -960,13 +961,20 @@ def resize_disk(request, pk):
         })
         messages.error(request, msg)
     else:
-        instance.proxy.resize_disk(disks_new)
-        devs_str = ", ".join([d["dev"] for d in disks_new])
-        msg = _("Disk is resized: %(dev)s") % {"dev": devs_str}
-        addlogmsg(
-            request.user.username, instance.compute.name, instance.name, msg
-        )
-        messages.success(request, msg)
+        for disk in disks_new:
+            try:
+                instance.proxy.resize_disk([disk])
+            except libvirtError as err:
+                # an LVM pool, for one, cannot resize its volumes
+                if err.get_error_code() != VIR_ERR_NO_SUPPORT:
+                    raise
+                messages.error(request, _("The storage pool of %(dev)s cannot resize its volumes") % {"dev": disk["dev"]})
+                continue
+            msg = _("Disk is resized: %(dev)s") % {"dev": disk["dev"]}
+            addlogmsg(
+                request.user.username, instance.compute.name, instance.name, msg
+            )
+            messages.success(request, msg)
 
     return redirect(reverse("instances:instance", args=[instance.id]) + "#resize")
 
