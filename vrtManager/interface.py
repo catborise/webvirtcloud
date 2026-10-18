@@ -198,4 +198,12 @@ class wvmInterface(wvmConnect):
         self.iface.create()
 
     def delete_iface(self):
+        """Undefine the interface. netcf removes a bridge's members with it, so
+        each member is defined again on its own, as virsh iface-unbridge does:
+        with the bridge's start mode and, when it is the only one, addresses."""
+        tree = ElementTree.fromstring(self._XMLDesc(VIR_INTERFACE_XML_INACTIVE))
+        members = tree.findall("bridge/interface")
         self.iface.undefine()
+        for member in members:
+            member.extend(tree.findall("start") + (tree.findall("protocol") if len(members) == 1 else []))
+            self.wvm.interfaceDefineXML(ElementTree.tostring(member, encoding="unicode"), 0)
