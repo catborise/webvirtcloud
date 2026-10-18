@@ -95,13 +95,13 @@ The panel and its console are at `http://<server-ip>`. The database and secret k
 
 Run the steps from a root shell (`sudo -i`). In step 3, replace the example `ALLOWED_HOSTS` with the names/IPs the panel (and the cloud-init datasource) is reached by.
 
-The virtualenv is created with `--system-site-packages`: `libvirt-python` and `python-ldap` come from the distro packages when their version satisfies `conf/requirements.txt`; otherwise pip builds them, which needs the `-dev`/`-devel` packages listed below. Everything else, including `lxml`, comes from pip.
+The virtualenv is created with `--system-site-packages`: `libvirt-python` comes from the distro packages when its version satisfies `conf/requirements.txt`; otherwise pip builds it, which needs the `-dev`/`-devel` packages listed below. Everything else, including `lxml`, comes from pip.
 
 #### Ubuntu 22.04 / 24.04, Debian 12
 
 ```bash
 # 1. System packages
-apt-get update && apt-get -y install git python3-venv python3-dev python3-lxml python3-libvirt libvirt-dev zlib1g-dev libxslt1-dev nginx libsasl2-modules gcc pkg-config python3-guestfs libsasl2-dev libldap2-dev libssl-dev
+apt-get update && apt-get -y install git python3-venv python3-dev python3-lxml python3-libvirt libvirt-dev zlib1g-dev libxslt1-dev nginx libsasl2-modules gcc pkg-config python3-guestfs libssl-dev
 
 # 2. Code
 git clone https://github.com/retspen/webvirtcloud /srv/webvirtcloud
@@ -138,7 +138,7 @@ nginx -t && systemctl restart nginx
 ```bash
 # 1. System packages (libvirt-devel is in the CRB repository)
 dnf -y install epel-release && crb enable
-dnf -y install git python3-devel libvirt-devel python3-libvirt python3-ldap python3-lxml cyrus-sasl-devel cyrus-sasl-md5 openldap-devel openssl-devel glibc gcc nginx python3-libguestfs iproute-tc
+dnf -y install git python3-devel libvirt-devel python3-libvirt python3-lxml cyrus-sasl-md5 openssl-devel glibc gcc nginx python3-libguestfs iproute-tc
 
 # 2. Code
 git clone https://github.com/retspen/webvirtcloud /srv/webvirtcloud
@@ -180,7 +180,7 @@ systemctl enable nginx && nginx -t && systemctl restart nginx
 
 ```bash
 # 1. System packages (Python 3.11 stack)
-zypper --non-interactive install -y git hostname python311 python311-base python311-devel python311-pip python311-libvirt-python python311-lxml python311-ldap libvirt-devel openldap2-devel cyrus-sasl-devel libopenssl-devel gcc pkg-config nginx
+zypper --non-interactive install -y git hostname python311 python311-base python311-devel python311-pip python311-libvirt-python python311-lxml libvirt-devel libopenssl-devel gcc pkg-config nginx
 
 # 2. Code
 git clone https://github.com/retspen/webvirtcloud /srv/webvirtcloud
@@ -324,6 +324,15 @@ datasource:
 ### LDAP
 
 The options below are set in `webvirtcloud/settings.py`. Variants for Active Directory and OpenLDAP are shown; this is a minimal config, see the [django-auth-ldap documentation](https://django-auth-ldap.readthedocs.io) for more.
+
+The Docker image includes the LDAP packages. On an installer or manual install, add them to the virtualenv first; pip builds `python-ldap` against these headers:
+
+```bash
+apt-get -y install libldap2-dev libsasl2-dev   # Ubuntu / Debian
+dnf -y install openldap-devel cyrus-sasl-devel   # RHEL / Rocky / AlmaLinux
+zypper --non-interactive install -y openldap2-devel cyrus-sasl-devel   # openSUSE
+/srv/webvirtcloud/venv/bin/pip3 install -r /srv/webvirtcloud/conf/requirements-ldap.txt
+```
 
 Enable the LDAP backend:
 
@@ -472,7 +481,7 @@ Move the `environment=` values of that config into `/etc/default/webvirtcloud` (
    - a literal `SECRET_KEY = "..."` (older installers wrote it there): put the value into `data/secret_key` instead, or every user is signed out;
    - `SHOW_PROFILE_EDIT_PASSWORD`: keep it for this one `migrate` if you have it (migration `accounts.0008` reads it), then delete it.
 
-3. Install, migrate, and fix ownership and modes (`nginx:nginx` instead of `www-data:www-data` on RHEL / openSUSE). On openSUSE first `zypper --non-interactive install -y openldap2-devel`: pip builds `python-ldap` in the venv:
+3. Install, migrate, and fix ownership and modes (`nginx:nginx` instead of `www-data:www-data` on RHEL / openSUSE). With LDAP, also run `venv/bin/pip3 install -U -r conf/requirements-ldap.txt` (headers: [LDAP](#ldap)):
 
    ```bash
    venv/bin/pip3 install -U -r conf/requirements.txt &&
@@ -606,6 +615,7 @@ A version from before v3.0.0 has no worker: `systemctl disable --now webvirt-wor
 - The SQLite database must be on a local file system (WAL).
 - Outside compose, stop the Docker container with `docker stop -t 95` so the worker can finish running jobs.
 - Installer and manual installations run the panel as systemd units (`webvirt-cloud`, `webvirt-novncd`, `webvirt-socketiod`, `webvirt-worker`) and computes run `webvirt-gstfsd`, instead of supervisor; see [Moving from supervisor to systemd](#moving-from-supervisor-to-systemd). Service settings go into `/etc/default/webvirtcloud`, service output into the journal (`journalctl -u webvirt-cloud`); the app log stays in `data/`.
+- LDAP login's packages are in `conf/requirements-ldap.txt` and no longer installed by default, nor their build headers by the installer; the Docker image keeps them. An existing virtualenv keeps them, but only installing that file updates them (see [LDAP](#ldap) and step 3).
 
 ## Usage
 
