@@ -15,5 +15,5 @@ source = ["."]
 omit = [".venv/*", "*/migrations/*", "*/tests/*", "manage.py", "webvirtcloud/settings*.py"]
 
 [tool.coverage.report]
-# Measured 51% without the live libvirt suite (2026-10-03); raise as tests grow.
-fail_under = 50
+# CI measures 77% without the live libvirt suite (2026-10-18); raise as tests grow.
+fail_under = 76
