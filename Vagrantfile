@@ -2,7 +2,8 @@
 # that migration runs between them: AlmaLinux 10 with nested KVM, set up by
 # dev/libvirt-bootstrap.sh, with a SASL user for TCP and the host user's SSH
 # key for root (SASL user wvc, password wvc-test). The empty second disk
-# /dev/vdb is for the LVM tests (TEST_LIBVIRT_LVM_DEVICE).
+# /dev/vdb is for the LVM tests (TEST_LIBVIRT_LVM_DEVICE); each also serves a
+# 1 GiB iSCSI LUN on 127.0.0.1 for the iSCSI tests (TEST_LIBVIRT_ISCSI_TARGET).
 
 Vagrant.configure(2) do |config|
   config.vm.box = "almalinux/10"
@@ -29,5 +30,17 @@ Vagrant.configure(2) do |config|
     echo wvc-test | saslpasswd2 -a libvirt -p wvc
     install -d -m 700 /root/.ssh
     cat /tmp/wvc/key.pub >> /root/.ssh/authorized_keys
+    dnf -y install targetcli
+    systemctl enable --now target
+    T=iqn.2026-10.test.wvc:lun
+    targetcli ls /iscsi/$T > /dev/null 2>&1 || {
+      targetcli /backstores/fileio create wvc /var/lib/wvc-iscsi.img 1G
+      targetcli /iscsi create $T
+      targetcli /iscsi/$T/tpg1/portals delete 0.0.0.0 3260
+      targetcli /iscsi/$T/tpg1/portals create 127.0.0.1 3260
+      targetcli /iscsi/$T/tpg1/luns create /backstores/fileio/wvc
+      targetcli /iscsi/$T/tpg1 set attribute generate_node_acls=1 demo_mode_write_protect=0
+      targetcli saveconfig
+    }
   SHELL
 end
