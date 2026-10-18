@@ -85,7 +85,7 @@
             <p class="fw-bold">{% trans 'Autostart' %}</p>
                 <div class="row">
                     <div class="col-sm-12 text-center">
-                    <p>{% trans "Autostart your instance when host server is power on " %}
+                    <p>{% trans "Autostart your instance when host server is power on " %}</p>
                         {% if instance.autostart == 0 %}
                             <form action="{% url 'instances:set_autostart' instance.id %}" method="post" class="d-inline">{% csrf_token %}
                                 <button type="submit" class="btn btn-success">{% trans "Enable" %}</button>
@@ -95,7 +95,6 @@
                                 <button type="submit" class="btn btn-danger">{% trans "Disable" %}</button>
                             </form>
                         {% endif %}
-                    </p>
                     </div>
                 </div>
             <p class="fw-bold">{% trans 'Boot Order' %}</p>
@@ -165,7 +164,7 @@
                     <p class="fw-bold">
                         {% trans "Instance Media" %}
                         <button class="btn btn-success float-end"
-                                type="submit" type="button"
+                                type="submit"
                                 title="{% trans 'Add CD-ROM' %}"
                                 {% if instance.status != 5 %} disabled {% endif %}>
                             <span>{% bs_icon 'plus' %} </span>
@@ -245,10 +244,10 @@
                 </div>
                 {% endfor %}
                 <div class="clearfix"></div>
-                <p class="fw-bold">
-                    {% trans "Instance Volume" %}
+                <div class="mb-3">
+                    <span class="fw-bold">{% trans "Instance Volume" %}</span>
                     {% include 'add_instance_volume.html' %}
-                </p>    
+                </div>
                 <table class="table table-hover">
                     <thead>
                         <tr>
@@ -345,10 +344,10 @@
                 <div class="clearfix"></div>
         </div>
         <div role="tabpanel" class="tab-pane tab-pane-bordered" id="network">
-            <p>
+            <div class="mb-3">
                 {% trans "Add a network device" %}
                 {% include 'add_instance_network_block.html' %}
-            </p>
+            </div>
 
             <div class="row mt-3">
                 <div class="col-lg-12 mt-3">
@@ -655,7 +654,7 @@
             {% endif %}
             <form action="{% url 'instances:change_xml' instance.id %}" method="post" role="form" aria-label="Edit instance XML form">
                 {% csrf_token %}
-                <div class="col-sm-12" id="xmlheight">
+                <div class="col-sm-12 xmlheight">
                     <textarea id="editor">{{ instance.inst_xml }}</textarea>
                 </div>
                 {% if instance.status == 5 %}
@@ -673,10 +672,10 @@
         </div>
         <div role="tabpanel" class="tab-pane tab-pane-bordered" id="users">
             <div>
-            <p class="fw-bold">
-                {% trans "Instance owners" %}
+            <div class="mb-3">
+                <span class="fw-bold">{% trans "Instance owners" %}</span>
                 {% include 'add_instance_owner_block.html' %}
-            </p>
+            </div>
             </div>
             <div class="table-responsive">
                 <table class="table table-striped sortable-theme-bootstrap mt-3" data-sortable>
@@ -749,7 +748,7 @@
                 {% if request.user.is_superuser %}
                     <label>{% trans "Network devices" %}:</label>
                     {% for network in instance.config_networks %}
-                    <p>
+                    <div class="mb-3">
                         <div class="row">
                             <label class="col-sm-2 col-form-label offset-1">eth{{ forloop.counter0 }} ({{ network.nic }})</label>
                             <div class="col-sm-6">
@@ -762,7 +761,7 @@
                                 </div>
                             </div>
                         </div>
-                    </p>
+                    </div>
                     {% endfor %}
                 {% else %}
                     {% for network in instance.config_networks %}

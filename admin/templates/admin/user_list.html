@@ -53,7 +53,7 @@
                         </td>
                         <td>{{ user.last_login }}</td>
                         <td>{% if user.is_staff %}{% bs_icon 'check' %}{% endif %}</td>
-                        <td>{% if user.is_superuser %}{% bs_icon 'check' %}</span>{% endif %}</td>
+                        <td>{% if user.is_superuser %}{% bs_icon 'check' %}{% endif %}</td>
                         <td>{% if can_clone %}{% bs_icon 'check' %}{% endif %}</td>
                         <td>
                             <div class="float-end btn-group">

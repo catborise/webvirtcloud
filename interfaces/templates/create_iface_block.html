@@ -13,8 +13,8 @@
                     <h5 class="modal-title">{% trans "Create New Interface" %}</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="modal-body">
-                    <form method="post" action="" role="form" aria-label="Create New Interface form">{% csrf_token %}
+                <form method="post" action="" role="form" aria-label="Create New Interface form">{% csrf_token %}
+                    <div class="modal-body">
                         <div class="row">
                             <label class="col-sm-3 col-form-label">{% trans "Name" %}</label>
                             <div class="col-sm-6">

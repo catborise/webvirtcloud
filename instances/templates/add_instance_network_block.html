@@ -13,8 +13,8 @@
                     <h5 class="modal-title">{% trans "Add Instance Network" %}</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="modal-body">
-                    <form action="{% url 'instances:add_network' instance.id %}" method="post" action="" role="form" aria-label="Add instance network form">{% csrf_token %}
+                <form action="{% url 'instances:add_network' instance.id %}" method="post" role="form" aria-label="Add instance network form">{% csrf_token %}
+                    <div class="modal-body">
                         <div class="row">
                             <label class="col-sm-4 col-form-label">{% trans "MAC" %}</label>
                             <div class="col-sm-6">

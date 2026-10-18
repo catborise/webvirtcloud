@@ -52,7 +52,7 @@
             <div class="collapse" id="collapseXML">
                 <div class="card card-body">
                     <form class="form" method="post" role="form">{% csrf_token %}
-                        <div class="col-12" id="xmlheight">
+                        <div class="col-12 xmlheight">
                             <input type="hidden" name="edit_xml"/>
                             <textarea id="edit_editor">{{ xml }}</textarea>
                         </div>
@@ -89,9 +89,11 @@
         <div class="col-12 col-sm-12">
             <table class="table table-hover mb-3">
                 <thead>
-                    <th scope="col">#</th>
-                    <th scope="col">{% trans "Reference" %}</th>
-                    <th scope="col">{% trans "Action" %}</th>
+                    <tr>
+                        <th scope="col">#</th>
+                        <th scope="col">{% trans "Reference" %}</th>
+                        <th scope="col">{% trans "Action" %}</th>
+                    </tr>
                 </thead>
                 <tbody>
                  {% for ref in refs %}
@@ -119,13 +121,15 @@
 
         <table class="table table-hover">
             <thead>
-                <th scope="col">{% trans "Rule" %}</th>
-                <th scope="col" class="text-nowrap">{% trans "Action Type" %}</th>
-                <th scope="col">{% trans "Direction" %}</th>
-                <th scope="col">{% trans "Priority" %}</th>
-                <th scope="col">{% trans "Statematch" %}</th>
-                <th scope="col">{% trans "Directives" %}</th>
-                <th scope="col" style="width:30px;">{% trans "Action" %}</th>
+                <tr>
+                    <th scope="col">{% trans "Rule" %}</th>
+                    <th scope="col" class="text-nowrap">{% trans "Action Type" %}</th>
+                    <th scope="col">{% trans "Direction" %}</th>
+                    <th scope="col">{% trans "Priority" %}</th>
+                    <th scope="col">{% trans "Statematch" %}</th>
+                    <th scope="col">{% trans "Directives" %}</th>
+                    <th scope="col" style="width:30px;">{% trans "Action" %}</th>
+                </tr>
             </thead>
             <tbody>
             {% for rule in rules %}
@@ -150,8 +154,6 @@
                 {% endfor %}
                 </tbody>
             </table>
-        </div>
-    </div>
 {% endblock %}
 
 {% block script %}

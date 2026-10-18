@@ -90,13 +90,13 @@
                                         <input type="checkbox" name="meta_prealloc" value="true">
                                     </div>
                                 </div>
-                                <div class="modal-footer">
-                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Close" %}</button>
-                                    <button type="submit" class="btn btn-success" name="add_new_vol">{% trans "Add Volume" %}</button>
-                                </div>
-                        </form>
+                            </div> <!-- /.modal-body -->
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans "Close" %}</button>
+                                <button type="submit" class="btn btn-success" name="add_new_vol">{% trans "Add Volume" %}</button>
                             </div>
-                        </div> <!-- /.modal-body -->
+                        </form>
+                    </div>
                         <div class="tab-pane" id="ExistingDisk">
                             <form action="{% url 'instances:add_existing_vol' instance.id %}" method="post" role="form" aria-label="Add existing volume to instance form">{% csrf_token %}
                                 <div class="modal-body">
