@@ -1,5 +1,7 @@
 -r ../conf/requirements.txt
 coverage==7.16.2
+# compiles the themes (manage.py build_themes)
+libsass==0.23.0
 django-debug-toolbar==8.0.0
 django-debug-toolbar-template-profiler==2.1.0
 pip-audit==2.10.1

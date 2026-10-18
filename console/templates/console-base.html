@@ -6,7 +6,8 @@
     <meta charset="utf-8">
     <link rel="shortcut icon" href="{% static "favicon.ico" %}">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="{% static "css/wvc-main.min.css" %}" id="wvc_css">
+    {# error pages render without app_settings: they get zephyr #}
+    {% with theme=app_settings.BOOTSTRAP_THEME|default:"zephyr" %}<link rel="stylesheet" href="{% static "css/themes/"|add:theme|add:".min.css" %}" id="wvc_css">{% endwith %}
     <link href="{% static "css/webvirtcloud.css" %}" rel="stylesheet">
 
     <style>
