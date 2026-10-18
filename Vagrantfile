@@ -1,7 +1,8 @@
 # Two disposable compute nodes for the live tests (README: Running tests), so
 # that migration runs between them: AlmaLinux 10 with nested KVM, set up by
 # dev/libvirt-bootstrap.sh, with a SASL user for TCP and the host user's SSH
-# key for root (SASL user wvc, password wvc-test).
+# key for root (SASL user wvc, password wvc-test). The empty second disk
+# /dev/vdb is for the LVM tests (TEST_LIBVIRT_LVM_DEVICE).
 
 Vagrant.configure(2) do |config|
   config.vm.box = "almalinux/10"
@@ -15,6 +16,7 @@ Vagrant.configure(2) do |config|
     v.nested = true
     v.cpu_mode = "host-passthrough"
     v.video_type = "virtio"  # EL10 hosts have no cirrus
+    v.storage :file, size: "4G"
   end
   # the bootstrap installs this checkout's gstfsd
   config.vm.provision "file", source: "dev", destination: "/tmp/wvc/dev"
