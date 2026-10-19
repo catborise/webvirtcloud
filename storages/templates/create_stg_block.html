@@ -47,22 +47,22 @@
                             <form method="post" action="" role="form" aria-label="Create storage with pool dir path form">{% csrf_token %}
                                 <div class="modal-body">
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Type" %}</label>
+                                        <label for="stg_dir_stg_type" class="col-sm-3 col-form-label">{% trans "Type" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="stg_type" value="dir" disabled>
+                                            <input id="stg_dir_stg_type" type="text" class="form-control" name="stg_type" value="dir" disabled>
                                             <input type="hidden" name="stg_type" value="dir">
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Name" %}</label>
+                                        <label for="stg_dir_name" class="col-sm-3 col-form-label">{% trans "Name" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="name" placeholder="{% trans "default" %}" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
+                                            <input id="stg_dir_name" type="text" class="form-control" name="name" placeholder="{% trans "default" %}" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Path" %}</label>
+                                        <label for="stg_dir_target" class="col-sm-3 col-form-label">{% trans "Path" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" name="target" class="form-control" value="/var/lib/libvirt/images" required>
+                                            <input id="stg_dir_target" type="text" name="target" class="form-control" value="/var/lib/libvirt/images" required>
                                         </div>
                                     </div>
                             </div>
@@ -76,22 +76,22 @@
                             <form method="post" action="" role="form" aria-label="Create storage pool with LVM pool">{% csrf_token %}
                                 <div class="modal-body">
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Type" %}</label>
+                                        <label for="stg_logical_stg_type" class="col-sm-3 col-form-label">{% trans "Type" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="stg_type" value="logical" disabled>
+                                            <input id="stg_logical_stg_type" type="text" class="form-control" name="stg_type" value="logical" disabled>
                                             <input type="hidden" name="stg_type" value="logical">
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Name" %}</label>
+                                        <label for="stg_logical_name" class="col-sm-3 col-form-label">{% trans "Name" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="name" placeholder="{% trans "default" %}" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
+                                            <input id="stg_logical_name" type="text" class="form-control" name="name" placeholder="{% trans "default" %}" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Device" %}</label>
+                                        <label for="stg_logical_source" class="col-sm-3 col-form-label">{% trans "Device" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="source" value="/dev/sdb" required>
+                                            <input id="stg_logical_source" type="text" class="form-control" name="source" value="/dev/sdb" required>
                                         </div>
                                     </div>
                             </div>
@@ -105,40 +105,40 @@
                             <form method="post" action="" role="form" aria-label="Create storage pool with ceph form">{% csrf_token %}
                                 <div class="modal-body">
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Type" %}</label>
+                                        <label for="stg_rbd_stg_type" class="col-sm-3 col-form-label">{% trans "Type" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="stg_type" value="rbd" disabled>
+                                            <input id="stg_rbd_stg_type" type="text" class="form-control" name="stg_type" value="rbd" disabled>
                                             <input type="hidden" name="stg_type" value="rbd">
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Name" %}</label>
+                                        <label for="stg_rbd_name" class="col-sm-3 col-form-label">{% trans "Name" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="name" placeholder="rbdpool" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
+                                            <input id="stg_rbd_name" type="text" class="form-control" name="name" placeholder="rbdpool" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Ceph User" %}</label>
+                                        <label for="stg_rbd_ceph_user" class="col-sm-3 col-form-label">{% trans "Ceph User" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="ceph_user" placeholder="libvirt" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
+                                            <input id="stg_rbd_ceph_user" type="text" class="form-control" name="ceph_user" placeholder="libvirt" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Ceph Pool" %}</label>
+                                        <label for="stg_rbd_ceph_pool" class="col-sm-3 col-form-label">{% trans "Ceph Pool" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="ceph_pool" placeholder="libvirt-pool" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
+                                            <input id="stg_rbd_ceph_pool" type="text" class="form-control" name="ceph_pool" placeholder="libvirt-pool" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Ceph Host" %}</label>
+                                        <label for="stg_rbd_ceph_host" class="col-sm-3 col-form-label">{% trans "Ceph Host" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="ceph_host" placeholder="mon0.ceph.host" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
+                                            <input id="stg_rbd_ceph_host" type="text" class="form-control" name="ceph_host" placeholder="mon0.ceph.host" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Secrets" %}</label>
+                                        <label for="stg_rbd_secret" class="col-sm-3 col-form-label">{% trans "Secrets" %}</label>
                                         <div class="col-sm-6">
-                                            <select name="secret" class="form-control">
+                                            <select id="stg_rbd_secret" name="secret" class="form-control">
                                                 {% if secrets %}
                                                     {% for secret in secrets %}
                                                         <option value="{{ secret }}">{{ secret }}</option>
@@ -170,32 +170,32 @@
                             <form method="post" action="" role="form" aria-label="Create storage pool with net filesystem form">{% csrf_token %}
                                 <div class="modal-body">
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Type" %}</label>
+                                        <label for="stg_netfs_stg_type" class="col-sm-3 col-form-label">{% trans "Type" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="stg_type" value="netfs" disabled>
+                                            <input id="stg_netfs_stg_type" type="text" class="form-control" name="stg_type" value="netfs" disabled>
                                             <input type="hidden" name="stg_type" value="netfs">
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Name" %}</label>
+                                        <label for="stg_netfs_name" class="col-sm-3 col-form-label">{% trans "Name" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="name" placeholder="netfspool" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
+                                            <input id="stg_netfs_name" type="text" class="form-control" name="name" placeholder="netfspool" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Hostname" %}</label>
+                                        <label for="stg_netfs_netfs_host" class="col-sm-3 col-form-label">{% trans "Hostname" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="netfs_host" placeholder="nfs.example.com" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
+                                            <input id="stg_netfs_netfs_host" type="text" class="form-control" name="netfs_host" placeholder="nfs.example.com" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Remote Path" %}</label>
+                                        <label for="stg_netfs_source" class="col-sm-3 col-form-label">{% trans "Remote Path" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="source" placeholder="/srv/storage/" maxlength="100" required>
+                                            <input id="stg_netfs_source" type="text" class="form-control" name="source" placeholder="/srv/storage/" maxlength="100" required>
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Format" %}</label>
+                                        <label for="source_format" class="col-sm-3 col-form-label">{% trans "Format" %}</label>
                                         <div class="col-sm-6">
                                             <select name="source_format" class="form-control" id="source_format">
                                                 <option value="auto">{% trans "auto" %}</option>
@@ -206,9 +206,9 @@
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Local Path" %}</label>
+                                        <label for="stg_netfs_target" class="col-sm-3 col-form-label">{% trans "Local Path" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="target" placeholder="/srv/storage/" maxlength="100" required>
+                                            <input id="stg_netfs_target" type="text" class="form-control" name="target" placeholder="/srv/storage/" maxlength="100" required>
                                         </div>
                                     </div>
                             </div>
@@ -226,17 +226,17 @@
                             <form method="post" action="" role="form" aria-label="Create iso pool form">{% csrf_token %}
                                 <div class="modal-body">
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Name" %}</label>
+                                        <label for="stg_iso_name" class="col-sm-3 col-form-label">{% trans "Name" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="name" value="iso" disabled>
+                                            <input id="stg_iso_name" type="text" class="form-control" name="name" value="iso" disabled>
                                             <input type="hidden" name="name" value="iso">
                                             <input type="hidden" name="stg_type" value="dir">
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "Path" %}</label>
+                                        <label for="stg_iso_target" class="col-sm-3 col-form-label">{% trans "Path" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="target" value="/var/lib/libvirt/iso" required>
+                                            <input id="stg_iso_target" type="text" class="form-control" name="target" value="/var/lib/libvirt/iso" required>
                                         </div>
                                     </div>
                             </div>

@@ -16,13 +16,13 @@
                 <form method="post" action="" role="form" aria-label="Add New Network form" novalidate>{% csrf_token %}
                     <div class="modal-body">
                         <div class="row">
-                            <label class="col-sm-4 col-form-label">{% trans "Name" %}</label>
+                            <label for="net_name" class="col-sm-4 col-form-label">{% trans "Name" %}</label>
                             <div class="col-sm-6">
-                                <input type="text" class="form-control" name="name" placeholder="{% trans "default" %}" required pattern="[a-zA-Z0-9_]+">
+                                <input id="net_name" type="text" class="form-control" name="name" placeholder="{% trans "default" %}" required pattern="[a-zA-Z0-9_]+">
                             </div>
                         </div>
                         <div class="row">
-                            <label class="col-sm-4 col-form-label">{% trans "Type forwarding" %}</label>
+                            <label for="forward_select" class="col-sm-4 col-form-label">{% trans "Type forwarding" %}</label>
                             <div class="col-sm-6">
                                 <select id="forward_select" class="form-select" name="forward">
                                     <option value="nat">{% trans "NAT" %}</option>
@@ -34,51 +34,51 @@
                             </div>
                         </div>
                         <div class="row bridge_name_form_group_dhcp">
-                            <label class="col-sm-4 col-form-label">{% trans "IPv4 Subnet pool" %}</label>
+                            <label for="net_subnet" class="col-sm-4 col-form-label">{% trans "IPv4 Subnet pool" %}</label>
                             <div class="col-sm-6">
-                                <input type="text" class="form-control" name="subnet" value="" placeholder="192.168.100.0/24" required pattern="[0-9\/\.]+">
+                                <input id="net_subnet" type="text" class="form-control" name="subnet" value="" placeholder="192.168.100.0/24" required pattern="[0-9\/\.]+">
                             </div>
                         </div>
                         <div class="row bridge_name_form_group_dhcp">
-                            <label class="col-sm-4 col-form-label">{% trans "DHCPv4" %}</label>
+                            <label for="net_dhcp4" class="col-sm-4 col-form-label">{% trans "DHCPv4" %}</label>
                             <div class="col-sm-6">
-                                <input type="checkbox" name="dhcp4" value="true" checked>
+                                <input id="net_dhcp4" type="checkbox" name="dhcp4" value="true" checked>
                             </div>
                         </div>
                         <div class="row bridge_name_form_group_dhcp">
-                            <label class="col-sm-4 col-form-label">{% trans "Fixed Addresses" %}</label>
+                            <label for="net_fixed" class="col-sm-4 col-form-label">{% trans "Fixed Addresses" %}</label>
                             <div class="col-sm-6">
-                                <input type="checkbox" name="fixed" value="true">
+                                <input id="net_fixed" type="checkbox" name="fixed" value="true">
                             </div>
                         </div>
                         <div class="row bridge_name_form_group_dhcp">
-                            <label class="col-sm-4 col-form-label">{% trans "Enable IPv6" %}</label>
+                            <label for="enable_ipv6" class="col-sm-4 col-form-label">{% trans "Enable IPv6" %}</label>
                             <div class="col-sm-6">
                                 <input type="checkbox" id="enable_ipv6" name="enable_ipv6" value="false">
                             </div>
                         </div>
                         <div class="row ipv6_group">
-                            <label class="col-sm-4 col-form-label">{% trans "IPv6 Subnet pool" %}</label>
+                            <label for="net_subnet6" class="col-sm-4 col-form-label">{% trans "IPv6 Subnet pool" %}</label>
                             <div class="col-sm-6">
-                                <input type="text" class="form-control" name="subnet6" value="" placeholder="fd00:dead:baba:1::/64" required pattern="[0-9\/\.]+">
+                                <input id="net_subnet6" type="text" class="form-control" name="subnet6" value="" placeholder="fd00:dead:baba:1::/64" required pattern="[0-9\/\.]+">
                             </div>
                         </div>
                         <div class="row ipv6_group">
-                            <label class="col-sm-4 col-form-label">{% trans "DHCPv6" %}</label>
+                            <label for="net_dhcp6" class="col-sm-4 col-form-label">{% trans "DHCPv6" %}</label>
                             <div class="col-sm-6">
-                                <input type="checkbox" name="dhcp6" value="true">
+                                <input id="net_dhcp6" type="checkbox" name="dhcp6" value="true">
                             </div>
                         </div>
                         <div class="row bridge_name_form_group">
-                            <label class="col-sm-4 col-form-label" id="bridge_label">{% trans "Bridge Name" %}</label>
+                            <label for="bridge_name" class="col-sm-4 col-form-label" id="bridge_label">{% trans "Bridge Name" %}</label>
                             <div class="col-sm-6">
                                 <input type="text" class="form-control" name="bridge_name" id="bridge_name" placeholder="br0" pattern="[a-z0-9\-_:]+">
                             </div>
                         </div>
                         <div class="row bridge_name_form_group openvswitch">
-                            <label class="col-sm-4 col-form-label">{% trans "Open vSwitch" %}</label>
+                            <label for="net_openvswitch" class="col-sm-4 col-form-label">{% trans "Open vSwitch" %}</label>
                             <div class="col-sm-6">
-                                <input type="checkbox" name="openvswitch" value="true">
+                                <input id="net_openvswitch" type="checkbox" name="openvswitch" value="true">
                             </div>
                         </div>
                 </div>

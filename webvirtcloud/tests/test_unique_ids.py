@@ -37,6 +37,7 @@ class UniqueIdTests(TestCase):
         with patch("vrtManager.connection.connection_manager.get_connection", return_value=conn), \
              patch("vrtManager.connection.wvmConnect.get_machine_types", return_value=["pc"]), \
              patch("vrtManager.connection.wvmConnect.get_nwfilters", return_value=[]), \
+             patch("vrtManager.connection.wvmConnect.get_cpu_modes", return_value=["host-model"]), \
              patch.object(libvirt.virConnect, "getMemoryStats", return_value={"total": 8 << 20, "free": 4 << 20, "buffers": 0, "cached": 0}), \
              patch.object(libvirt.virConnect, "getCPUStats", return_value={"kernel": 1, "idle": 1, "user": 1, "iowait": 0}):
             for name, keys in named_urls(get_resolver().url_patterns):
