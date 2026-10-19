@@ -74,3 +74,6 @@ class PoolTargetTests(SimpleTestCase):
             with self.subTest(form=field.xpath("string(ancestor::form//input[@name='stg_type']/@value)"), name=field.name):
                 self.assertIsNone(field.get("pattern"))
                 self.assertGreaterEqual(int(field.get("maxlength", 100)), 100)
+        for name in ("netfs_host", "ceph_host"):  # a host name is up to 253 characters
+            with self.subTest(name=name):
+                self.assertGreaterEqual(int(page.xpath(f"//input[@name='{name}']/@maxlength")[0]), 253)

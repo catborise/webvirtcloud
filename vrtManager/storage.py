@@ -66,6 +66,7 @@ class wvmStorages(wvmConnect):
     def create_storage_ceph(
         self, stg_type, name, ceph_pool, ceph_host, ceph_user, secret
     ):
+        ceph_pool, ceph_host, ceph_user, secret = map(util.xml_escape, (ceph_pool, ceph_host, ceph_user, secret))
         xml = f"""
                 <pool type='{stg_type}'>
                 <name>{name}</name>
@@ -86,6 +87,7 @@ class wvmStorages(wvmConnect):
     def create_storage_netfs(
         self, stg_type, name, netfs_host, source, source_format, target
     ):
+        netfs_host, source_format = util.xml_escape(netfs_host), util.xml_escape(source_format)
         xml = f"""
                 <pool type='{stg_type}'>
                 <name>{name}</name>

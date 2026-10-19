@@ -120,19 +120,19 @@
                                     <div class="row">
                                         <label for="stg_rbd_ceph_user" class="col-sm-3 col-form-label">{% trans "Ceph User" %}</label>
                                         <div class="col-sm-6">
-                                            <input id="stg_rbd_ceph_user" type="text" class="form-control" name="ceph_user" placeholder="libvirt" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
+                                            <input id="stg_rbd_ceph_user" type="text" class="form-control" name="ceph_user" placeholder="libvirt" required pattern="[a-zA-Z0-9\.\-_]+">
                                         </div>
                                     </div>
                                     <div class="row">
                                         <label for="stg_rbd_ceph_pool" class="col-sm-3 col-form-label">{% trans "Ceph Pool" %}</label>
                                         <div class="col-sm-6">
-                                            <input id="stg_rbd_ceph_pool" type="text" class="form-control" name="ceph_pool" placeholder="libvirt-pool" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
+                                            <input id="stg_rbd_ceph_pool" type="text" class="form-control" name="ceph_pool" placeholder="libvirt-pool" required pattern="[a-zA-Z0-9\.\-_]+">
                                         </div>
                                     </div>
                                     <div class="row">
                                         <label for="stg_rbd_ceph_host" class="col-sm-3 col-form-label">{% trans "Ceph Host" %}</label>
                                         <div class="col-sm-6">
-                                            <input id="stg_rbd_ceph_host" type="text" class="form-control" name="ceph_host" placeholder="mon0.ceph.host" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
+                                            <input id="stg_rbd_ceph_host" type="text" class="form-control" name="ceph_host" placeholder="mon0.ceph.host" maxlength="253" required pattern="[a-zA-Z0-9\.\-_]+">
                                         </div>
                                     </div>
                                     <div class="row">
@@ -185,7 +185,7 @@
                                     <div class="row">
                                         <label for="stg_netfs_netfs_host" class="col-sm-3 col-form-label">{% trans "Hostname" %}</label>
                                         <div class="col-sm-6">
-                                            <input id="stg_netfs_netfs_host" type="text" class="form-control" name="netfs_host" placeholder="nfs.example.com" maxlength="20" required pattern="[a-zA-Z0-9\.\-_]+">
+                                            <input id="stg_netfs_netfs_host" type="text" class="form-control" name="netfs_host" placeholder="nfs.example.com" maxlength="253" required pattern="[a-zA-Z0-9\.\-_]+">
                                         </div>
                                     </div>
                                     <div class="row">
