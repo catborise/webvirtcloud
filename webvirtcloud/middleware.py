@@ -7,6 +7,8 @@ from operations import claims, jobs
 from operations.utils import busy_message, public_error_text, summary
 
 API_PREFIX = "/api/"
+# the directives that need no change to the templates' inline scripts and styles
+CONTENT_SECURITY_POLICY = "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 
 
 def error_text(request, exception):
@@ -19,6 +21,16 @@ def error_text(request, exception):
     if user and (user.is_superuser or user.has_perm("instances.view_instances")):
         return str(exception)
     return public_error_text(exception)
+
+
+class ContentSecurityPolicyMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        response.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+        return response
 
 
 class ExceptionMiddleware:
