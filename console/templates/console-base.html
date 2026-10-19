@@ -102,40 +102,16 @@
                 </div>
             </div>
         </nav>
+        {% if console_error %}
+        <div class="alert alert-danger alert-dismissible rounded-0 m-0" role="alert">
+            {{ console_error }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% trans "Close" %}"></button>
+        </div>
+        {% endif %}
         {% block content %}{% endblock %}
     </div>
     <script src="{% static "js/jquery.js" %}"></script>
     <script src="{% static "js/bootstrap.bundle.min.js" %}"></script>
-
-    <script>
-        function log_message(msg, type) {
-            var exist = $('#status').is('div');
-            status_div = $('<div id="status" class="alert alert-' + type + ' role="alert"><button type="button" class="btn-close" aria-label="Close"></button>' + msg + '</div>');
-            if (exist) {
-                $('#status').remove();
-                $('body').prepend(status_div);
-            }
-            else {
-                status_div.hide();
-                $('body').prepend(status_div);
-                status_div.fadeIn(200);
-            }
-            if (type != 'danger') {
-                status_div.delay(3000).fadeOut(200);
-            }
-        }
-
-        function log_error(msg) {
-            log_message(msg, 'danger');
-        }
-
-        function log_info(msg) {
-            log_message(msg, 'info');
-        }
-        {% if console_error %}
-        log_error('{{ console_error|escapejs }}');
-        {% endif %}
-    </script>
 
     {% block foot %}{% endblock %}
 </body>
