@@ -170,6 +170,27 @@ class ConsoleViewsTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "console-vnc-lite.html")
 
+    @patch("console.views.wvmInstance")
+    def test_the_console_password_reaches_the_page_only_with_passwordless_console(self, mock_wvm):
+        # without the permission noVNC asks for the password; the page must not hold it
+        # (letters and digits only: escapejs keeps them as they are in the lite view)
+        mock_conn = MagicMock()
+        mock_conn.get_console_type.return_value = "vnc"
+        mock_conn.get_console_websocket_port.return_value = None
+        mock_conn.get_console_passwd.return_value = "vncpw7f3a"
+        mock_wvm.return_value = mock_conn
+        permission = Permission.objects.get(codename="passwordless_console")
+
+        for user, holds in ((self.alice, False), (self.alice, True), (self.admin_user, True)):
+            if holds and not user.is_superuser:
+                user.user_permissions.add(permission)
+            for view in ("lite", "full"):
+                with self.subTest(user=user.username, permission=holds, view=view):
+                    self.client.force_login(get_user_model().objects.get(pk=user.pk))  # fresh permission cache
+                    response = self.client.get(reverse("console") + f"?token={self.token}&view={view}")
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual("vncpw7f3a" in response.content.decode(), holds)
+
     def test_console_unauthorized_user_forbidden(self):
         self.client.force_login(self.bob)
         url = reverse("console") + f"?token={self.token}"
