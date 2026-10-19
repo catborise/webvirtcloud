@@ -157,12 +157,17 @@ class NicMacsTestCase(TestCase):
             with self.subTest(mac=mac), self.assertRaises(ValueError):
                 nic_macs(mac, networks)
 
-    def test_api_serializer_refuses_extra_macs(self):
-        serializer = CreateInstanceSerializer(data={
-            "name": "api-vm", "vcpu": 1, "vcpu_mode": "host-model", "memory": 512,
-            "networks": "default", "mac": "52:54:00:00:00:01,52:54:00:00:00:02", "nwfilter": "",
-            "storage": "default", "hdd_size": 1, "cache_mode": "none", "meta_prealloc": False,
-            "virtio": True, "qemu_ga": True, "video": "vga", "listener_addr": "0.0.0.0",
-        })
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("mac", serializer.errors)
+    def test_api_serializer_takes_a_mac_per_network(self):
+        def serializer(networks):
+            return CreateInstanceSerializer(data={
+                "name": "api-vm", "vcpu": 1, "vcpu_mode": "host-model", "memory": 512,
+                "networks": networks, "mac": "52:54:00:00:00:01,52:54:00:00:00:02", "nwfilter": "",
+                "storage": "default", "hdd_size": 1, "cache_mode": "none", "meta_prealloc": False,
+                "virtio": True, "qemu_ga": True, "video": "vga", "listener_addr": "0.0.0.0",
+                "submission_key": "test-key",
+            })
+        two_nics = serializer("default,second")
+        self.assertTrue(two_nics.is_valid(), two_nics.errors)
+        extra = serializer("default")
+        self.assertFalse(extra.is_valid())
+        self.assertEqual(extra.errors["mac"], ["More MAC addresses than networks"])

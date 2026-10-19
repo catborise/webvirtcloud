@@ -372,7 +372,7 @@ class CreateInstance(models.Model):
     meta_prealloc = models.BooleanField(default=False, blank=True)
     virtio = models.BooleanField(default=True)
     qemu_ga = models.BooleanField(default=False)
-    mac = models.CharField(max_length=17, blank=True)
+    mac = models.CharField(max_length=255, blank=True)  # one per NIC, comma separated
     add_cdrom = models.CharField(max_length=16)
     add_input = models.CharField(max_length=16)
     video = models.CharField(
