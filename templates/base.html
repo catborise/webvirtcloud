@@ -53,7 +53,7 @@
           </h3>
         </div>
       </div>
-      {% bootstrap_messages %}
+      <div id="messages">{% bootstrap_messages %}</div>
       {% block content %}{% endblock %}
     </div>
 
@@ -66,6 +66,18 @@
     <script src="{% static 'js/bootstrap.bundle.min.js' %}"></script>
     <!-- JavaScript Cookie -->
     <script src="{% static 'js/js.cookie.js' %}"></script>
+    <script>
+      // after a refused submission, start at the error: the first visible
+      // invalid field, else the error message
+      (function () {
+        const field = [...document.querySelectorAll(".is-invalid")].find(e => e.offsetParent !== null);
+        const target = field || document.querySelector("#messages .alert-danger");
+        if (target) {
+          if (!field) target.tabIndex = -1;
+          target.focus();
+        }
+      })();
+    </script>
     {% block script %}{% endblock %}
   </body>
 </html>
