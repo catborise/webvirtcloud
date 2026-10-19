@@ -1,6 +1,7 @@
 {% load static %}
 {% load i18n %}
-{% get_current_language as LANGUAGE_CODE %}<html lang="{{ LANGUAGE_CODE }}">
+{% get_current_language as LANGUAGE_CODE %}<!DOCTYPE html>
+<html lang="{{ LANGUAGE_CODE }}">
 
 <head>
     <meta charset="utf-8">
@@ -11,11 +12,17 @@
     <link href="{% static "css/webvirtcloud.css" %}" rel="stylesheet">
 
     <style>
+        body {
+            padding-bottom: 0;
+        }
+
         #main_container {
             padding: 0;
             width: 100%;
             max-width: none;
-            height: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
             background-color: #494949;
             border-bottom-right-radius: 850px 600px;
 
