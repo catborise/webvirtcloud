@@ -3,6 +3,12 @@ import re
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
+# pool target and source paths, both put into the pool XML: letters, digits,
+# "/", "_", ".", ":" (/dev/disk/by-path names) and "-" not first and not right
+# after "/". Written without nested repetition, which backtracked
+# exponentially on crafted input.
+POOL_PATH = re.compile(r"(?!-)(?:[/0-9a-zA-Z_.:]|(?<!/)-)+")
+
 
 class AddStgPool(forms.Form):
     name = forms.CharField(
@@ -38,10 +44,7 @@ class AddStgPool(forms.Form):
     def clean_target(self):
         storage_type = self.cleaned_data["stg_type"]
         target = self.cleaned_data["target"]
-        # letters, digits, "_", ".", "/" and "-" not right after "/"; not
-        # starting with "-". Written without nested repetition, which
-        # backtracked exponentially on crafted input.
-        have_symbol = re.match(r"^[^-](?:[/0-9a-zA-Z_.]|(?<!/)-)*$", target)
+        have_symbol = POOL_PATH.fullmatch(target)
         if storage_type in ["dir", "netfs"] and not have_symbol:
             raise forms.ValidationError(
                 _("The target must not contain any special characters")
@@ -53,7 +56,7 @@ class AddStgPool(forms.Form):
     def clean_source(self):
         storage_type = self.cleaned_data["stg_type"]
         source = self.cleaned_data["source"]
-        have_symbol = re.match(r"^[a-zA-Z0-9\/]+$", source)
+        have_symbol = POOL_PATH.fullmatch(source)
         if storage_type in ["logical", "netfs"]:
             if not source:
                 raise forms.ValidationError(_("No device or path has been entered"))
