@@ -101,7 +101,8 @@ class wvmStorages(wvmConnect):
                 """
         self.define_storage(xml, 0)
         stg = self.get_storage(name)
-        stg.create(0)
+        # builds the mount point
+        stg.create(libvirt.VIR_STORAGE_POOL_CREATE_WITH_BUILD)
         stg.setAutostart(1)
 
         return stg

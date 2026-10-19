@@ -4,6 +4,7 @@
 # key for root (SASL user wvc, password wvc-test). The empty second disk
 # /dev/vdb is for the LVM tests (TEST_LIBVIRT_LVM_DEVICE); each also serves a
 # 1 GiB iSCSI LUN on 127.0.0.1 for the iSCSI tests (TEST_LIBVIRT_ISCSI_TARGET),
+# exports /srv/wvcnfs to 127.0.0.1 for the NFS pool test (TEST_LIBVIRT_NFS_EXPORT),
 # and accepts TLS logins (SASL) with a certificate from a throwaway CA.
 
 # The CA is made here once; each compute signs its own certificate with it.
@@ -60,6 +61,11 @@ Vagrant.configure(2) do |config|
       targetcli /iscsi/$T/tpg1 set attribute generate_node_acls=1 demo_mode_write_protect=0
       targetcli saveconfig
     }
+    dnf -y install nfs-utils
+    install -d /srv/wvcnfs
+    echo "/srv/wvcnfs 127.0.0.1(rw,no_root_squash)" > /etc/exports.d/wvc.exports
+    systemctl enable --now nfs-server
+    exportfs -r
     install -D -m 644 /tmp/wvc/cacert.pem /etc/pki/CA/cacert.pem
     install -d /etc/pki/libvirt/private
     echo "subjectAltName=IP:$(hostname -I | cut -d' ' -f1)" > /tmp/wvc/ext
