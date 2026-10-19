@@ -42,7 +42,7 @@
                     <td class="d-none d-sm-table-cell text-right">{{ compute.ram_size|filesizeformat }}</td>
                     <td>
                         <div class="progress">
-                            <div class="progress-bar bg-success" role="progressbar" style="width: {{ compute.ram_usage }}%"
+                            <div class="progress-bar bg-success" role="progressbar" aria-label="{% trans "Mem Usage" %}" style="width: {{ compute.ram_usage }}%"
                                 aria-valuenow="{{ compute.ram_usage }}" aria-valuemin="0" aria-valuemax="100">{{ compute.ram_usage }}%
                             </div>
                         </div>

@@ -3,9 +3,9 @@
 {% load bootstrap_icons %}
 {% load i18n %}
 
-{% block title %}{{ title }}{% endblock %}
+{% block title %}{% trans "Delete" %} {{ object }}{% endblock %}
 
-{% block page_heading %}{{ title }}{% endblock page_heading %}
+{% block page_heading %}{% trans "Delete" %} {{ object }}{% endblock page_heading %}
 
 {% block content %}
 <div class="row">

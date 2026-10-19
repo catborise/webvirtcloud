@@ -69,14 +69,14 @@
         <h5 class="page-header mr-auto">{% trans "Filter References" %}
             <form class="float-end" method="post" role="form" aria-label="Add NWFilter form">{% csrf_token %}
                 <div class="input-group">
-                    <span class="input-group-text">{% trans "Filter" %}</span>
+                    <label class="input-group-text" for="nwfilter_select">{% trans "Filter" %}</label>
                     <select id="nwfilter_select" name="nwfilters_select" class="form-select">
                         <option value="" selected>{% trans 'None' %}</option>
                         {% for nwf in nwfilters_all %}
                             <option value="{{ nwf.name }}">{{ nwf.name }}</option>
                         {% endfor %}
                     </select>
-                    <button type="submit" class="btn btn-success float-end" name="add_nwfilter_ref">
+                    <button type="submit" class="btn btn-success float-end" name="add_nwfilter_ref" title="{% trans "Add" %}">
                         <span aria-hidden="true">{% bs_icon 'plus-circle-fill' %} </span>
                     </button>
                 </div>

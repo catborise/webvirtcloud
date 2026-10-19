@@ -9,7 +9,7 @@
 {% block page_heading %}{{ title }}{% endblock page_heading %}
 
 {% block page_heading_extra %}
-<a href="{% url 'admin:user_create' %}" class="btn btn-success btn-header float-end">
+<a href="{% url 'admin:user_create' %}" class="btn btn-success btn-header float-end" title="{% trans "Create User" %}">
     {% bs_icon 'plus-circle-fill' %}
 </a>
 {% include 'search_block.html' %}
