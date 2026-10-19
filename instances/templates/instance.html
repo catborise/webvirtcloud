@@ -179,15 +179,6 @@
     }
 </script>
 <script>
-    function show_console() {
-        if ($('#console_show_pass').attr('type') == 'password') {
-            $('#console_show_pass').attr('type', 'text');
-        } else {
-            $('#console_show_pass').attr('type', 'password');
-        }
-    }
-</script>
-<script>
     function guess_mac_address(src_elem, net) {
         new_vname = $(src_elem).val();
         guess_mac_address_url = "{% url 'instances:guess_mac_address' 1 %}".replace(1, new_vname);
@@ -229,45 +220,8 @@
     }
 </script>
 <script>
-    $(document).on('change', '#console_passwd_gen', function () {
-        if ($(this).prop('checked')) {
-            $('#console_passwd_manual').hide();
-            $('#console_passwd_clear').prop('checked', false);
-        } else {
-            $('#console_passwd_manual').show();
-        }
-    });
-    $(document).on('change', '#console_passwd_clear', function () {
-        if ($(this).prop('checked')) {
-            $('#console_passwd_manual').hide();
-            $('#console_passwd_gen').prop('checked', false);
-        } else {
-            $('#console_passwd_manual').show();
-        }
-    });
-    $(document).on('change', '#console_keymap_clear', function () {
-        if ($(this).prop('checked')) {
-            $('#console_keymap_selection').hide();
-        } else {
-            $('#console_keymap_selection').show();
-        }
-    });
     $('#clone_name').on('input', function () {
         update_clone_disk_name($(this).val());
-    });
-    $(document).ready(function () {
-        // set current console keymap or fall back to default
-        var keymap = "{{ instance.config_console_keymap }}";
-        if (keymap != '') {
-            $("#console_select_keymap option[value='" + keymap + "']").prop('selected', true);
-        }
-    });
-    $(document).ready(function () {
-        // set current console listen address or fall back to default
-        var console_listener_address = "{{ instance.config_console_listener_address }}";
-        if (console_listener_address != '') {
-            $("#console_select_listener_address option[value='" + console_listener_address + "']").prop('selected', true);
-        }
     });
     $(document).ready(function () {
         // get video model or fall back to default
