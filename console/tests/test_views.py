@@ -14,6 +14,7 @@ from django.urls import reverse
 from django.utils.html import escapejs
 from instances.models import Instance
 from libvirt import libvirtError
+from lxml import html
 
 # Dynamically load console/novncd script for testing
 NOVNCD_PATH = str(Path(__file__).resolve().parent.parent / "novncd")
@@ -151,6 +152,9 @@ class ConsoleViewsTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateNotUsed(response, "console-xterm.html")
         self.assertIn("Serial console is disabled", str(response.context["console_error"]))
+        # an element of the page, not a script's string
+        alert = html.fromstring(response.content).xpath("//div[@role='alert']")
+        self.assertIn("Serial console is disabled on this server", alert[0].text_content())
 
     @patch("console.views.wvmInstance")
     def test_console_user_assigned_instance_access(self, mock_wvm):
