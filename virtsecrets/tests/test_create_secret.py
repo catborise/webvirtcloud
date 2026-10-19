@@ -26,3 +26,26 @@ class CreateSecretTests(SimpleTestCase):
                 self.assertEqual((secret.get("ephemeral"), secret.get("private")), ("no", "yes"))
                 self.assertEqual(secret.find("usage").get("type"), usage_type)
                 self.assertEqual(secret.findtext(f"usage/{element}"), data)
+
+
+class SecretValueTests(SimpleTestCase):
+    def secrets(self):
+        with patch("vrtManager.connection.connection_manager.get_connection") as get:
+            conn = wvmSecrets("host", "login", "pw", 1)
+        secret = get.return_value.secretLookupByUUIDString.return_value
+        return conn, secret
+
+    def test_the_shown_value_written_back_keeps_the_secret(self):
+        conn, secret = self.secrets()
+        secret.value.return_value = b"pw\x00\xff"
+        shown = conn.get_secret_value("uuid")
+        self.assertEqual(shown, "cHcA/w==")  # base64 text, what the edit dialog shows
+        conn.set_secret_value("uuid", shown)
+        secret.setValue.assert_called_once_with(b"pw\x00\xff")
+
+    def test_a_value_that_is_not_base64_is_refused(self):
+        conn, secret = self.secrets()
+        for value in ("b'cHc='", "not base64!"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                conn.set_secret_value("uuid", value)
+        secret.setValue.assert_not_called()
