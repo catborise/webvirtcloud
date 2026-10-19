@@ -413,6 +413,7 @@
                                 <!-- populated from javascript -->
                             </ul>
                             <input id="networks" type="hidden" name="networks" value=""/>
+                            <input id="custom_mac" type="hidden" name="mac" value=""/>
                             <select class="form-select" id="network-control" name="network-control" multiple="multiple">
                                 {% for network in networks %}
                                     <option value="{{ network }}">{{ network }}</option>
@@ -864,6 +865,7 @@
                 $('#networks').val(input_value);
                 let selected_list_html = '';
                 mac_array = [];
+                $('#custom_mac').val('');
                 net_counter = 0;
                 if (input_value != '') {
                     $.each(input_value.split(','), function (index, value) {
@@ -894,7 +896,8 @@
 
     function populate_mac(c){
         mac_array[c] = $('input[name="mac' + c + '"').val();
-        $('input[name="mac"').val(mac_array.join(","));
+        // the custom form's MACs only: the other create forms have their own field
+        $('#custom_mac').val(mac_array.join(","));
     }
 
     function get_cust_vols(compute_id, pool) {
