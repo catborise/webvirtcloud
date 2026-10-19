@@ -6,27 +6,17 @@ import re
 import shutil
 import subprocess
 import unittest
-from unittest.mock import patch
 
-import libvirt
-from computes.models import Compute
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from instances.forms import NewVMForm
+from instances.tests.create_page import render_create_page
 from lxml import html
 
 
 class CreatePageScriptTests(TestCase):
     def page(self):
-        conn = libvirt.open("test:///default")
-        self.addCleanup(conn.close)
-        compute = Compute.objects.create(name="testdrv", hostname="localhost", login="", password="", type=4)
-        self.client.force_login(get_user_model().objects.create_superuser("js", "js@example.com", "pw"))
-        with patch("vrtManager.connection.connection_manager.get_connection", return_value=conn), \
-             patch("vrtManager.connection.wvmConnect.get_machine_types", return_value=["pc"]), \
-             patch("vrtManager.connection.wvmConnect.get_nwfilters", return_value=[]):
-            response = self.client.get(reverse("instances:create_instance", args=[compute.id, "i686", "pc"]))
+        compute, response = render_create_page(self)
         self.assertEqual(response.status_code, 200)
         return compute, response.content.decode()
 
@@ -58,3 +48,42 @@ class CreatePageScriptTests(TestCase):
     def test_a_mac_per_nic_fits_the_form(self):
         macs = ",".join(f"52:54:00:00:00:{n:02x}" for n in range(8))
         self.assertEqual(NewVMForm.base_fields["mac"].clean(macs), macs)
+
+    @unittest.skipUnless(shutil.which("node"), "node is not installed")
+    def test_the_page_reopens_the_submitted_form(self):
+        _, page = self.page()
+        functions = re.search(r"function reopen_submitted_form\(.*?\n    \$\(reopen_submitted_form\);", page, re.S).group(0)
+        harness = """
+const shown = [];
+// the forms' holders: two tab panes and a flavor's dialog, each with an
+// "Advanced" section that holds a refused field; a dialog's "shown"
+// listeners run when it is shown, as in Bootstrap
+const holder = (id, kind) => ({id, listeners: [], classList: {contains: c => c === kind},
+  querySelectorAll: () => [{name: "#" + id + " .collapse", querySelector: () => ({})}],
+  addEventListener(event, f) { this.listeners.push(f); }});
+const holders = {custom: holder("addCustom", "tab-pane"), template: holder("add-from-temp", "tab-pane"),
+                 flavor7: holder("addVMflavor7", "modal")};
+const document = {body: {dataset: {submittedForm: %s}}, querySelector: sel => {
+  const id = (sel.match(/data-form-id="([^"]*)"/) || [])[1];
+  if (id !== undefined) return holders[id] || null;
+  return sel.startsWith("form[") ? null : {name: sel};  // no refused template form here
+}};
+const bootstrap = {Tab: {getOrCreateInstance: e => ({show: () => shown.push("tab " + e.name)})},
+  Modal: {getOrCreateInstance: e => ({show: () => { shown.push("modal #" + e.id); e.listeners.forEach(f => f()); }})},
+  Collapse: {getOrCreateInstance: e => ({show: () => shown.push("collapse " + e.name)})}};
+const $ = Object.assign(() => ({val() {}}), {when: () => ({then: f => f()})});
+const focusFirstError = () => shown.push("focus");
+%s
+reopen_submitted_form(); console.log(JSON.stringify(shown));
+"""
+        for submitted, expected in (
+            ("custom", ["collapse #addCustom .collapse", 'tab [data-bs-target="#addCustom"]', "focus"]),
+            ("template", ["collapse #add-from-temp .collapse", 'tab [data-bs-target="#add-from-temp"]', "focus"]),
+            ("flavor7", ["collapse #addVMflavor7 .collapse", "modal #addVMflavor7", "focus"]),
+            ("", ["focus"]),
+        ):
+            with self.subTest(submitted=submitted):
+                result = subprocess.run(["node", "-e", harness % (json.dumps(submitted), functions.replace("$(reopen_submitted_form);", ""))],
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), expected)
