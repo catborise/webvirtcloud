@@ -130,9 +130,9 @@
                                                 </div>
                                             </div>
                                             <div class="row" id="image_format">
-                                                <label class="col-sm-3 col-form-label">{% trans "Convert" %}</label>
+                                                <label class="col-sm-3 col-form-label" for="clone{{ forloop.counter }}_convert">{% trans "Convert" %}</label>
                                                 <div class="col-sm-6">
-                                                    <input class="volume-convert" type="checkbox" name="convert" value="true">
+                                                    <input class="volume-convert" type="checkbox" name="convert" value="true" id="clone{{ forloop.counter }}_convert">
                                                 </div>
                                             </div>
                                             <div class="row format-convert">
