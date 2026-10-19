@@ -24,13 +24,13 @@
                     <div class="row">
                         <label class="col-sm-4 col-form-label">{% trans "MAC" %}</label>
                         <div class="col-sm-6">
-                            <input type="text" class="form-control" name="mac" required pattern="[0-9\/\:]+">
+                            <input type="text" class="form-control" name="mac" required pattern="[0-9a-fA-F:]+">
                         </div>
                     </div>
                     <div class="row">
                         <label class="col-sm-4 col-form-label">{% trans "Name" %}</label>
                         <div class="col-sm-6">
-                            <input type="text" class="form-control" name="name" pattern="[a-zA-Z0-9_]+">
+                            <input type="text" class="form-control" name="name" pattern="[a-zA-Z0-9_.\-]+">
                         </div>
                     </div>
                     <div class="row">
