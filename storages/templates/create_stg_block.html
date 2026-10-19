@@ -62,7 +62,7 @@
                                     <div class="row">
                                         <label class="col-sm-3 col-form-label">{% trans "Path" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" name="target" class="form-control" value="/var/lib/libvirt/images" required pattern="[a-zA-Z0-9\/\-_]+">
+                                            <input type="text" name="target" class="form-control" value="/var/lib/libvirt/images" required>
                                         </div>
                                     </div>
                             </div>
@@ -91,7 +91,7 @@
                                     <div class="row">
                                         <label class="col-sm-3 col-form-label">{% trans "Device" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="source" value="/dev/sdb" required pattern="[a-z0-9\/]+">
+                                            <input type="text" class="form-control" name="source" value="/dev/sdb" required>
                                         </div>
                                     </div>
                             </div>
@@ -191,7 +191,7 @@
                                     <div class="row">
                                         <label class="col-sm-3 col-form-label">{% trans "Remote Path" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="source" placeholder="/srv/storage/" maxlength="40" required pattern="[a-zA-Z0-9\/\-_]+">
+                                            <input type="text" class="form-control" name="source" placeholder="/srv/storage/" maxlength="100" required>
                                         </div>
                                     </div>
                                     <div class="row">
@@ -208,7 +208,7 @@
                                     <div class="row">
                                         <label class="col-sm-3 col-form-label">{% trans "Local Path" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="target" placeholder="/srv/storage/" maxlength="40" required pattern="[a-zA-Z0-9\/\-_]+">
+                                            <input type="text" class="form-control" name="target" placeholder="/srv/storage/" maxlength="100" required>
                                         </div>
                                     </div>
                             </div>
@@ -236,7 +236,7 @@
                                     <div class="row">
                                         <label class="col-sm-3 col-form-label">{% trans "Path" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="target" value="/var/lib/libvirt/iso" required pattern="[a-zA-Z0-9\/\-_]+">
+                                            <input type="text" class="form-control" name="target" value="/var/lib/libvirt/iso" required>
                                         </div>
                                     </div>
                             </div>

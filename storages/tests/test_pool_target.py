@@ -3,8 +3,11 @@ paths of letters, digits and "/", "_", ".", ":" and "-" (not first, not right
 after "/"): both values go into the pool XML."""
 
 import time
+from types import SimpleNamespace
 
+from django.template.loader import render_to_string
 from django.test import SimpleTestCase
+from lxml import html
 from storages.forms import AddStgPool
 
 
@@ -60,3 +63,14 @@ class PoolTargetTests(SimpleTestCase):
         start = time.monotonic()
         self.assertTrue(target_error("," + "-" * 98 + "!"))
         self.assertLess(time.monotonic() - start, 1)
+
+    def test_the_create_form_leaves_the_path_check_to_the_server(self):
+        # a stricter pattern or a shorter maxlength in the page refuses paths the form accepts
+        superuser = SimpleNamespace(user=SimpleNamespace(is_superuser=True))
+        page = html.fromstring(render_to_string("create_stg_block.html", {"request": superuser}))
+        fields = page.xpath("//input[@name='target' or @name='source']")
+        self.assertEqual(len(fields), 5)
+        for field in fields:
+            with self.subTest(form=field.xpath("string(ancestor::form//input[@name='stg_type']/@value)"), name=field.name):
+                self.assertIsNone(field.get("pattern"))
+                self.assertGreaterEqual(int(field.get("maxlength", 100)), 100)
