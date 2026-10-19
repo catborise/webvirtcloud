@@ -88,6 +88,8 @@
                 {% endfor %}
             {% endif %}
         </tbody>
+    {% empty %}
+        <tbody></tbody>{# sortable.js needs a table body #}
     {% endfor %}
 </table>
 
