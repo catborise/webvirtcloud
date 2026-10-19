@@ -921,8 +921,9 @@
     }
 
     function get_disk_bus_choices(compute_id, dev_idx, disk_type){
-        let arch = $('select[name="arch"]').val();
-        let machine = $("select[id='machine-control']").val();
+        // the page's own architecture and machine type, from its URL
+        let arch = "{{ arch|escapejs }}";
+        let machine = "{{ machine|escapejs }}";
         get_diskBus_url = "/computes/" + compute_id + "/archs/" + arch + "/machines/" + machine + "/disks/" + disk_type + "/buses";
         $.getJSON(get_diskBus_url, function (data) {
             $("#bus" + dev_idx).find('option').remove();
