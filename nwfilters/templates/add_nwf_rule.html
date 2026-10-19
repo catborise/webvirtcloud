@@ -1,7 +1,7 @@
 {% load i18n %}
 {% load bootstrap_icons %}
 {% if request.user.is_superuser %}
-    <button class="btn btn-success float-end" type="button" data-bs-toggle="modal" data-bs-target="#AddNWFilterRule">
+    <button class="btn btn-success float-end" type="button" title="{% trans "Add New NWFilter Rule" %}" data-bs-toggle="modal" data-bs-target="#AddNWFilterRule">
         <span aria-hidden="true">{% bs_icon 'plus' %} </span>
     </button>
 

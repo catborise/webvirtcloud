@@ -39,6 +39,8 @@ class AdminTestCase(TestCase):
 
         response = self.client.get(reverse("admin:group_delete", args=[group_id]))
         self.assertEqual(response.status_code, 200)
+        # the shared confirmation page names what it deletes
+        self.assertContains(response, "<title>Delete Updated Group Test</title>", html=True)
 
         response = self.client.post(reverse("admin:group_delete", args=[group_id]))
         self.assertRedirects(response, reverse("admin:group_list"))

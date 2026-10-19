@@ -11,7 +11,7 @@
 
 {% block page_heading_extra %}
 <a href="{% url 'instances:create_instance_select_type' compute.id %}"
-    class="btn btn-success btn-header float-end">
+    class="btn btn-success btn-header float-end" title="{% trans "New Instance" %}">
     {% bs_icon 'plus-circle-fill' %}
 </a>
 {% if instances %}

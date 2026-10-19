@@ -41,7 +41,7 @@
             <!-- Nav tabs -->
                 <ul class="nav nav-tabs" role="tablist" aria-label="Instance create method">
                      <li class="nav-item" role="presentation">
-                        <button class="nav-link float-end" data-bs-toggle="tab" data-bs-target="#" type="button" role="tab" aria-controls="go_compute" onclick="goto_compute()">
+                        <button class="nav-link float-end" data-bs-toggle="tab" data-bs-target="#" type="button" role="tab" aria-controls="go_compute" title="{% trans "Back" %}" onclick="goto_compute()">
                             <span>{% bs_icon 'arrow-left'%} </span>
                         </button>
                     </li>
@@ -299,14 +299,14 @@
                                                     </div>
                                                 </div>
                                             </div>
-                                            <a data-bs-toggle="modal" href="#addVMflavor{{ forloop.counter }}" class="btn btn-sm btn-secondary">
+                                            <a data-bs-toggle="modal" href="#addVMflavor{{ forloop.counter }}" class="btn btn-sm btn-secondary" title="{% trans "Create Virtual Machine" %}">
                                                 <span >{% bs_icon 'plus'%} </span>
                                             </a>
                                         </td>
                                         <td style="width:5px;">
                                             <form action="{% url 'instances:flavor_delete' flavor.id %}" method="post" role="form" aria-label="Delete flavor form">
                                                 {% csrf_token %}
-                                                <button type="submit" class="btn btn-sm btn-secondary" name="delete_flavor" onclick="return confirm('{% trans "Are you sure?" %}')">
+                                                <button type="submit" class="btn btn-sm btn-secondary" name="delete_flavor" title="{% trans "Delete" %}" onclick="return confirm('{% trans "Are you sure?" %}')">
                                                     {% bs_icon 'trash' %}
                                                 </button>
                                             </form>

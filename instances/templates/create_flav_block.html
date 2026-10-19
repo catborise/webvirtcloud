@@ -2,7 +2,7 @@
 {% load django_bootstrap5 %}
 {% load bootstrap_icons %}
 {% if request.user.is_superuser %}
-    <button href="#addFlavor" type="button" class="btn btn-success btn-header float-end" data-bs-toggle="modal">
+    <button href="#addFlavor" type="button" class="btn btn-success btn-header float-end" title="{% trans "Add New Flavor" %}" data-bs-toggle="modal">
         <span aria-hidden="true">{% bs_icon 'plus'%} </span>
     </button>
 
