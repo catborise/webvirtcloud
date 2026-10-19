@@ -1,5 +1,6 @@
 import contextlib
 
+import libvirt
 from vrtManager import util
 from vrtManager.connection import wvmConnect
 
@@ -56,9 +57,8 @@ class wvmStorages(wvmConnect):
                 </pool>"""
         self.define_storage(xml, 0)
         stg = self.get_storage(name)
-        if stg_type == "logical":
-            stg.build(0)
-        stg.create(0)
+        # builds the dir pool's directory or the logical pool's volume group
+        stg.create(libvirt.VIR_STORAGE_POOL_CREATE_WITH_BUILD)
         stg.setAutostart(1)
 
         return stg
