@@ -16,15 +16,15 @@
                 <form method="post" action="" role="form" aria-label="Create New Interface form">{% csrf_token %}
                     <div class="modal-body">
                         <div class="row">
-                            <label class="col-sm-3 col-form-label">{% trans "Name" %}</label>
+                            <label for="iface_name" class="col-sm-3 col-form-label">{% trans "Name" %}</label>
                             <div class="col-sm-6">
-                                <input type="text" name="name" class="form-control" placeholder="br0" maxlength="15" required pattern="[A-Za-z0-9_.\-]+"/>
+                                <input id="iface_name" type="text" name="name" class="form-control" placeholder="br0" maxlength="15" required pattern="[A-Za-z0-9_.\-]+"/>
                             </div>
                         </div>
                         <div class="row">
-                            <label class="col-sm-3 col-form-label">{% trans "Start mode" %}</label>
+                            <label for="iface_start_mode" class="col-sm-3 col-form-label">{% trans "Start mode" %}</label>
                             <div class="col-sm-6">
-                                <select name="start_mode" class="form-select">
+                                <select id="iface_start_mode" name="start_mode" class="form-select">
                                     <option value="none">{% trans "none" %}</option>
                                     <option value="onboot">{% trans "onboot" %}</option>
                                     <option value="hotplug">{% trans "hotplug" %}</option>
@@ -32,9 +32,9 @@
                             </div>
                         </div>
                         <div class="row">
-                            <label class="col-sm-3 col-form-label">{% trans "Device" %}</label>
+                            <label for="iface_netdev" class="col-sm-3 col-form-label">{% trans "Device" %}</label>
                             <div class="col-sm-6">
-                                <select name="netdev" class="form-select">
+                                <select id="iface_netdev" name="netdev" class="form-select">
                                     {% for dev in netdevs %}
                                         <option value="{{ dev }}">{{ dev }}</option>
                                     {% endfor %}
@@ -42,7 +42,7 @@
                             </div>
                         </div>
                         <div class="row">
-                            <label class="col-sm-3 col-form-label">{% trans "Type" %}</label>
+                            <label for="itype" class="col-sm-3 col-form-label">{% trans "Type" %}</label>
                             <div class="col-sm-6">
                                 <select name="itype" class="form-select" id="itype">
                                     <option value="bridge">{% trans "bridge" %}</option>
@@ -51,19 +51,19 @@
                             </div>
                         </div>
                         <div class="row bridge_name_form_group">
-                            <label class="col-sm-3 col-form-label">{% trans "STP" %}</label>
+                            <label for="iface_stp" class="col-sm-3 col-form-label">{% trans "STP" %}</label>
 
                             <div class="col-sm-6">
-                                <select name="stp" class="form-select">
+                                <select id="iface_stp" name="stp" class="form-select">
                                     <option value="on">{% trans "on" %}</option>
                                     <option value="off">{% trans "off" %}</option>
                                 </select>
                             </div>
                         </div>
                         <div class="row bridge_name_form_group">
-                            <label class="col-sm-3 col-form-label">{% trans "Delay" %}</label>
+                            <label for="iface_delay" class="col-sm-3 col-form-label">{% trans "Delay" %}</label>
                             <div class="col-sm-6">
-                                <input type="text" name="delay" class="form-control" value="0" maxlength="3" required pattern="[0-9]+"/>
+                                <input id="iface_delay" type="text" name="delay" class="form-control" value="0" maxlength="3" required pattern="[0-9]+"/>
                             </div>
                         </div>
                         <div class="tabbable">
@@ -84,7 +84,7 @@
                             <div class="tab-pane active" id="ipv4tab">
                                 <div class="modal-body">
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "IPv4 Mode" %}</label>
+                                        <label for="ipv4" class="col-sm-3 col-form-label">{% trans "IPv4 Mode" %}</label>
                                         <div class="col-sm-6">
                                             <select name="ipv4_type" class="form-select" id="ipv4">
                                                 <option value="dhcp">{% trans "DHCP" %}</option>
@@ -94,15 +94,15 @@
                                         </div>
                                     </div>
                                     <div class="row static_ipv4_form_group">
-                                        <label class="col-sm-3 col-form-label">{% trans "IPv4 Address" %}</label>
+                                        <label for="iface_ipv4_addr" class="col-sm-3 col-form-label">{% trans "IPv4 Address" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="ipv4_addr" maxlength="31" pattern="[0-9\.\/]+|^$">
+                                            <input id="iface_ipv4_addr" type="text" class="form-control" name="ipv4_addr" maxlength="31" pattern="[0-9\.\/]+|^$">
                                         </div>
                                     </div>
                                     <div class="row static_ipv4_form_group">
-                                        <label class="col-sm-3 col-form-label">{% trans "IPv4 Gateway" %}</label>
+                                        <label for="iface_ipv4_gw" class="col-sm-3 col-form-label">{% trans "IPv4 Gateway" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="ipv4_gw" maxlength="16" pattern="[0-9\.]+|^$">
+                                            <input id="iface_ipv4_gw" type="text" class="form-control" name="ipv4_gw" maxlength="16" pattern="[0-9\.]+|^$">
                                         </div>
                                     </div>
                                 </div>
@@ -110,7 +110,7 @@
                             <div class="tab-pane" id="ipv6tab">
                                 <div class="modal-body">
                                     <div class="row">
-                                        <label class="col-sm-3 col-form-label">{% trans "IPv6 Mode" %}</label>
+                                        <label for="ipv6" class="col-sm-3 col-form-label">{% trans "IPv6 Mode" %}</label>
                                         <div class="col-sm-6">
                                             <select name="ipv6_type" class="form-select" id="ipv6">
                                                 <option value="none">{% trans "No configuration" %}</option>
@@ -120,15 +120,15 @@
                                         </div>
                                     </div>
                                     <div class="row static_ipv6_form_group">
-                                        <label class="col-sm-3 col-form-label">{% trans "IPv6 Address" %}</label>
+                                        <label for="iface_ipv6_addr" class="col-sm-3 col-form-label">{% trans "IPv6 Address" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="ipv6_addr" maxlength="100" pattern="[0-9a-fA-F\:\/]+|^$">
+                                            <input id="iface_ipv6_addr" type="text" class="form-control" name="ipv6_addr" maxlength="100" pattern="[0-9a-fA-F\:\/]+|^$">
                                         </div>
                                     </div>
                                     <div class="row static_ipv6_form_group">
-                                        <label class="col-sm-3 col-form-label">{% trans "IPv6 Gateway" %}</label>
+                                        <label for="iface_ipv6_gw" class="col-sm-3 col-form-label">{% trans "IPv6 Gateway" %}</label>
                                         <div class="col-sm-6">
-                                            <input type="text" class="form-control" name="ipv6_gw" maxlength="100" pattern="[0-9a-fA-F\:]+|^$">
+                                            <input id="iface_ipv6_gw" type="text" class="form-control" name="ipv6_gw" maxlength="100" pattern="[0-9a-fA-F\:]+|^$">
                                         </div>
                                     </div>
                                 </div>
