@@ -2024,6 +2024,21 @@ def create_forms(flavors, defaults, mac):
     return forms
 
 
+def submitted_custom_lists(post):
+    """The custom form's image pool, disks and networks as submitted, for the
+    page to rebuild them."""
+    images = post["images"].split(",") if post.get("images") else []
+    networks = post["networks"].split(",") if post.get("networks") else []
+    macs = post.get("mac", "").split(",")
+    return {
+        "pool": post.get("storage-control", ""),
+        "disks": [{"volume": image, "device": post.get(f"device{i}", ""), "bus": post.get(f"bus{i}", "")}
+                  for i, image in enumerate(images)],
+        "networks": [{"name": network, "mac": macs[i] if i < len(macs) else ""}
+                     for i, network in enumerate(networks)],
+    }
+
+
 @superuser_only
 def create_instance(request, compute_id, arch, machine):
     """
@@ -2156,6 +2171,7 @@ def create_instance(request, compute_id, arch, machine):
         messages.error(request, lib_err)
 
     custom_form, template_form = vm_forms.get("custom"), vm_forms.get("template")
+    custom_lists = submitted_custom_lists(request.POST) if submitted_form == "custom" else None
     flavor_forms = [(flavor, f"flavor{flavor.id}", vm_forms[f"flavor{flavor.id}"])
                     for flavor in flavors if f"flavor{flavor.id}" in vm_forms]
     return render(request, "create_instance_w2.html", locals())

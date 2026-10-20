@@ -1,6 +1,7 @@
 """A refused VM create form comes back bound and open, with what was
 entered; the other create forms keep their own defaults."""
 
+import json
 import uuid
 from unittest.mock import patch
 
@@ -179,3 +180,36 @@ class FlavorFormTests(TestCase):
         form = page.get_element_by_id(f"addVMflavor{self.first.id}").xpath(".//form")[0]
         self.assertEqual(len(form.xpath(".//*[@name='cache_mode']")), 1)
         self.assertEqual(form.xpath(".//input[@name='form_id']/@value"), [f"flavor{self.first.id}"])
+
+
+class CustomListsTests(TestCase):
+    """The custom form's disks and networks come back with a refusal."""
+
+    def custom_lists(self, response):
+        """The custom form's disks and networks the page restores, or None."""
+        element = html.fromstring(response.content).get_element_by_id("custom-lists", None)
+        return None if element is None else json.loads(element.text)
+
+    def test_a_refused_custom_form_sends_back_its_lists(self):
+        _, response = render_create_page(self, valid(
+            form_id="custom", name="bad name!", **{"storage-control": "default"}, images="a.qcow2,b.qcow2",
+            device0="cdrom", bus0="sata", device1="disk", bus1="virtio",
+            networks="default,isolated", mac="52:54:00:00:00:01"))
+        self.assertEqual(self.custom_lists(response), {
+            "pool": "default",
+            "disks": [{"volume": "a.qcow2", "device": "cdrom", "bus": "sata"},
+                      {"volume": "b.qcow2", "device": "disk", "bus": "virtio"}],
+            "networks": [{"name": "default", "mac": "52:54:00:00:00:01"}, {"name": "isolated", "mac": ""}],
+        })
+
+    def test_a_hostile_volume_name_round_trips_through_the_lists(self):
+        name = "x'\"><img src=x>"
+        _, response = render_create_page(self, valid(form_id="custom", name="bad name!", images=name))
+        self.assertEqual(self.custom_lists(response)["disks"][0]["volume"], name)
+        self.assertNotIn(b"<img src=x>", response.content)
+
+    def test_only_a_refused_custom_form_sends_lists(self):
+        _, response = render_create_page(self)
+        self.assertIsNone(self.custom_lists(response))
+        _, response = render_create_page(self, valid(form_id="template", name="bad name!", images="a.qcow2"))
+        self.assertIsNone(self.custom_lists(response))

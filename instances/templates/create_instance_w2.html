@@ -341,6 +341,7 @@
                 <div>
                     <form method="post" role="form" aria-label="Create custom instance form">{% csrf_token %}{% submission_key %}
                         <input type="hidden" name="form_id" value="custom">
+                        {% if custom_lists %}{{ custom_lists|json_script:"custom-lists" }}{% endif %}
                     {% include "instances/form_errors.html" with form=custom_form %}
                     <div class="row">
                         <label for="custom_name" class="col-sm-3 col-form-label">{% trans "Name" %}</label>
@@ -415,6 +416,18 @@
                          <ul id="img-list" class="row">
                               <!-- populated from javascript -->
                           </ul>
+                          <template id="disk-row">
+                              <li><span class="row-label"></span> -
+                                  <select class="image-format disk-device" aria-label="{% trans "Device" %}">
+                                      {% for dev in disk_devices %}<option value="{{ dev }}">{% trans dev %}</option>{% endfor %}
+                                  </select>
+                                  <select class="image-format disk-bus" aria-label="{% trans "Bus" %}">
+                                      {% for bus in disk_buses %}<option value="{{ bus }}"{% if bus == default_bus %} selected{% endif %}>{% trans bus %}</option>{% endfor %}
+                                  </select>
+                                  -> <span class="row-item"></span>
+                                  <button type="button" class="btn btn-link float-end row-remove" aria-label="{% trans "Remove" %}">X</button>
+                              </li>
+                          </template>
                         </div>
                     </div>
                     <div class="row">
@@ -444,6 +457,12 @@
                             <ul id="net-list">
                                 <!-- populated from javascript -->
                             </ul>
+                            <template id="network-row">
+                                <li><input type="text" class="input-xs" maxlength="17" required pattern="[a-zA-Z0-9:]+" aria-label="{% trans "MAC address" %}">
+                                    <span class="row-label"></span> -> <span class="row-item"></span>
+                                    <button type="button" class="btn btn-link float-end row-remove" aria-label="{% trans "Remove" %}">X</button>
+                                </li>
+                            </template>
                             <input id="networks" type="hidden" name="networks" value=""/>
                             <input id="custom_mac" type="hidden" name="mac" value=""/>
                             <select class="form-select" id="network-control" name="network-control" multiple="multiple">
@@ -882,116 +901,98 @@
 {% block script %}
 <script src="{% static 'js/tom-select.complete.min.js' %}"></script>
 <script>
-    function toggleValue(string, updated_value, checked) {
-        let result = '';
-        if (checked) {
-            result = string;
-            if (result != '') result += ',';
-            result += updated_value;
-        } else {
-            $.each(string.split(','), function (index, value) {
-                if (value == updated_value) return;
-                if (result != '') result += ',';
-                result += value;
-            });
-        }
-        return result;
-    }
+    var images_control, networks_control;
 
     $(document).ready(function () {
-          images_control = new TomSelect('#image-control', {
+        images_control = new TomSelect('#image-control', {
             plugins: ['checkbox_options'],
             placeholder: 'Add image...',
             hidePlaceholder: false,
-            onItemAdd: function (value) { update_images(value, true); },
-            onItemRemove: function (value) { update_images(value, false); },
-          });
-
-          function update_images(value, checked) {
-                let input_value = toggleValue($('#images').val(), value, checked);
-                $('#images').val(input_value);
-
-                let selected_list_html = '';
-                let counter = 0;
-                if (input_value != '') {
-                       $('#disk_list_div').removeClass('d-none');
-                       $.each(input_value.split(','), function (index, value) {
-                            var li = '<li>hdd' + counter + ' - ' +
-                                '<select name="device' + counter + '" class="image-format" onchange="get_disk_bus_choices({{ compute_id }},' + counter + ', value);">' +
-                                    '{% for dev in disk_devices %}' +
-                                        '<option value=' + '"{{ dev }}">' + '{% trans dev %}</option>' +
-                                    '{% endfor %}' +
-                                '</select>' +
-                                '<select id="bus' + counter + '" name="bus' + counter + '" class="image-format">' +
-                                    '{% for bus in disk_buses %}' +
-                                        '<option value=' + '"{{ bus }}"' +
-                                            '{% if bus == default_bus %}selected{% endif %}>' +
-                                               '{% trans bus %}</option>' +
-                                    '{% endfor %}' +
-                                '</select>' +
-                                ' -> ' + value + ' ' +
-                                '<a class="btn-link float-end" onclick="images_control.removeItem(\'' + value + '\')"> X </a></li>';
-                        selected_list_html += li;
-                        counter++;
-                    });
-                }else {
-                    $('#disk_list_div').addClass('d-none');
-                }
-                $('#img-list').html(selected_list_html);
-          }
-
-
+            onItemAdd: function (value) { if (!row_for("#img-list", value)) add_disk_row(value); },
+            onItemRemove: function (value) { remove_row("#img-list", value); },
+        });
         networks_control = new TomSelect('#network-control', {
             plugins: ['checkbox_options'],
             placeholder: 'Add network',
             hidePlaceholder: false,
-            onItemAdd: function (value) { update_networks(value, true); },
-            onItemRemove: function (value) { update_networks(value, false); },
+            onItemAdd: function (value) { if (!row_for("#net-list", value)) add_network_row(value, ""); },
+            onItemRemove: function (value) { remove_row("#net-list", value); },
         });
-
-        function update_networks(value, checked) {
-                let input_value = toggleValue($('#networks').val(), value, checked);
-                $('#networks').val(input_value);
-                let selected_list_html = '';
-                mac_array = [];
-                $('#custom_mac').val('');
-                net_counter = 0;
-                if (input_value != '') {
-                    $.each(input_value.split(','), function (index, value) {
-                        let li = '<li><input type="text" class="input-xs" name="mac'+ net_counter +'" maxlength="17" required pattern="[a-zA-Z0-9:]+" onchange="populate_mac(' + net_counter +')">' +
-                                ' eth' + net_counter +
-                                ' -> ' + value + ' ' +
-                                '<a class="btn-link float-end" onclick="networks_control.removeItem(\'' + value + '\')"> X </a></li>';
-                        random_mac(net_counter);
-                        selected_list_html += li;
-                        net_counter++;
-                    });
-                    
-                }
-                $('#net-list').html(selected_list_html);
-        }
     });
 
-    var images_control, networks_control;
-
-    var mac_array = [];
-    function random_mac(c) {
-        $.getJSON("{% url 'instances:random_mac_address' %}", function (data) {
-            mac_array[c] = data['mac'];
-            $('input[name="mac' + c + '"').val(data['mac']);
-            populate_mac(c);
-        });
+    // The custom form's disk and network rows: one per chosen image or
+    // network, cloned from the page's row templates. The fields the server
+    // reads are derived from them in sync_custom_lists.
+    function new_row(list, template, item) {
+        const row = document.getElementById(template).content.firstElementChild.cloneNode(true);
+        row.dataset.item = item;
+        row.querySelector(".row-item").textContent = item;
+        document.querySelector(list).append(row);
+        return row;
     }
 
-    function populate_mac(c){
-        mac_array[c] = $('input[name="mac' + c + '"').val();
-        // the custom form's MACs only: the other create forms have their own field
-        $('#custom_mac').val(mac_array.join(","));
+    function add_disk_row(volume) {
+        const row = new_row("#img-list", "disk-row", volume);
+        const bus = row.querySelector(".disk-bus");
+        row.querySelector(".disk-device").addEventListener("change", function () {
+            get_disk_bus_choices({{ compute_id }}, bus, this.value);
+        });
+        row.querySelector(".row-remove").addEventListener("click", function () { images_control.removeItem(volume); });
+        sync_custom_lists();
+        return row;
+    }
+
+    // a network row without a MAC gets a random one
+    function add_network_row(network, mac) {
+        const row = new_row("#net-list", "network-row", network);
+        const input = row.querySelector("input");
+        input.value = mac;
+        input.addEventListener("input", sync_custom_lists);
+        row.querySelector(".row-remove").addEventListener("click", function () { networks_control.removeItem(network); });
+        if (!mac) random_mac(input);
+        sync_custom_lists();
+        return row;
+    }
+
+    function row_for(list, item) {
+        return [...document.querySelector(list).children].find(row => row.dataset.item === item);
+    }
+
+    function remove_row(list, item) {
+        row_for(list, item)?.remove();
+        sync_custom_lists();
+    }
+
+    // images, networks and their MACs in row order; device<i> and bus<i>
+    // belong to the i-th image
+    function sync_custom_lists() {
+        const disks = [...document.querySelector("#img-list").children];
+        const nics = [...document.querySelector("#net-list").children];
+        disks.forEach(function (row, i) {
+            row.querySelector(".row-label").textContent = "hdd" + i;
+            row.querySelector(".disk-device").name = "device" + i;
+            row.querySelector(".disk-bus").name = "bus" + i;
+        });
+        nics.forEach(function (row, i) {
+            row.querySelector(".row-label").textContent = "eth" + i;
+        });
+        document.querySelector("#images").value = disks.map(row => row.dataset.item).join(",");
+        document.querySelector("#networks").value = nics.map(row => row.dataset.item).join(",");
+        document.querySelector("#custom_mac").value = nics.map(row => row.querySelector("input").value).join(",");
+        document.querySelector("#disk_list_div").classList.toggle("d-none", disks.length === 0);
+    }
+
+    // a MAC typed while the request was out stays
+    function random_mac(input) {
+        $.getJSON("{% url 'instances:random_mac_address' %}", function (data) {
+            if (!input.value) input.value = data['mac'];
+            sync_custom_lists();
+        });
     }
 
     function get_cust_vols(compute_id, pool) {
         get_vol_url = "/computes/" + compute_id + "/storage/" + pool + "/volumes";
-        $.getJSON(get_vol_url, function (data) {
+        return $.getJSON(get_vol_url, function (data) {
             images_control.clearOptions();
             $.each(data['vols'], function(i, item) {
                 images_control.addOption({value: item, text: item});
@@ -1028,7 +1029,7 @@
             bootstrap.Modal.getOrCreateInstance(holder).show();
         } else {
             bootstrap.Tab.getOrCreateInstance(document.querySelector(`[data-bs-target="#${holder.id}"]`)).show();
-            restore_template_volumes().then(focusFirstError);
+            $.when(restore_template_volumes(), restore_custom_lists()).then(focusFirstError);
         }
     }
 
@@ -1052,17 +1053,50 @@
             $("#storage").val(form.dataset.storage);
         });
     }
+
+    // The custom form's lists as submitted: its pool's volumes loaded first,
+    // then each disk's bus once the bus list for its device is loaded
+    function restore_custom_lists() {
+        const element = document.getElementById("custom-lists");
+        if (!element) return $.when();
+        const lists = JSON.parse(element.textContent);
+        lists.networks.forEach(function (nic) {
+            networks_control.addOption({value: nic.name, text: nic.name});
+            add_network_row(nic.name, nic.mac);
+            networks_control.addItem(nic.name, true);
+        });
+        if (!lists.pool) return $.when();
+        select_value(document.querySelector("#storage-control"), lists.pool);
+        return get_cust_vols({{ compute_id }}, lists.pool).then(function () {
+            return $.when(...lists.disks.map(function (disk) {
+                images_control.addOption({value: disk.volume, text: disk.volume});
+                const row = add_disk_row(disk.volume);
+                images_control.addItem(disk.volume, true);
+                const bus = row.querySelector(".disk-bus");
+                select_value(row.querySelector(".disk-device"), disk.device);
+                return get_disk_bus_choices({{ compute_id }}, bus, disk.device).then(function () {
+                    select_value(bus, disk.bus);
+                });
+            }));
+        });
+    }
+
+    // a value the loaded list no longer has is kept, not swapped for the first
+    function select_value(select, value) {
+        if (![...select.options].some(option => option.value === value)) select.add(new Option(value, value));
+        select.value = value;
+    }
     $(reopen_submitted_form);
 
-    function get_disk_bus_choices(compute_id, dev_idx, disk_type){
+    function get_disk_bus_choices(compute_id, bus_select, disk_type){
         // the page's own architecture and machine type, from its URL
         let arch = "{{ arch|escapejs }}";
         let machine = "{{ machine|escapejs }}";
         get_diskBus_url = "/computes/" + compute_id + "/archs/" + arch + "/machines/" + machine + "/disks/" + disk_type + "/buses";
-        $.getJSON(get_diskBus_url, function (data) {
-            $("#bus" + dev_idx).find('option').remove();
+        return $.getJSON(get_diskBus_url, function (data) {
+            $(bus_select).find('option').remove();
             $.each(data['bus'], function(i, item) {
-                $("#bus" + dev_idx).append($("<option>").val(item).text(item));
+                $(bus_select).append($("<option>").val(item).text(item));
             });
         });
     }
