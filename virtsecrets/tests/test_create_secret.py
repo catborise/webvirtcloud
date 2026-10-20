@@ -3,8 +3,12 @@ volume path, an iSCSI IQN or a Ceph name, and characters XML gives a meaning."""
 
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-from lxml import etree
+from computes.models import Compute
+from django.contrib.auth import get_user_model
+from django.test import SimpleTestCase, TestCase
+from django.urls import reverse
+from lxml import etree, html
+from virtsecrets.forms import AddSecret
 from vrtManager.virtsecrets import wvmSecrets
 
 
@@ -49,3 +53,14 @@ class SecretValueTests(SimpleTestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 conn.set_secret_value("uuid", value)
         secret.setValue.assert_not_called()
+
+
+class CreateSecretDialogTests(TestCase):
+    def test_the_dialog_offers_the_usage_types_the_form_takes(self):
+        compute = Compute.objects.create(name="secret-usage", hostname="localhost", login="", password="", type=4)
+        self.client.force_login(get_user_model().objects.create_superuser("usage", "usage@example.com", "pw"))
+        with patch("virtsecrets.views.wvmSecrets") as conn:
+            conn.return_value.get_secrets.return_value = []
+            response = self.client.get(reverse("virtsecrets", args=[compute.id]))
+        offered = html.fromstring(response.content).xpath("//select[@id='secret_usage_type']/option/@value")
+        self.assertEqual(offered, [value for value, _ in AddSecret.base_fields["usage_type"].choices])
