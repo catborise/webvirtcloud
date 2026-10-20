@@ -33,6 +33,8 @@ def secrets(request, compute_id):
         VIR_SECRET_USAGE_TYPE_ISCSI: "iscsi",
         VIR_SECRET_USAGE_TYPE_TLS: "tls",
     }
+    # the create dialog offers the usage types the form takes
+    usage_choices = AddSecret.base_fields["usage_type"].choices
 
     try:
         conn = wvmSecrets(
