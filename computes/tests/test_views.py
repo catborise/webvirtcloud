@@ -1,4 +1,6 @@
+import json
 import os
+from unittest.mock import patch
 from django.core.exceptions import ObjectDoesNotExist
 from django.shortcuts import reverse
 from django.test import RequestFactory, TestCase, TransactionTestCase
@@ -176,6 +178,13 @@ class ComputesTestCase(TestCase):
             )
         )
         self.assertEqual(response.status_code, 200)
+
+    def test_a_disk_is_offered_the_hosts_disk_buses(self):
+        with patch("computes.views.wvmConnect") as conn:
+            conn.return_value.get_disk_device_types.return_value = ["disk", "cdrom", "lun"]
+            conn.return_value.get_disk_bus_types.return_value = ["virtio", "sata", "scsi"]
+            response = self.client.get(reverse("buses", args=[self.compute.id, "x86_64", "q35", "disk"]))
+        self.assertEqual(json.loads(response.content), {"bus": ["sata", "scsi", "virtio"]})
 
     def test_dom_capabilities(self):
         self._require_live_compute()

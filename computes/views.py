@@ -215,7 +215,7 @@ class ComputeManager:
 
             if disk in disk_device_types:
                 if disk == "disk":
-                    data["bus"] = sorted(disk_device_types)
+                    data["bus"] = sorted(self.conn.get_disk_bus_types(arch, machine))
                 elif disk == "cdrom":
                     data["bus"] = ["ide", "sata", "scsi"]
                 elif disk == "floppy":
