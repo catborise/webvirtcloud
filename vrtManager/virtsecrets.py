@@ -15,12 +15,8 @@ class wvmSecrets(wvmConnect):
         etree.SubElement(usage, USAGE_ELEMENTS[secret_type]).text = data
         self.wvm.secretDefineXML(etree.tostring(secret, encoding="unicode"))
 
-    def get_secret_value(self, uuid):
-        """The value as base64 text, the form set_secret_value takes."""
-        secrt = self.get_secret(uuid)
-        return base64.b64encode(secrt.value()).decode()
-
     def set_secret_value(self, uuid, value):
+        """value: the new value as base64 text."""
         secrt = self.get_secret(uuid)
         # validate: a value that is not base64 is refused, not decoded to other bytes
         secrt.setValue(base64.b64decode(value, validate=True))
