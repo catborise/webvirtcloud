@@ -1,7 +1,26 @@
+import ipaddress
 import re
 
 from django import forms
 from django.utils.translation import gettext_lazy as _
+
+
+def checked_subnet(subnet, version):
+    """subnet, if it is empty or an IPv<version> network that has room for a
+    gateway, a DHCP range and (IPv4) a broadcast address; else a field error."""
+    if not subnet:
+        return subnet
+    try:
+        network = ipaddress.ip_network(subnet, strict=False)
+    except ValueError:
+        network = None
+    if network is None or network.version != version:
+        raise forms.ValidationError(_("%(subnet)s is not an IPv%(version)s subnet") % {"subnet": subnet, "version": version})
+    if version == 4 and network.prefixlen > 30:
+        raise forms.ValidationError(_("The IPv4 network prefix must be /30 or shorter"))
+    if version == 6 and network.prefixlen != 64:
+        raise forms.ValidationError(_("For libvirt, the IPv6 network prefix must be /64"))
+    return subnet
 
 
 class AddNetPool(forms.Form):
@@ -40,30 +59,10 @@ class AddNetPool(forms.Form):
         return name
 
     def clean_subnet(self):
-        subnet = self.cleaned_data["subnet"]
-        have_symbol = re.match("^[0-9./]+$", subnet if subnet else ".")
-        if not have_symbol:
-            raise forms.ValidationError(
-                _("The IPv4 subnet must not contain any special characters")
-            )
-        elif len(subnet) > 20:
-            raise forms.ValidationError(
-                _("The IPv4 subnet must not exceed 20 characters")
-            )
-        return subnet
+        return checked_subnet(self.cleaned_data["subnet"], 4)
 
     def clean_subnet6(self):
-        subnet = self.cleaned_data["subnet6"]
-        have_symbol = re.match("^[0-9a-fA-F:/]+$", subnet if subnet else ":")
-        if not have_symbol:
-            raise forms.ValidationError(
-                _("The IPv6 subnet must not contain any special characters")
-            )
-        elif len(subnet) > 42:
-            raise forms.ValidationError(
-                _("The IPv6 subnet must not exceed 42 characters")
-            )
-        return subnet
+        return checked_subnet(self.cleaned_data["subnet6"], 6)
 
     def clean_bridge_name(self):
         bridge_name = self.cleaned_data["bridge_name"]
