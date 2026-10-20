@@ -137,8 +137,6 @@ HTML_SINK = re.compile(r"""\.html\(|innerHTML\s*=|append\(\s*['"]<""")
 ALLOWED_HTML_SINKS = {
     ("accounts/templates/login.html", "$btn.html("): "static spinner markup",
     ("accounts/templates/accounts/otp_login.html", "$btn.html("): "static spinner markup",
-    ("instances/templates/create_instance_w2.html", "$('#img-list').html(selected_list_html);"): "superuser-only; tracked as U-04",
-    ("instances/templates/create_instance_w2.html", "$('#net-list').html(selected_list_html);"): "superuser-only; tracked as U-04",
     ("instances/templates/instance.html", "//sto_input.innerHTML = pool;"): "comment",
 }
 
