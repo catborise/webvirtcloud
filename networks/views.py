@@ -59,12 +59,6 @@ def networks(request, compute_id):
                         gateway6, prefix6, dhcp6 = network_size(
                             data["subnet6"], data["dhcp6"]
                         )
-                        if prefix6 != "64":
-                            messages.error(
-                                request,
-                                _("For libvirt, the IPv6 network prefix must be /64"),
-                            )
-                            errors = True
                     if not errors:
                         conn.create_network(
                             data["name"],
