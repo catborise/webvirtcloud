@@ -45,6 +45,15 @@ class CreatePageScriptTests(TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), [["#custom_mac", "0"], ["#custom_mac", "0,1"]])
 
+    def test_the_selects_without_a_label_of_their_own_are_named(self):
+        # TomSelect points the label of a select it enhances at its own
+        # input; the template select sits beside the template pool's label
+        _, page = self.page()
+        page = html.fromstring(page)
+        for select in ("image-control", "network-control", "template"):
+            with self.subTest(select=select):
+                self.assertTrue(page.get_element_by_id(select).get("aria-label"))
+
     def test_a_mac_per_nic_fits_the_form(self):
         macs = ",".join(f"52:54:00:00:00:{n:02x}" for n in range(8))
         self.assertEqual(NewVMForm.base_fields["mac"].clean(macs), macs)

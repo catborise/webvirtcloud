@@ -433,7 +433,7 @@
                             </select>
                         </div>
                         <div class="col-sm-4">
-                            <select class="form-select" id="image-control" name="image-control" multiple="multiple">
+                            <select class="form-select" id="image-control" name="image-control" multiple="multiple" aria-label="{% trans "Images" %}">
                                 <!-- populated from javascript -->
                             </select>
                         </div>
@@ -446,7 +446,7 @@
                             </ul>
                             <input id="networks" type="hidden" name="networks" value=""/>
                             <input id="custom_mac" type="hidden" name="mac" value=""/>
-                            <select class="form-select" id="network-control" name="network-control" multiple="multiple">
+                            <select class="form-select" id="network-control" name="network-control" multiple="multiple" aria-label="{% trans "Networks" %}">
                                 {% for network in networks %}
                                     <option value="{{ network }}">{{ network }}</option>
                                 {% endfor %}
@@ -688,7 +688,7 @@
                                 </select>
                             </div>
                             <div class="col-sm-4">
-                                <select class="form-select{{ template_form.template|invalid }}" id="template" name="template" disabled
+                                <select class="form-select{{ template_form.template|invalid }}" id="template" name="template" disabled aria-label="{% trans "Template" %}"
                                         {% error_attrs template_form.template "template" %}>
                                     <!-- populated from javascript -->
                                 </select>
