@@ -28,7 +28,6 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.db.models import prefetch_related_objects
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_noop as _
 from django.views.decorators.http import require_POST
 from libvirt import (VIR_DOMAIN_UNDEFINE_KEEP_NVRAM,
@@ -40,7 +39,7 @@ from libvirt import (VIR_DOMAIN_UNDEFINE_KEEP_NVRAM,
 from logs.views import addlogmsg
 from operations import claims, jobs
 from operations.utils import busy_message, summary
-from webvirtcloud.middleware import error_text
+from webvirtcloud.middleware import error_text, same_origin_referer
 from vrtManager import util
 from vrtManager.create import wvmCreate
 from vrtManager.instance import USAGE_MAX_WINDOW
@@ -377,18 +376,8 @@ def sshkeys(request, pk):
     return JsonResponse(instance_keys, safe=False)
 
 
-def _same_origin_referer(request, default):
-    """The Referer without its fragment if it is on this site, else default."""
-    referer = request.META.get("HTTP_REFERER")
-    if referer and url_has_allowed_host_and_scheme(
-        url=referer, allowed_hosts={request.get_host()}, require_https=request.is_secure()
-    ):
-        return referer.split("#")[0]
-    return default
-
-
 def get_safe_redirect(request, default=None):
-    return redirect(_same_origin_referer(request, default or reverse("instances:index")))
+    return redirect(same_origin_referer(request, default or reverse("instances:index")))
 
 
 def _is_int(value):
@@ -402,7 +391,7 @@ def _is_int(value):
 def _back(request, pk, tab):
     """Back to the page the form was on, at the given tab; the VM page if
     the Referer is missing or from another site."""
-    return redirect(_same_origin_referer(request, reverse("instances:instance", args=[pk])) + "#" + tab)
+    return redirect(same_origin_referer(request, reverse("instances:instance", args=[pk])) + "#" + tab)
 
 
 def get_instance(user, pk, perm_type="view"):
@@ -1318,7 +1307,7 @@ def unmount_iso(request, pk):
     else:
         msg = _("Unmount media: %(dev)s") % {"dev": dev}
         addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(_same_origin_referer(request, reverse("instances:instance", args=[pk])) + "#disks")
+    return redirect(same_origin_referer(request, reverse("instances:instance", args=[pk])) + "#disks")
 
 
 @require_POST
@@ -1335,7 +1324,7 @@ def mount_iso(request, pk):
     else:
         msg = _("Mount media: %(dev)s") % {"dev": dev}
         addlogmsg(request.user.username, instance.compute.name, instance.name, msg)
-    return redirect(_same_origin_referer(request, reverse("instances:instance", args=[pk])) + "#disks")
+    return redirect(same_origin_referer(request, reverse("instances:instance", args=[pk])) + "#disks")
 
 
 @require_POST
@@ -1562,7 +1551,7 @@ def set_video_model(request, pk):
 @serialize_instance_mutation
 def change_network(request, pk):
     instance = get_instance(request.user, pk)
-    back = _same_origin_referer(request, reverse("instances:instance", args=[pk])) + "#network"
+    back = same_origin_referer(request, reverse("instances:instance", args=[pk])) + "#network"
 
     # Each NIC has its own form; its fields end with that NIC's index.
     nums = [key[len("net-old-mac-"):] for key in request.POST if key.startswith("net-old-mac-")]

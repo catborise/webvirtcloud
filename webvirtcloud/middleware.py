@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 from libvirt import libvirtError
 from operations import claims, jobs
@@ -9,6 +10,16 @@ from operations.utils import busy_message, public_error_text, summary
 API_PREFIX = "/api/"
 # the directives that need no change to the templates' inline scripts and styles
 CONTENT_SECURITY_POLICY = "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
+
+def same_origin_referer(request, default):
+    """The Referer without its fragment if it is on this site, else default."""
+    referer = request.META.get("HTTP_REFERER")
+    if referer and url_has_allowed_host_and_scheme(
+        url=referer, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return referer.split("#")[0]
+    return default
 
 
 def error_text(request, exception):
@@ -63,5 +74,8 @@ class ExceptionMiddleware:
                 request,
                 _("libvirt Error - %(exception)s") % {"exception": error_text(request, exception)},
             )
+            if request.method not in ("GET", "HEAD"):
+                # a refused form: back to the page it was on, with the reason
+                return redirect(same_origin_referer(request, "/"))
             return render(request, "500.html", {"libvirt_error": True}, status=500)
             # TODO: check connecting to host via VPN
