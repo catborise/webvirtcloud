@@ -35,12 +35,9 @@ class SecretValueTests(SimpleTestCase):
         secret = get.return_value.secretLookupByUUIDString.return_value
         return conn, secret
 
-    def test_the_shown_value_written_back_keeps_the_secret(self):
+    def test_a_base64_value_is_stored_as_its_bytes(self):
         conn, secret = self.secrets()
-        secret.value.return_value = b"pw\x00\xff"
-        shown = conn.get_secret_value("uuid")
-        self.assertEqual(shown, "cHcA/w==")  # base64 text, what the edit dialog shows
-        conn.set_secret_value("uuid", shown)
+        conn.set_secret_value("uuid", "cHcA/w==")
         secret.setValue.assert_called_once_with(b"pw\x00\xff")
 
     def test_a_value_that_is_not_base64_is_refused(self):

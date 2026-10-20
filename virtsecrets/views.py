@@ -42,16 +42,11 @@ def secrets(request, compute_id):
 
         for uuid in secrets:
             secrt = conn.get_secret(uuid)
-            try:
-                secrt_value = conn.get_secret_value(uuid)
-            except libvirtError:
-                secrt_value = None
             secrets_all.append(
                 {
                     "usage": secrt.usageID(),
                     "uuid": secrt.UUIDString(),
                     "usageType": secret_usage_types[secrt.usageType()],
-                    "value": secrt_value,
                 }
             )
         if request.method == "POST":
