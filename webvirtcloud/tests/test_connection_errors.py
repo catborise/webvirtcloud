@@ -33,8 +33,8 @@ class ConnectionErrorPageTests(TestCase):
         self.viewer.user_permissions.add(Permission.objects.get(codename="view_instances"))
         self.viewer = User.objects.get(pk=self.viewer.pk)
 
-    def handle(self, user, exception, path="/instances/1/poweron/"):
-        request = RequestFactory().post(path)
+    def handle(self, user, exception, path="/instances/1/poweron/", method="post", **headers):
+        request = getattr(RequestFactory(), method)(path, **headers)
         SessionMiddleware(lambda r: None).process_request(request)
         request._messages = FallbackStorage(request)
         request.user = user
@@ -48,9 +48,25 @@ class ConnectionErrorPageTests(TestCase):
         ):
             with self.subTest(error=str(error)):
                 response, messages = self.handle(self.owner, error)
-                self.assertEqual(response.status_code, 500)
                 self.assertNotIn("10.0.0.9", " ".join(messages))
                 self.assertTrue(any("cannot be reached" in m for m in messages), messages)
+
+    def test_a_refused_form_goes_back_to_its_page_with_the_error(self):
+        error = libvirt_error(libvirt.VIR_FROM_QEMU, "Requested operation is not valid: domain is not running",
+                              libvirt.VIR_ERR_OPERATION_INVALID)
+        response, messages = self.handle(self.admin, error, HTTP_REFERER="http://testserver/instances/1/#network")
+        self.assertEqual((response.status_code, response["Location"]), (302, "http://testserver/instances/1/"))
+        self.assertTrue(any("domain is not running" in m for m in messages), messages)
+        for referer in ({}, {"HTTP_REFERER": "https://evil.example/"}):
+            with self.subTest(referer=referer):
+                response, _ = self.handle(self.admin, error, **referer)
+                self.assertEqual(response["Location"], "/")
+
+    def test_a_page_that_cannot_be_shown_is_the_error_page(self):
+        response, messages = self.handle(self.admin, libvirt_error(libvirt.VIR_FROM_RPC, HOST_DETAIL),
+                                         path="/instances/1/", method="get")
+        self.assertEqual(response.status_code, 500)
+        self.assertTrue(messages)
 
     def test_administrators_see_connection_details(self):
         for user in (self.admin, self.viewer):
