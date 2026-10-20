@@ -356,9 +356,10 @@ class wvmNetwork(wvmConnect):
         if direction not in ("inbound", "outbound"):
             raise ValueError("Direction must be inbound or outbound")
 
-        average = int(average)
-        peak = int(peak)
-        burst = int(burst)
+        try:
+            average, peak, burst = int(average), int(peak), int(burst)
+        except ValueError:
+            raise ValueError("QoS rates must be whole numbers")
 
         xml = f"<{direction} average='{average}' peak='{peak}' burst='{burst}'/>"
         tree = etree.fromstring(self._XMLDesc(0))

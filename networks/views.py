@@ -253,8 +253,8 @@ def network(request, compute_id, pool):
                         request,
                         _("%(qos_dir)s QoS is set") % {"qos_dir": qos_dir.capitalize()},
                     )
-            except libvirtError as lib_err:
-                messages.error(request, lib_err)
+            except (libvirtError, ValueError) as err:
+                messages.error(request, err)
             return HttpResponseRedirect(request.get_full_path())
         if "unset_qos" in request.POST:
             qos_dir = request.POST.get("qos_direction", "")
