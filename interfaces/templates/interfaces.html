@@ -54,9 +54,9 @@
             {% for iface in ifaces_all %}
                 <div class="col-12 col-sm-4">
                     <div class="mb-3 card {% if iface.state == 1 %}border-success{% else %}border-danger{% endif %} shadow-sm">
-                        <div class="card-header {% if iface.state == 1 %}bg-success{% else %}bg-danger{% endif %}">
+                        <div class="card-header {% if iface.state == 1 %}bg-success-subtle{% else %}bg-danger-subtle{% endif %}">
                             <h6 class="my-0 card-title">
-                                <a class="card-link text-light" href="{% url 'interface' compute.id iface.name %}">{{ iface.name }}</a>
+                                <a class="card-link {% if iface.state == 1 %}text-success-emphasis{% else %}text-danger-emphasis{% endif %}" href="{% url 'interface' compute.id iface.name %}">{{ iface.name }}</a>
                             </h6>
                         </div>
                         <div class="ps-0 pe-0 card-body">

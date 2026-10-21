@@ -50,9 +50,9 @@
             {% for pool in networks %}
             <div class="col-6 col-md-4">
                 <div class="mb-3 card {% if pool.status %}border-success{% else %}border-danger{% endif %} shadow-sm">
-                    <div class="card-header {% if pool.status %}bg-success{% else %}bg-danger{% endif %}">
+                    <div class="card-header {% if pool.status %}bg-success-subtle{% else %}bg-danger-subtle{% endif %}">
                         <h6 class="my-0 card-title">
-                            <a class="card-link text-light" href="{% url 'network' compute.id pool.name %}">{{ pool.name }}</a></h6>
+                            <a class="card-link {% if pool.status %}text-success-emphasis{% else %}text-danger-emphasis{% endif %}" href="{% url 'network' compute.id pool.name %}">{{ pool.name }}</a></h6>
                     </div>
                     <div class="px-1 card-body">
                         <dl class="row">
