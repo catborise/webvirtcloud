@@ -110,9 +110,9 @@
         <dt class="col-6">{% trans "DHCP" %}:</dt>
         <dd class="col-6">
             {% if ipv4_dhcp_range_start and ipv4_dhcp_range_end %}
-                <span class="text-success">{% trans "ON" %}</span>
+                <span class="badge bg-success-subtle text-success-emphasis">{% trans "ON" %}</span>
             {% else %}
-                <span class="text-danger">{% trans "OFF" %}</span>
+                <span class="badge bg-danger-subtle text-danger-emphasis">{% trans "OFF" %}</span>
             {% endif %}
         </dd>
         {% if ipv4_dhcp_range_start and ipv4_dhcp_range_end %}
@@ -222,9 +222,9 @@
         
         <dd class="col-6">
             {% if ipv6_dhcp_range_start and ipv6_dhcp_range_end %}
-                <span class="text-success">{% trans "ON" %}</span>
+                <span class="badge bg-success-subtle text-success-emphasis">{% trans "ON" %}</span>
             {% else %}
-                <span class="text-danger">{% trans "OFF" %}</span>
+                <span class="badge bg-danger-subtle text-danger-emphasis">{% trans "OFF" %}</span>
             {% endif %}
         </dd>
         {% if ipv6_dhcp_range_start and ipv6_dhcp_range_end %}
