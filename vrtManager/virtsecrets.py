@@ -1,3 +1,4 @@
+from django.utils.translation import gettext_noop
 import base64
 
 from libvirt import VIR_ERR_NO_STORAGE_POOL, VIR_STORAGE_XML_INACTIVE, libvirtError
@@ -22,7 +23,7 @@ def value_bytes(usage_type, value):
     try:
         return base64.b64decode(value, validate=True)
     except ValueError:  # not base64, or not ASCII; the message never holds the value
-        raise util.OperationError("A Ceph key is base64 text, as `ceph auth get-key` prints it") from None
+        raise util.OperationError(gettext_noop("A Ceph key is base64 text, as `ceph auth get-key` prints it")) from None
 
 
 def secrets_named(tree, path, by_usage):
@@ -114,5 +115,5 @@ class wvmSecrets(wvmConnect):
                 named.append(f"VMs {', '.join(users['vms'])}")
             if users["pools"]:
                 named.append(f"pools {', '.join(users['pools'])}")
-            raise util.OperationError(f"Secret {uuid} is used by {'; '.join(named)}; remove it from them first")
+            raise util.OperationError(gettext_noop("Secret %(uuid)s is used by %(named)s; remove it from them first"), uuid=uuid, named='; '.join(named))
         secret.undefine()
