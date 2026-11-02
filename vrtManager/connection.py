@@ -10,6 +10,7 @@ from urllib.parse import quote
 
 import libvirt
 from django.conf import settings
+from django.core.signals import request_finished, request_started
 from django.utils.functional import cached_property
 from libvirt import libvirtError
 from lxml import etree
@@ -33,6 +34,15 @@ TCP_PORT = 16509
 # not tried again for RETRY_AFTER seconds.
 CONNECT_TIMEOUT = getattr(settings, "LIBVIRT_CONNECT_TIMEOUT", 5)
 RETRY_AFTER = getattr(settings, "LIBVIRT_RETRY_AFTER", 30)
+# A call to a host that is up but stuck (a hung NFS mount, for one) waits as
+# long as the host does: libvirt has no call timeout, and keepalive does not
+# end it, since the daemon still answers keepalives. So in a process at most
+# HOST_REQUESTS web requests use one host at a time; another waits up to
+# CONNECT_TIMEOUT for one of them to end, and is then refused. A request
+# counts on the host it connected to last, until it ends. Threads outside a
+# request (the job worker's, the consoles') are not counted: a job holds its
+# host for as long as it runs.
+HOST_REQUESTS = getattr(settings, "LIBVIRT_HOST_REQUESTS", 2)
 CLOSE_REASONS = {0: "error", 1: "end of file", 2: "keepalive timeout", 3: "client closed"}
 # ssh with a connect timeout for qemu+ssh (libvirt runs the "command" binary
 # in place of ssh and never passes one itself)
@@ -92,6 +102,40 @@ def _after_fork_in_child():
 os.register_at_fork(after_in_child=_after_fork_in_child)
 
 
+_request = threading.local()  # in a web request: the connection it counts on (HOST_REQUESTS)
+
+
+def _request_started(**kwargs):
+    _request.active = True
+
+
+def _request_finished(**kwargs):
+    _leave_host()
+    _request.active = False
+
+
+def _leave_host():
+    held = getattr(_request, "held", None)
+    if held is not None:
+        _request.held = None
+        held.requests.release()
+
+
+def _count_on(connection):
+    """A web request uses the host of connection from now on (HOST_REQUESTS)."""
+    if not getattr(_request, "active", False) or getattr(_request, "held", None) is connection:
+        return
+    _leave_host()
+    if not connection.requests.acquire(timeout=CONNECT_TIMEOUT):
+        raise util.ConnectionFailed(
+            f"Connection Failed: {connection.host} does not answer: {HOST_REQUESTS} requests still wait for it")
+    _request.held = connection
+
+
+request_started.connect(_request_started, dispatch_uid="vrtManager.connection.request_started")
+request_finished.connect(_request_finished, dispatch_uid="vrtManager.connection.request_finished")
+
+
 # libvirt's per-host directory of the VMs' UEFI variables (NVRAM)
 NVRAM_DIR = "/var/lib/libvirt/qemu/nvram"
 
@@ -112,6 +156,7 @@ class wvmConnection(object):
         self.last_error = None
         self._opening = None  # threading.Event of the open in progress
         self._retry_at = 0.0  # monotonic time before which no new open is tried
+        self.requests = threading.BoundedSemaphore(HOST_REQUESTS)  # the web requests using the host
 
         # credentials
         self.host = host
@@ -347,6 +392,7 @@ class wvmConnectionManager(object):
             finally:
                 self._connections_lock.release()
 
+        _count_on(connection)
         live = connection.alive_connection()
         if live is None:
             # (re-)connect within CONNECT_TIMEOUT; one open per connection at a time
