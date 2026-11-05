@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-05 08:41+0000\n"
+"POT-Creation-Date: 2026-11-05 12:56+0000\n"
 "PO-Revision-Date: \n"
 "Last-Translator: \n"
 "Language-Team: \n"
@@ -5514,52 +5514,52 @@ msgstr "最近的记录，最新的在前。"
 msgid "All of this VM's logs"
 msgstr "该虚拟机的全部日志"
 
-#: instances/utils.py:66
+#: instances/utils.py:67
 #, python-format
 msgid "The disk files cannot be checked on %(host)s: %(err)s"
 msgstr "无法在 %(host)s 上检查磁盘文件：%(err)s"
 
-#: instances/utils.py:79
+#: instances/utils.py:80
 msgid ""
 "The quota cannot be checked because a host of your virtual machines cannot be"
 " reached. Nothing was changed."
 msgstr "无法检查配额，因为您的某台虚拟机所在主机无法连接。未做任何更改。"
 
-#: instances/utils.py:85
+#: instances/utils.py:86
 msgid "The quota of virtual machines is reached"
 msgstr "虚拟机配额已用尽"
 
-#: instances/utils.py:86
+#: instances/utils.py:87
 msgid "The vCPU quota is reached"
 msgstr "vCPU 配额已用尽"
 
-#: instances/utils.py:87
+#: instances/utils.py:88
 msgid "The memory quota is reached"
 msgstr "内存配额已用尽"
 
-#: instances/utils.py:88
+#: instances/utils.py:89
 msgid "The disk quota is reached"
 msgstr "磁盘配额已用尽"
 
-#: instances/utils.py:97
+#: instances/utils.py:98
 #, python-format
 msgid "%(quota)s (%(total)s > %(limit)s)"
 msgstr "%(quota)s（%(total)s > %(limit)s）"
 
-#: instances/utils.py:193
+#: instances/utils.py:194
 msgid "None available device name"
 msgstr "没有可用的设备名称"
 
-#: instances/utils.py:394
+#: instances/utils.py:395
 #, python-format
 msgid "%(hostname)s via %(address)s"
 msgstr "%(hostname)s，经由 %(address)s"
 
-#: instances/utils.py:433
+#: instances/utils.py:434
 msgid "Invalid MAC address"
 msgstr "无效的 MAC 地址"
 
-#: instances/utils.py:435
+#: instances/utils.py:436
 msgid "More MAC addresses than networks"
 msgstr "MAC 地址数量多于网络数量"
 
@@ -5987,7 +5987,7 @@ msgstr "%(quota)s：“%(instance_name)s”仍为模板。"
 msgid "The XML has no name"
 msgstr "XML 中没有名称"
 
-#: instances/views.py:2492 webvirtcloud/middleware.py:79
+#: instances/views.py:2492 webvirtcloud/middleware.py:126
 #, python-format
 msgid "libvirt Error - %(exception)s"
 msgstr "libvirt 错误 - %(exception)s"
@@ -7450,23 +7450,31 @@ msgstr "取消失败（HTTP %(status)s）。"
 msgid "Cancel failed: the server could not be reached."
 msgstr "取消失败：无法连接到服务器。"
 
-#: operations/utils.py:52
+#: operations/utils.py:54
 msgid "The host of this virtual machine cannot be reached right now."
 msgstr "当前无法连接此虚拟机所在的主机。"
 
-#: operations/utils.py:157
+#: operations/utils.py:56
+msgid "You may no longer do this."
+msgstr "您已无权执行此操作。"
+
+#: operations/utils.py:57
+msgid "The virtual machine is no longer in the panel."
+msgstr "该虚拟机已不在面板中。"
+
+#: operations/utils.py:166
 msgid ""
 "A short operation is in progress on this resource; try again in a moment."
 msgstr "此资源上正在进行一项短时操作，请稍后重试。"
 
-#: operations/utils.py:160
+#: operations/utils.py:169
 #, python-format
 msgid ""
 "%(label)s is %(state)s on this resource (started by %(user)s, %(since)s ago);"
 " see the Jobs page."
 msgstr "此资源上的%(label)s%(state)s（由 %(user)s 于 %(since)s前发起），请查看任务页面。"
 
-#: operations/utils.py:162
+#: operations/utils.py:171
 #, python-format
 msgid "%(label)s is %(state)s on this resource (since %(since)s)."
 msgstr "此资源上的%(label)s%(state)s（自 %(since)s起）。"
@@ -8362,49 +8370,49 @@ msgid ""
 "encrypted anew."
 msgstr "新值会立即替换旧值；之前用口令加密的内容不会重新加密。"
 
-#: vrtManager/connection.py:50
+#: vrtManager/connection.py:51
 msgid "Connection closed (error)"
 msgstr "连接已关闭（错误）"
 
-#: vrtManager/connection.py:51
+#: vrtManager/connection.py:52
 msgid "Connection closed (end of file)"
 msgstr "连接已关闭（文件结束）"
 
-#: vrtManager/connection.py:52
+#: vrtManager/connection.py:53
 msgid "Connection closed (keepalive timeout)"
 msgstr "连接已关闭（保活超时）"
 
-#: vrtManager/connection.py:53
+#: vrtManager/connection.py:54
 msgid "Connection closed (client closed)"
 msgstr "连接已关闭（客户端已关闭）"
 
-#: vrtManager/connection.py:139
+#: vrtManager/connection.py:147
 #, python-format
 msgid ""
 "Connection Failed: %(host)s does not answer: %(requests)s requests still wait"
 " for it"
 msgstr "连接失败：%(host)s 无响应：仍有 %(requests)s 个请求在等待它"
 
-#: vrtManager/connection.py:210
+#: vrtManager/connection.py:219
 #, python-format
 msgid "Connection Failed: %(host)s did not answer within %(seconds)s s"
 msgstr "连接失败：%(host)s 在 %(seconds)s 秒内未响应"
 
-#: vrtManager/connection.py:220
+#: vrtManager/connection.py:230
 msgid "the connection closed right after opening"
 msgstr "连接在打开后立即关闭"
 
-#: vrtManager/connection.py:233
+#: vrtManager/connection.py:243
 #, python-format
 msgid "Connection Failed: %(error)s"
 msgstr "连接失败：%(error)s"
 
-#: vrtManager/connection.py:293
+#: vrtManager/connection.py:312
 #, python-format
 msgid "Connection closed (%(reason)s)"
 msgstr "连接已关闭（%(reason)s）"
 
-#: vrtManager/connection.py:435
+#: vrtManager/connection.py:455
 #, python-format
 msgid "Connection Failed: %(host)s is not connected"
 msgstr "连接失败：%(host)s 未连接"
@@ -9326,10 +9334,10 @@ msgstr "存储池 %(names)s"
 msgid "Secret %(uuid)s is used by %(named)s; remove it from them first"
 msgstr "机密 %(uuid)s 正被 %(named)s 使用；请先从中移除它"
 
-#: webvirtcloud/settings.py:327
+#: webvirtcloud/settings.py:332
 msgid "Localhost"
 msgstr "本机"
 
-#: webvirtcloud/settings.py:328
+#: webvirtcloud/settings.py:333
 msgid "All interfaces"
 msgstr "所有接口"
