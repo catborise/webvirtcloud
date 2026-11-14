@@ -5,7 +5,7 @@ import string
 import pycdlib
 from vrtManager import util
 from vrtManager.connection import wvmConnect
-from vrtManager.storage import FILE_POOL_TYPES, rbd_source_children, wvmStorage
+from vrtManager.storage import rbd_source_children, wvmStorage
 
 # libvirt's CPU modes a new VM can have; any other value is a CPU model's name (mode custom)
 CPU_MODES = ("host-model", "host-passthrough", "maximum")
@@ -62,35 +62,11 @@ class wvmCreate(wvmConnect):
         return vol.storagePoolLookupByVolume()
 
     def clone_from_template(self, clone, template, storage=None, metadata=False, disk_owner_uid=0, disk_owner_gid=0):
+        """A copy of the template volume (its path) as the new VM's disk, in the pool storage or the template's; its path."""
         vol = self.get_volume_by_path(template)
-        stg = self.get_storage(storage) if storage else vol.storagePoolLookupByVolume()
-
-        storage_type = util.get_xml_path(stg.XMLDesc(0), "/pool/@type")
-        format = util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type")
-        if storage_type in FILE_POOL_TYPES:
-            clone += ".img"
-        else:
-            metadata = False
-        options = "<compat>1.1</compat><features><lazy_refcounts/></features>" if format == "qcow2" else ""
-        xml = f"""
-            <volume>
-                <name>{clone}</name>
-                <capacity>0</capacity>
-                <allocation>0</allocation>
-                <target>
-                    <format type='{format}'/>
-                     <permissions>
-                        <owner>{disk_owner_uid}</owner>
-                        <group>{disk_owner_gid}</group>
-                        <mode>0644</mode>
-                        <label>virt_image_t</label>
-                    </permissions>
-                    {options}
-                </target>
-            </volume>"""
-        stg.createXMLFrom(xml, vol, metadata)
-        clone_vol = stg.storageVolLookupByName(clone)
-        return clone_vol.path()
+        stg = wvmStorage(self.host, self.login, self.passwd, self.conn, storage or vol.storagePoolLookupByVolume().name())
+        name = stg.clone_volume(vol, clone, metadata=metadata, disk_owner_uid=disk_owner_uid, disk_owner_gid=disk_owner_gid)
+        return stg.get_volume(name).path()
 
     def _defineXML(self, xml):
         self.wvm.defineXML(xml)

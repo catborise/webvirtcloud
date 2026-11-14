@@ -57,8 +57,12 @@ class TemplateCopyTests(SimpleTestCase):
         for pool_type in ("dir", "fs", "netfs"):
             with self.subTest(pool_type):
                 volume, flags = self.copied(pool_type, "qcow2")
-                self.assertEqual((volume.findtext("name"), flags), ("vm.img", True))
+                self.assertEqual((volume.findtext("name"), flags), ("vm.qcow2", True))
                 self.assertIsNotNone(volume.find("target/features/lazy_refcounts"))
+
+    def test_other_pools_take_no_metadata(self):
+        volume, flags = self.copied("logical", "raw")
+        self.assertEqual((volume.findtext("name"), flags), ("vm", False))
 
     def test_only_a_qcow2_copy_takes_its_options(self):
         for fmt in ("raw", "qcow"):

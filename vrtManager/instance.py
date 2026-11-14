@@ -2673,7 +2673,7 @@ class wvmInstance(wvmConnect):
                     vol = self.get_volume_by_path(source.get("dev"))
                     pool_name = util.get_xml_path(vol.storagePoolLookupByVolume().XMLDesc(0), "/pool/name")
                     storage = self.get_wvmStorage(pool_name)
-                    name = storage.clone_volume(vol.name(), target_file)
+                    name = storage.clone_volume(vol, target_file)
                     new_path = storage.get_volume(name).path()
                     created.append(new_path)
                     paths[dev] = new_path

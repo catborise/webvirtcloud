@@ -370,7 +370,7 @@ class wvmStorage(wvmConnect):
 
     def clone_volume(
         self,
-        name,
+        vol,
         target_file,
         vol_fmt=None,
         metadata=False,
@@ -379,9 +379,11 @@ class wvmStorage(wvmConnect):
         disk_owner_uid=0,
         disk_owner_gid=0,
     ):
-        vol = self.get_volume(name)
+        """A copy in this pool of vol, a volume of this pool or another; its name."""
         if not vol_fmt:
-            vol_fmt = self.get_volume_format_type(name)
+            vol_fmt = util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type")
+        if self.get_type() not in FILE_POOL_TYPES:
+            metadata = False  # only a file has metadata to allocate
 
         target_file = self.clone_name(target_file, vol_fmt, file_suffix)
 

@@ -80,7 +80,7 @@ class CloneVolume(Kind):
         _compute, stg = _storage(op.params)
         ctx.record_intent()
         ctx.set_phase(gettext_noop("Copying the volume"))
-        created = stg.clone_volume(op.params["image"], op.params["name"], op.params["format"] or None,
+        created = stg.clone_volume(stg.get_volume(op.params["image"]), op.params["name"], op.params["format"] or None,
                                    op.params["prealloc"])
         ctx.record_intent(created=created)
         return {}
