@@ -382,16 +382,21 @@ class wvmStorage(wvmConnect):
         """A copy in this pool of vol, a volume of this pool or another; its name."""
         if not vol_fmt:
             vol_fmt = util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type")
+        size = 0  # a file copy takes the source's size and grows as written
         if self.get_type() not in FILE_POOL_TYPES:
-            metadata = False  # only a file has metadata to allocate
+            # a block device, an LVM volume or an RBD image is raw and allocated whole:
+            # a sparse LVM volume is a snapshot that fails once the copy fills it
+            vol_fmt = "raw"
+            size = vol.info()[1]
+            metadata = False
 
         target_file = self.clone_name(target_file, vol_fmt, file_suffix)
 
         xml = f"""
             <volume>
                 <name>{target_file}</name>
-                <capacity>0</capacity>
-                <allocation>0</allocation>
+                <capacity>{size}</capacity>
+                <allocation>{size}</allocation>
                 <target>
                     <format type='{vol_fmt}'/>
                     <permissions>
