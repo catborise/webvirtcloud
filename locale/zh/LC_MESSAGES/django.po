@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-14 20:20+0000\n"
+"POT-Creation-Date: 2026-11-14 21:31+0000\n"
 "PO-Revision-Date: \n"
 "Last-Translator: \n"
 "Language-Team: \n"
@@ -309,7 +309,7 @@ msgstr "您在此处保持登录；您的其他会话将结束。"
 #: storages/templates/create_stg_block.html:183
 #: storages/templates/create_stg_vol_block.html:35
 #: storages/templates/create_stg_vol_block.html:68
-#: storages/templates/storage.html:201 templates/base.html:65
+#: storages/templates/storage.html:202 templates/base.html:65
 #: templates/common/confirm_delete.html:25 templates/common/form.html:27
 #: virtsecrets/templates/create_secret_block.html:48
 #: virtsecrets/templates/secrets.html:106
@@ -456,7 +456,7 @@ msgstr "API 令牌 %(name)s 的操作"
 #: instances/templates/instances/settings_tab.html:315
 #: instances/templates/instances/snapshots_tab.html:103
 #: instances/templates/instances/snapshots_tab.html:117
-#: networks/templates/network.html:168 storages/templates/storage.html:152
+#: networks/templates/network.html:168 storages/templates/storage.html:153
 #: templates/common/confirm_delete.html:5
 #: templates/common/confirm_delete.html:9
 #: templates/common/confirm_delete.html:26
@@ -2605,7 +2605,7 @@ msgstr "连接"
 #: storages/templates/create_stg_block.html:21
 #: storages/templates/create_stg_vol_block.html:16
 #: storages/templates/create_stg_vol_block.html:54
-#: storages/templates/storage.html:174 templates/base.html:61
+#: storages/templates/storage.html:175 templates/base.html:61
 #: virtsecrets/templates/create_secret_block.html:16
 #: virtsecrets/templates/secrets.html:97
 msgid "Close"
@@ -3413,7 +3413,7 @@ msgstr "存储池"
 
 #: instances/templates/add_instance_volume.html:41
 #: instances/templates/create_instance_w2.html:46 storages/forms.py:119
-#: storages/templates/storage.html:182
+#: storages/templates/storage.html:183
 msgid "Letters, digits, dot, dash and underscore."
 msgstr "字母、数字、点、短横线和下划线。"
 
@@ -3424,14 +3424,14 @@ msgstr "大小"
 
 #: instances/templates/add_instance_volume.html:51
 #: instances/templates/instances/edit_instance_volume.html:82
-#: storages/templates/storage.html:124 storages/templates/storage.html:189
+#: storages/templates/storage.html:124 storages/templates/storage.html:190
 msgid "Format"
 msgstr "格式"
 
 #: instances/templates/add_instance_volume.html:61
 #: instances/templates/create_instance_w2.html:154
 #: instances/templates/create_instance_w2.html:220 storages/forms.py:125
-#: storages/forms.py:145 storages/templates/storage.html:197
+#: storages/forms.py:145 storages/templates/storage.html:198
 msgid "Preallocate metadata (qcow2)"
 msgstr "预分配元数据（qcow2）"
 
@@ -3900,7 +3900,7 @@ msgstr "详情"
 #: instances/templates/instances/settings_tab.html:882
 #: instances/templates/instances/settings_tab.html:884
 #: nwfilters/templates/nwfilters.html:57 nwfilters/templates/nwfilters.html:94
-#: storages/templates/storage.html:143 storages/templates/storage.html:202
+#: storages/templates/storage.html:143 storages/templates/storage.html:203
 msgid "Clone"
 msgstr "克隆"
 
@@ -7639,7 +7639,7 @@ msgstr "没有与搜索匹配的过滤器。"
 msgid "Clone filter"
 msgstr "克隆过滤器"
 
-#: nwfilters/templates/nwfilters.html:88 storages/templates/storage.html:180
+#: nwfilters/templates/nwfilters.html:88 storages/templates/storage.html:181
 msgid "Name of the copy"
 msgstr "副本名称"
 
@@ -8343,34 +8343,38 @@ msgstr "搜索卷"
 msgid "%(allocated)s allocated"
 msgstr "已分配 %(allocated)s"
 
-#: storages/templates/storage.html:152
+#: storages/templates/storage.html:149
+msgid "Download"
+msgstr "下载"
+
+#: storages/templates/storage.html:153
 #, python-format
 msgid ""
 "Delete volume %(name)s? Its file and data are removed; a volume a VM uses is "
 "not deleted."
 msgstr "删除卷 %(name)s？其文件和数据将被删除；虚拟机正在使用的卷不会被删除。"
 
-#: storages/templates/storage.html:165
+#: storages/templates/storage.html:166
 msgid "No volume matches the search."
 msgstr "没有与搜索匹配的卷。"
 
-#: storages/templates/storage.html:173
+#: storages/templates/storage.html:174
 msgid "Clone image"
 msgstr "克隆镜像"
 
-#: storages/templates/storage.html:186
+#: storages/templates/storage.html:187
 msgid "Convert it to another format"
 msgstr "转换为其他格式"
 
-#: storages/templates/storage.html:191
+#: storages/templates/storage.html:192
 msgid "raw"
 msgstr "raw"
 
-#: storages/templates/storage.html:192
+#: storages/templates/storage.html:193
 msgid "qcow2"
 msgstr "qcow2"
 
-#: storages/templates/storage.html:209
+#: storages/templates/storage.html:210
 msgid "This pool has no volumes."
 msgstr "此存储池中没有卷。"
 
@@ -8473,36 +8477,36 @@ msgstr "最后一个分块与声明的文件大小不符"
 msgid "The partial upload is missing"
 msgstr "部分上传的文件不存在"
 
-#: storages/views.py:30
+#: storages/views.py:32
 msgid "No file chunk was submitted."
 msgstr "未提交文件分块。"
 
-#: storages/views.py:36
+#: storages/views.py:38
 msgid "Invalid chunk parameters."
 msgstr "分块参数无效。"
 
-#: storages/views.py:38
+#: storages/views.py:40
 msgid "Invalid chunk index or total chunks."
 msgstr "分块索引或分块总数无效。"
 
-#: storages/views.py:43
+#: storages/views.py:45
 msgid "Invalid file size."
 msgstr "文件大小无效。"
 
-#: storages/views.py:52
+#: storages/views.py:54
 msgid "Upload session is busy. Please retry."
 msgstr "上传会话繁忙，请重试。"
 
-#: storages/views.py:54
+#: storages/views.py:56
 msgid "ISO image already exists"
 msgstr "ISO 镜像已存在"
 
-#: storages/views.py:182
+#: storages/views.py:184
 #, python-format
 msgid "Volume: %(vol)s is deleted."
 msgstr "卷 %(vol)s 已删除。"
 
-#: storages/views.py:199
+#: storages/views.py:201
 #, python-format
 msgid "Image file %(name)s is created successfully"
 msgstr "镜像文件 %(name)s 创建成功"

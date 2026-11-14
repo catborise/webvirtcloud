@@ -375,6 +375,27 @@ class wvmStorage(wvmConnect):
             raise util.OperationError(gettext_noop("The running VMs %(vms)s use volume %(name)s; shut them down to copy it"),
                                       vms=", ".join(vms), name=name)
 
+    def read_volume(self, name):
+        """The size of volume name and its bytes, read in chunks: a running
+        guest's volume is refused, as for a copy."""
+        self.refuse_running_copy(name)
+        vol = self.get_volume(name)
+        size = vol.infoFlags(libvirt.VIR_STORAGE_VOL_GET_PHYSICAL)[2]  # a file's length, not its capacity
+        stream = self.wvm.newStream(0)
+        vol.download(stream, 0, 0, 0)
+
+        def chunks():
+            try:
+                while data := stream.recv(1 << 20):
+                    yield data
+                stream.finish()
+            except BaseException:  # also a download the browser left (GeneratorExit)
+                with contextlib.suppress(libvirt.libvirtError):
+                    stream.abort()
+                raise
+
+        return size, chunks()
+
     def clone_volume(self, vol, target_file, vol_fmt=None, metadata=False, mode="0644", disk_owner_uid=0, disk_owner_gid=0):
         """A copy named target_file in this pool of vol, a volume of this pool
         or another; its path. clone_name gives a dir pool's name its suffix."""
