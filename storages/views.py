@@ -70,9 +70,13 @@ def storages(request, compute_id):
 
     compute = get_object_or_404(Compute, pk=compute_id)
     form = AddStgPool()
-    # the new pool dialog's type: its radio cards tell the ISO pool from another directory
-    pool_kind = request.POST.get("pool_kind", "dir")
-    storages = None  # not read: the page shows no list
+    context = {
+        "compute": compute,
+        "form": form,
+        "storages": None,  # not read: the page shows no list
+        # the new pool dialog's type: its radio cards tell the ISO pool from another directory
+        "pool_kind": request.POST.get("pool_kind", "dir"),
+    }
 
     try:
         conn = wvmStorages(
@@ -103,10 +107,11 @@ def storages(request, compute_id):
                     return HttpResponseRedirect(reverse("storage", args=[compute_id, data["name"]]))
             elif form.has_error("name", "taken"):
                 failed(request, compute, f"Storage pool {form.data['name'].strip()}", "add", "name already in use")
+        context.update({"form": form, "storages": storages, "iso_pool": iso_pool, "ceph_secrets": ceph_secrets})
     except libvirtError as lib_err:
         messages.error(request, lib_err)
 
-    return render(request, "storages.html", locals())
+    return render(request, "storages.html", context)
 
 
 @superuser_only
@@ -235,12 +240,22 @@ def storage(request, compute_id, pool):
     except libvirtError:  # both read the pool's info: the page says it could not be read
         size = free = used = percent = status = None
 
-    path = conn.get_target_path() or conn.get_source_name()  # an RBD pool: its Ceph pool
-    type = conn.get_type()
-    autostart = conn.get_autostart()
-    job_resource = claims.pool_key(compute.id, pool)
-
-    return render(request, "storage.html", locals())
+    return render(request, "storage.html", {
+        "compute": compute,
+        "pool": pool,
+        "form": form,
+        "state": state,
+        "volumes": volumes,
+        "size": size,
+        "free": free,
+        "used": used,
+        "percent": percent,
+        "status": status,
+        "path": conn.get_target_path() or conn.get_source_name(),  # an RBD pool: its Ceph pool
+        "type": conn.get_type(),
+        "autostart": conn.get_autostart(),
+        "job_resource": claims.pool_key(compute.id, pool),
+    })
 
 
 def get_volumes(request, compute_id, pool):
