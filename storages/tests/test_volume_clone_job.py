@@ -49,7 +49,7 @@ class VolumeCloneJobTestCase(TransactionTestCase):
         CloneVolume().run(op, Context(op, SimpleNamespace(identity="wvc-test:1:a")))
         op.refresh_from_db()
         self.stg.get_volume.assert_called_with("base.qcow2")
-        self.stg.clone_volume.assert_called_once_with(self.stg.get_volume.return_value, "copy", None, False)
+        self.stg.clone_volume.assert_called_once_with(self.stg.get_volume.return_value, "copy.qcow2", None, False)
         self.assertEqual(op.intent["created"], "copy.qcow2")
         self.assertIn(f"key=pool%3A{self.compute.pk}%3Apool-a", self.client.get(url).content.decode())
 

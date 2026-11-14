@@ -185,9 +185,6 @@ class wvmStorage(wvmConnect):
     def _createXML(self, xml, flags):
         self.pool.createXML(xml, flags)
 
-    def _createXMLFrom(self, xml, vol, flags):
-        self.pool.createXMLFrom(xml, vol, flags)
-
     def _define(self, xml):
         return self.wvm.storagePoolDefineXML(xml, 0)
 
@@ -368,18 +365,9 @@ class wvmStorage(wvmConnect):
             raise util.OperationError(gettext_noop("The running VMs %(vms)s use volume %(name)s; shut them down to copy it"),
                                       vms=", ".join(vms), name=name)
 
-    def clone_volume(
-        self,
-        vol,
-        target_file,
-        vol_fmt=None,
-        metadata=False,
-        mode="0644",
-        file_suffix="img",
-        disk_owner_uid=0,
-        disk_owner_gid=0,
-    ):
-        """A copy in this pool of vol, a volume of this pool or another; its name."""
+    def clone_volume(self, vol, target_file, vol_fmt=None, metadata=False, mode="0644", disk_owner_uid=0, disk_owner_gid=0):
+        """A copy named target_file in this pool of vol, a volume of this pool
+        or another; its path. clone_name gives a dir pool's name its suffix."""
         if not vol_fmt:
             vol_fmt = util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type")
         size = 0  # a file copy takes the source's size and grows as written
@@ -388,13 +376,11 @@ class wvmStorage(wvmConnect):
             # a sparse LVM volume is a snapshot that fails once the copy fills it
             vol_fmt = "raw"
             size = vol.info()[1]
-            metadata = False
-
-        target_file = self.clone_name(target_file, vol_fmt, file_suffix)
+        metadata = metadata and vol_fmt == "qcow2"  # libvirt preallocates qcow2 metadata only
 
         xml = f"""
             <volume>
-                <name>{target_file}</name>
+                <name>{util.xml_escape(target_file)}</name>
                 <capacity>{size}</capacity>
                 <allocation>{size}</allocation>
                 <target>
@@ -413,5 +399,4 @@ class wvmStorage(wvmConnect):
                     </features>"""
         xml += """ </target>
             </volume>"""
-        self._createXMLFrom(xml, vol, metadata)
-        return target_file
+        return self.pool.createXMLFrom(xml, vol, metadata).path()

@@ -61,6 +61,11 @@ class TemplateCopyTests(SimpleTestCase):
                 self.assertEqual((volume.findtext("name"), flags), ("vm.qcow2", True))
                 self.assertIsNotNone(volume.find("target/features/lazy_refcounts"))
 
+    def test_a_raw_file_copy_takes_no_metadata_preallocation(self):
+        volume, flags = self.copied("dir", "raw")
+        self.assertEqual((volume.findtext("name"), flags), ("vm.img", False))
+        self.assertIsNone(volume.find("target/compat"))
+
     def test_other_pools_take_a_raw_copy(self):
         for pool_type in ("logical", "rbd"):
             with self.subTest(pool_type):

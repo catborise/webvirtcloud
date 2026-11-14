@@ -317,10 +317,14 @@ class DefineCloneTestCase(unittest.TestCase):
     def test_clone_instance_copies_then_defines(self):
         p = proxy()
         p.get_status = lambda: 5
-        p.pool.createXMLFrom.return_value.path.return_value = "/pool/copy-vda.qcow2"
+        p.get_wvmStorage = MagicMock()
+        storage = p.get_wvmStorage.return_value
+        storage.clone_volume.return_value = "/pool/copy-vda.qcow2"
         p.define_clone = MagicMock(return_value=UUID)
         self.assertEqual(p.clone_instance(FORM, UUID), UUID)
-        p.pool.createXMLFrom.assert_called_once()
+        p.get_wvmStorage.assert_called_once_with("default")
+        storage.clone_volume.assert_called_once_with(p.vol, "copy-vda.qcow2", metadata=False,
+                                                     disk_owner_uid=FORM["disk_owner_uid"], disk_owner_gid=FORM["disk_owner_gid"])
         p.define_clone.assert_called_once_with(FORM, UUID, {"vda": "/pool/copy-vda.qcow2"}, None)
 
     def test_clone_instance_checks_the_macs_before_copying(self):

@@ -2640,43 +2640,16 @@ class wvmInstance(wvmConnect):
         created = []  # paths of volumes this call created
         try:
             for source, dev in disks:
-                target_file = clone_data["disk-" + dev]
-                meta_prealloc = bool(clone_data.get("meta-" + dev))
-                if source.get("file"):
-                    vol = self.get_volume_by_path(source.get("file"))
-                    vol_format = util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type")
-                    new_vol = vol.storagePoolLookupByVolume().createXMLFrom(
-                        self._clone_volume_xml(
-                            target_file, 0, vol_format, clone_data["disk_owner_uid"], clone_data["disk_owner_gid"]
-                        ),
-                        vol,
-                        meta_prealloc and vol_format == "qcow2",
-                    )
-                    created.append(new_vol.path())
-                    paths[dev] = new_vol.path()
-                elif source.get("protocol") == "rbd":
-                    vol = self.get_volume_by_path(source.get("name"))
-                    vol_format = util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type")
-                    new_vol = vol.storagePoolLookupByVolume().createXMLFrom(
-                        f"""<volume type='network'>
-                              <name>{target_file}</name>
-                              <capacity>0</capacity>
-                              <allocation>0</allocation>
-                              <target><format type='{vol_format}'/></target>
-                            </volume>""",
-                        vol,
-                        meta_prealloc,
-                    )
-                    created.append(new_vol.path())
-                    paths[dev] = f"{os.path.dirname(source.get('name'))}/{target_file}"
-                else:
-                    vol = self.get_volume_by_path(source.get("dev"))
-                    pool_name = util.get_xml_path(vol.storagePoolLookupByVolume().XMLDesc(0), "/pool/name")
-                    storage = self.get_wvmStorage(pool_name)
-                    name = storage.clone_volume(vol, target_file)
-                    new_path = storage.get_volume(name).path()
-                    created.append(new_path)
-                    paths[dev] = new_path
+                vol = self.get_volume_by_path(source.get("file") or source.get("dev") or source.get("name"))
+                storage = self.get_wvmStorage(vol.storagePoolLookupByVolume().name())
+                paths[dev] = storage.clone_volume(
+                    vol,
+                    clone_data["disk-" + dev],
+                    metadata=bool(clone_data.get("meta-" + dev)),
+                    disk_owner_uid=clone_data["disk_owner_uid"],
+                    disk_owner_gid=clone_data["disk_owner_gid"],
+                )
+                created.append(paths[dev])
 
             return self.define_clone(clone_data, uuid, paths, on_nvram)
         except Exception as err:

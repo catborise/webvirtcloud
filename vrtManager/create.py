@@ -65,8 +65,8 @@ class wvmCreate(wvmConnect):
         """A copy of the template volume (its path) as the new VM's disk, in the pool storage or the template's; its path."""
         vol = self.get_volume_by_path(template)
         stg = wvmStorage(self.host, self.login, self.passwd, self.conn, storage or vol.storagePoolLookupByVolume().name())
-        name = stg.clone_volume(vol, clone, metadata=metadata, disk_owner_uid=disk_owner_uid, disk_owner_gid=disk_owner_gid)
-        return stg.get_volume(name).path()
+        name = stg.clone_name(clone, util.get_xml_path(vol.XMLDesc(0), "/volume/target/format/@type"))
+        return stg.clone_volume(vol, name, metadata=metadata, disk_owner_uid=disk_owner_uid, disk_owner_gid=disk_owner_gid)
 
     def _defineXML(self, xml):
         self.wvm.defineXML(xml)
