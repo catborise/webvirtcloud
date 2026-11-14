@@ -386,8 +386,48 @@ def _instance_page(request, pk, instance, compute):
     else:
         migrate_refusal = None
 
-    job_resource = claims.instance_key(instance.uuid)
-    return render(request, "instance.html", locals(),)
+    return render(request, "instance.html", {
+        "instance": instance,
+        "compute": compute,
+        "computes": computes,
+        "users": users,
+        "publickeys": publickeys,
+        "userinstance": userinstance,
+        "userinstances": userinstances,
+        "can_manage_console": can_manage_console,
+        "console_form": console_form,
+        "can_open_console": can_open_console,
+        "can_power": can_power,
+        "can_delete": can_delete,
+        "can_change": can_change,
+        "can_clone": can_clone,
+        "can_snapshot": can_snapshot,
+        "power_actions": power_actions,
+        "power_states": power_states,
+        "vdi_reachable": vdi_reachable,
+        "guest_access_ready": guest_access_ready,
+        "show_settings": show_settings,
+        "show_hostdevs": show_hostdevs,
+        "clone_free_names": clone_free_names,
+        "default_bus": default_bus,
+        "default_cache": default_cache,
+        "default_format": default_format,
+        "vcpu_host": vcpu_host,
+        "memory_host": memory_host,
+        "bus_host": bus_host,
+        "cdrom_buses": cdrom_buses,
+        "tpm_support": tpm_support,
+        "networks_host": networks_host,
+        "interfaces_host": interfaces_host,
+        "nwfilters_host": nwfilters_host,
+        "storages_host": storages_host,
+        "net_models_host": net_models_host,
+        "usb_hostdevs": usb_hostdevs,
+        "pci_hostdevs": pci_hostdevs,
+        "other_hostdevs": other_hostdevs,
+        "migrate_refusal": migrate_refusal,
+        "job_resource": claims.instance_key(instance.uuid),
+    })
 
 
 def status(request, pk):
@@ -2510,11 +2550,6 @@ def create_instance_select_type(request, compute_id):
     :return:
     """
 
-    conn = None
-    storages = list()
-    networks = list()
-    hypervisors = list()
-    meta_prealloc = False
     compute = get_object_or_404(Compute, pk=compute_id)
 
     conn = wvmCreate(compute.hostname, compute.login, compute.password, compute.type)
@@ -2532,11 +2567,9 @@ def create_instance_select_type(request, compute_id):
         "s390x",
     ]
     hypervisors = [hpv for hpv in all_hypervisors.keys() if hpv in supported_arch]
-    default_machine = app_settings.INSTANCE_MACHINE_DEFAULT_TYPE
-    default_arch = app_settings.INSTANCE_ARCH_DEFAULT_TYPE
 
     # a refused definition comes back in the editor, its reason beside it
-    xml_error = None
+    xml, xml_error = "", None
     if request.method == "POST" and "create_xml" in request.POST:
         xml = request.POST.get("dom_xml", "")
         try:
@@ -2559,7 +2592,14 @@ def create_instance_select_type(request, compute_id):
         except libvirtError as err:
             xml_error = _("libvirt Error - %(exception)s") % {"exception": error_text(request, err)}
 
-    return render(request, "create_instance_w1.html", locals())
+    return render(request, "create_instance_w1.html", {
+        "compute": compute,
+        "hypervisors": hypervisors,
+        "default_arch": app_settings.INSTANCE_ARCH_DEFAULT_TYPE,
+        "default_machine": app_settings.INSTANCE_MACHINE_DEFAULT_TYPE,
+        "xml": xml,
+        "xml_error": xml_error,
+    })
 
 
 # the create form's disk sources: (value, title, help)
@@ -2595,19 +2635,24 @@ def create_instance(request, compute_id, arch, machine):
     :return:
     """
 
-    conn = None
-    storages = list()
-    networks = list()
-    meta_prealloc = False
     compute = get_object_or_404(Compute, pk=compute_id)
-    flavors = Flavor.objects.filter().order_by("id")
     vm_form = None
-    flavor_form = FlavorForm()
     refused = False
-    disk_sources = DISK_SOURCES
     disk_source = request.POST.get("disk_source", "new")
     if disk_source not in [value for value, _title, _help in DISK_SOURCES]:
         disk_source = "new"
+    context = {
+        "compute": compute,
+        "compute_id": compute_id,
+        "arch": arch,
+        "machine": machine,
+        "flavors": Flavor.objects.order_by("id"),
+        "flavor_form": FlavorForm(),
+        "disk_sources": DISK_SOURCES,
+        "disk_source": disk_source,
+        "storages": [],  # not read: the page has no pool or network to offer
+        "networks": [],
+    }
 
     try:
         conn = wvmCreate(
@@ -2619,29 +2664,34 @@ def create_instance(request, compute_id, arch, machine):
 
         default_firmware = app_settings.INSTANCE_FIRMWARE_DEFAULT_TYPE
         default_cpu_mode = app_settings.INSTANCE_CPU_DEFAULT_MODE
-        videos = conn.get_video_models(arch, machine)
         default_video = app_settings.INSTANCE_VIDEO_DEFAULT_TYPE
-        cache_modes = sorted(conn.get_cache_modes().items())
         default_cache = app_settings.INSTANCE_VOLUME_DEFAULT_CACHE
-        listener_addr = settings.QEMU_CONSOLE_LISTENER_ADDRESSES
-        disk_devices = conn.get_disk_device_types(arch, machine)
         disk_buses = conn.get_disk_bus_types(arch, machine)
-        cdrom_buses = [bus for bus in disk_buses if bus in CDROM_BUSES]
-        default_bus = app_settings.INSTANCE_VOLUME_DEFAULT_BUS
         networks = sorted(conn.get_networks())
-        nwfilters = conn.get_nwfilters()
-        net_models_host = conn.get_network_models(arch)
         default_nic_type = app_settings.INSTANCE_NIC_DEFAULT_TYPE
         storages = sorted(conn.get_storages(only_actives=True))
         default_cdrom = app_settings.INSTANCE_CDROM_ADD
-        input_device_buses = ["default", "virtio", "usb"]
         default_input_device_bus = app_settings.INSTANCE_INPUT_DEFAULT_DEVICE
-
         dom_caps = conn.get_dom_capabilities(arch, machine)
-
         virtio_support = conn.is_supports_virtio(arch, machine)
-        firmwares = conn.get_firmwares(arch, machine)
-        tpm_support = bool(conn.get_tpm_model(arch, machine))
+        context.update({
+            "videos": conn.get_video_models(arch, machine),
+            "cache_modes": sorted(conn.get_cache_modes().items()),
+            "listener_addr": settings.QEMU_CONSOLE_LISTENER_ADDRESSES,
+            "disk_devices": conn.get_disk_device_types(arch, machine),
+            "disk_buses": disk_buses,
+            "default_bus": app_settings.INSTANCE_VOLUME_DEFAULT_BUS,
+            "cdrom_buses": [bus for bus in disk_buses if bus in CDROM_BUSES],
+            "networks": networks,
+            "nwfilters": conn.get_nwfilters(),
+            "net_models_host": conn.get_network_models(arch),
+            "storages": storages,
+            "input_device_buses": ["default", "virtio", "usb"],
+            "dom_caps": dom_caps,
+            "virtio_support": virtio_support,
+            "firmwares": conn.get_firmwares(arch, machine),
+            "tpm_support": bool(conn.get_tpm_model(arch, machine)),
+        })
 
         if not storages:
             raise util.OperationError(_("This host has no running storage pool for the VM's disks: add or start one on its Storage page."))
@@ -2685,11 +2735,13 @@ def create_instance(request, compute_id, arch, machine):
     except libvirtError as lib_err:
         messages.error(request, lib_err)
 
+    context.update({"vm_form": vm_form, "refused": refused})
     if refused:
-        submitted_lists = refused_lists(request.POST)
+        context["submitted_lists"] = refused_lists(request.POST)
         if disk_source == "template":
-            template_restore = {"pool": request.POST.get("template_pool", ""), "template": request.POST.get("template", "")}
-    return render(request, "create_instance_w2.html", locals())
+            context["template_restore"] = {"pool": request.POST.get("template_pool", ""),
+                                           "template": request.POST.get("template", "")}
+    return render(request, "create_instance_w2.html", context)
 
 
 def flavors_reply(request, flavor_form):
