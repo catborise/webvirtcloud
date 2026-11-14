@@ -146,6 +146,7 @@
                                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" aria-expanded="false"
                                         data-bs-popper-config='{"strategy": "fixed"}' aria-label="{% trans "More actions" %}">{% bs_icon 'three-dots' %}</button>
                                 <ul class="dropdown-menu dropdown-menu-end shadow">
+                                    <li><a class="dropdown-item" href="{% url 'download_volume' compute.id pool volume.name %}">{% bs_icon 'download' %} {% trans "Download" %}</a></li>
                                     <li><form method="post">{% csrf_token %}
                                         <input type="hidden" name="volname" value="{{ volume.name }}">
                                         <button type="submit" class="dropdown-item text-danger" name="del_volume"

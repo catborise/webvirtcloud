@@ -7,9 +7,10 @@ from computes.models import Compute
 from computes.utils import libvirt_compute_lock
 from instances.utils import paths_used_on_other_computes
 from django.contrib import messages
-from django.http import HttpResponseRedirect, JsonResponse
+from django.http import HttpResponseRedirect, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.http import content_disposition_header
 from django.utils.translation import gettext_lazy as _
 from libvirt import libvirtError
 from operations import claims, jobs
@@ -22,6 +23,7 @@ from vrtManager.storage import wvmStorage, wvmStorages
 from storages.forms import AddStgPool, CloneImage, CreateVolumeForm
 from storages.jobs import is_iso
 from storages.upload import write_chunk
+from webvirtcloud.gunicorn_worker import request_progressed
 
 
 def _handle_iso_upload(request, conn, compute, pool):
@@ -279,3 +281,27 @@ def get_volumes(request, compute_id, pool):
         # caller cannot tell "no volumes" from "could not read the pool"
         return JsonResponse({"error": str(err)}, status=400)
     return JsonResponse(data)
+
+
+@superuser_only
+def download_volume(request, compute_id, pool, vol):
+    """Volume vol of the pool as a file, streamed from the host."""
+    compute = get_object_or_404(Compute, pk=compute_id)
+    try:
+        with audit(request, compute, f"Storage pool {pool}", f"download volume {vol}"):
+            conn = wvmStorage(compute.hostname, compute.login, compute.password, compute.type, pool)
+            size, chunks = conn.read_volume(vol)
+    except libvirtError as err:  # a running VM's disk, no such volume, the host does not answer
+        messages.error(request, str(err))
+        return redirect(reverse("storage", args=[compute_id, pool]))
+
+    def sent():
+        for data in chunks:
+            yield data
+            request_progressed()
+
+    response = StreamingHttpResponse(sent(), content_type="application/octet-stream")
+    response["Content-Length"] = size
+    response["Content-Disposition"] = content_disposition_header(True, vol)
+    response["X-Accel-Buffering"] = "no"  # nginx passes it on as it comes, not through a temporary file
+    return response

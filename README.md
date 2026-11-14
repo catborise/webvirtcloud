@@ -37,7 +37,7 @@ WebVirtCloud and `virt-manager`/`virsh` can manage the same libvirt host **concu
 * External snapshots (memory optional; without memory, guest file systems can be frozen through the agent)
 * **External change detection:** VMs created, deleted or renamed via `virt-manager` or `virsh` are reconciled into the database automatically
 * Real-time hypervisor and VM statistics (CPU, RAM, disk, network)
-* Storage pool and volume management
+* Storage pool and volume management; a volume downloads from its pool page (not one a running VM uses)
 * Network (with DHCP leases), interface, network filter and secret management
 * PCI and USB devices of the host given to VMs
 * UEFI Secure Boot and TPM 2.0 for new VMs, as Windows 11 needs

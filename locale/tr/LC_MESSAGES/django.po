@@ -11,7 +11,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-14 20:20+0000\n"
+"POT-Creation-Date: 2026-11-14 21:31+0000\n"
 "PO-Revision-Date: 2020-11-04 12:00+0000\n"
 "Last-Translator: catborise <muhammetalisag@gmail.com>, 2020\n"
 "Language-Team: Turkish (https://www.transifex.com/catborise/teams/110663/tr/)\n"
@@ -314,7 +314,7 @@ msgstr "Burada oturumunuz açık kalır; diğer oturumlarınız kapanır."
 #: storages/templates/create_stg_block.html:183
 #: storages/templates/create_stg_vol_block.html:35
 #: storages/templates/create_stg_vol_block.html:68
-#: storages/templates/storage.html:201 templates/base.html:65
+#: storages/templates/storage.html:202 templates/base.html:65
 #: templates/common/confirm_delete.html:25 templates/common/form.html:27
 #: virtsecrets/templates/create_secret_block.html:48
 #: virtsecrets/templates/secrets.html:106
@@ -463,7 +463,7 @@ msgstr "%(name)s API anahtarı için işlemler"
 #: instances/templates/instances/settings_tab.html:315
 #: instances/templates/instances/snapshots_tab.html:103
 #: instances/templates/instances/snapshots_tab.html:117
-#: networks/templates/network.html:168 storages/templates/storage.html:152
+#: networks/templates/network.html:168 storages/templates/storage.html:153
 #: templates/common/confirm_delete.html:5
 #: templates/common/confirm_delete.html:9
 #: templates/common/confirm_delete.html:26
@@ -2702,7 +2702,7 @@ msgstr "Bağlan"
 #: storages/templates/create_stg_block.html:21
 #: storages/templates/create_stg_vol_block.html:16
 #: storages/templates/create_stg_vol_block.html:54
-#: storages/templates/storage.html:174 templates/base.html:61
+#: storages/templates/storage.html:175 templates/base.html:61
 #: virtsecrets/templates/create_secret_block.html:16
 #: virtsecrets/templates/secrets.html:97
 msgid "Close"
@@ -3573,7 +3573,7 @@ msgstr "Depolama havuzu"
 
 #: instances/templates/add_instance_volume.html:41
 #: instances/templates/create_instance_w2.html:46 storages/forms.py:119
-#: storages/templates/storage.html:182
+#: storages/templates/storage.html:183
 msgid "Letters, digits, dot, dash and underscore."
 msgstr "Harf, rakam, nokta, tire ve alt çizgi."
 
@@ -3584,14 +3584,14 @@ msgstr "Boyut"
 
 #: instances/templates/add_instance_volume.html:51
 #: instances/templates/instances/edit_instance_volume.html:82
-#: storages/templates/storage.html:124 storages/templates/storage.html:189
+#: storages/templates/storage.html:124 storages/templates/storage.html:190
 msgid "Format"
 msgstr "Biçem"
 
 #: instances/templates/add_instance_volume.html:61
 #: instances/templates/create_instance_w2.html:154
 #: instances/templates/create_instance_w2.html:220 storages/forms.py:125
-#: storages/forms.py:145 storages/templates/storage.html:197
+#: storages/forms.py:145 storages/templates/storage.html:198
 msgid "Preallocate metadata (qcow2)"
 msgstr "Meta veriyi önceden ayır (qcow2)"
 
@@ -4074,7 +4074,7 @@ msgstr "Ayrıntılar"
 #: instances/templates/instances/settings_tab.html:882
 #: instances/templates/instances/settings_tab.html:884
 #: nwfilters/templates/nwfilters.html:57 nwfilters/templates/nwfilters.html:94
-#: storages/templates/storage.html:143 storages/templates/storage.html:202
+#: storages/templates/storage.html:143 storages/templates/storage.html:203
 msgid "Clone"
 msgstr "Klonla"
 
@@ -8093,7 +8093,7 @@ msgstr "Aramayla eşleşen filtre yok."
 msgid "Clone filter"
 msgstr "Filtreyi klonla"
 
-#: nwfilters/templates/nwfilters.html:88 storages/templates/storage.html:180
+#: nwfilters/templates/nwfilters.html:88 storages/templates/storage.html:181
 msgid "Name of the copy"
 msgstr "Kopyanın adı"
 
@@ -8832,7 +8832,11 @@ msgstr "Birimlerde ara"
 msgid "%(allocated)s allocated"
 msgstr "%(allocated)s ayrılmış"
 
-#: storages/templates/storage.html:152
+#: storages/templates/storage.html:149
+msgid "Download"
+msgstr "İndir"
+
+#: storages/templates/storage.html:153
 #, python-format
 msgid ""
 "Delete volume %(name)s? Its file and data are removed; a volume a VM uses is "
@@ -8841,27 +8845,27 @@ msgstr ""
 "%(name)s birimi silinsin mi? Dosyası ve verisi kaldırılır; bir sanal "
 "makinenin kullandığı birim silinmez."
 
-#: storages/templates/storage.html:165
+#: storages/templates/storage.html:166
 msgid "No volume matches the search."
 msgstr "Aramayla eşleşen birim yok."
 
-#: storages/templates/storage.html:173
+#: storages/templates/storage.html:174
 msgid "Clone image"
 msgstr "İmaj Klonla"
 
-#: storages/templates/storage.html:186
+#: storages/templates/storage.html:187
 msgid "Convert it to another format"
 msgstr "Başka bir biçime dönüştür"
 
-#: storages/templates/storage.html:191
+#: storages/templates/storage.html:192
 msgid "raw"
 msgstr "raw"
 
-#: storages/templates/storage.html:192
+#: storages/templates/storage.html:193
 msgid "qcow2"
 msgstr "qcow2"
 
-#: storages/templates/storage.html:209
+#: storages/templates/storage.html:210
 msgid "This pool has no volumes."
 msgstr "Bu havuzda birim yok."
 
@@ -8965,36 +8969,36 @@ msgstr "Son parça bildirilen dosya boyutuyla eşleşmiyor"
 msgid "The partial upload is missing"
 msgstr "Kısmi yükleme bulunamadı"
 
-#: storages/views.py:30
+#: storages/views.py:32
 msgid "No file chunk was submitted."
 msgstr "Dosya parçası gönderilmedi."
 
-#: storages/views.py:36
+#: storages/views.py:38
 msgid "Invalid chunk parameters."
 msgstr "Geçersiz parça parametreleri."
 
-#: storages/views.py:38
+#: storages/views.py:40
 msgid "Invalid chunk index or total chunks."
 msgstr "Geçersiz parça dizini veya toplam parça sayısı."
 
-#: storages/views.py:43
+#: storages/views.py:45
 msgid "Invalid file size."
 msgstr "Geçersiz dosya boyutu."
 
-#: storages/views.py:52
+#: storages/views.py:54
 msgid "Upload session is busy. Please retry."
 msgstr "Yükleme oturumu meşgul. Lütfen yeniden deneyin."
 
-#: storages/views.py:54
+#: storages/views.py:56
 msgid "ISO image already exists"
 msgstr "ISO imajı zaten mevcut"
 
-#: storages/views.py:182
+#: storages/views.py:184
 #, python-format
 msgid "Volume: %(vol)s is deleted."
 msgstr "Birim: %(vol)s silindi."
 
-#: storages/views.py:199
+#: storages/views.py:201
 #, python-format
 msgid "Image file %(name)s is created successfully"
 msgstr "İmaj dosyası %(name)s başarıyla oluşturuldu"
