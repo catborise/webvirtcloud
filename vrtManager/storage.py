@@ -113,7 +113,17 @@ class wvmStorages(wvmConnect):
                   </target>
                 </pool>"""
         # builds the dir pool's directory or the logical pool's volume group
-        return self.define_storage(xml, libvirt.VIR_STORAGE_POOL_CREATE_WITH_BUILD)
+        try:
+            return self.define_storage(xml, libvirt.VIR_STORAGE_POOL_CREATE_WITH_BUILD)
+        except libvirt.libvirtError as err:
+            # libvirt refuses a device that holds data; erasing it is left to the host's admin:
+            # with an overwrite, libvirt clears the partition table even of a disk in use
+            if stg_type != "logical" or err.get_error_code() != libvirt.VIR_ERR_STORAGE_POOL_BUILT:
+                raise
+            raise util.OperationError(gettext_noop(
+                "Device %(device)s already holds data: a partition table, a file system or a volume group. "
+                "If it is the right device, erase it on the host with \"wipefs -a %(device)s\" and try again."),
+                device=source) from err
 
     def create_storage_ceph(
         self, stg_type, name, ceph_pool, ceph_host, ceph_user, secret
