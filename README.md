@@ -19,6 +19,10 @@ From installation to a VM's first backup, in three and a half minutes:
 
 https://github.com/user-attachments/assets/526fe16c-bfd7-46da-b986-689a37975e08
 
+From installation to a VM's first backup, in three and a half minutes:
+
+https://github.com/user-attachments/assets/526fe16c-bfd7-46da-b986-689a37975e08
+
 > **libvirt is the single source of truth.** WebVirtCloud reads, displays and triggers actions on libvirt state, but it is never the primary orchestrator.
 
 ```mermaid
